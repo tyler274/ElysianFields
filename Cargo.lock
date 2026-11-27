@@ -1675,6 +1675,7 @@ dependencies = [
  "ef-core",
  "ef-encoder",
  "ef-harness",
+ "ef-pgwire",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1802,6 +1803,7 @@ dependencies = [
  "ef-connected-care",
  "ef-core",
  "ef-mobile-domain",
+ "ef-pgwire",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -1813,6 +1815,20 @@ version = "0.1.0"
 dependencies = [
  "ef-core",
  "ef-encoder",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ef-pgwire"
+version = "0.1.0"
+dependencies = [
+ "ef-clinic-domain",
+ "ef-clinic-server",
+ "ef-core",
+ "ef-mobile-domain",
+ "ef-mobile-server",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

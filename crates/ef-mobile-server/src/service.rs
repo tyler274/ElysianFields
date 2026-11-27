@@ -28,7 +28,7 @@ use thiserror::Error;
 
 use crate::http::{MobileHttpMethod, MobileHttpRequest, MobileHttpResponse};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::persistence::DurableMobileStore;
+use crate::persistence::{DurableMobileStore, PgMobileStore};
 use crate::persistence::{InMemoryMobileWal, MobileWalEntry, MobileWalError, MobileWalSink};
 
 pub const MOBILE_API_PREFIX: &str = "/elysianfields/mobile-api/";
@@ -143,6 +143,36 @@ impl MobileService {
         require_restore_replay: bool,
     ) -> Result<Self, MobileServiceError> {
         let (store, entries) = DurableMobileStore::open(data_dir)?;
+        let mut svc = Self {
+            auth: MobileAuthAuthority::new(),
+            records: PatientRecordStore::new(),
+            health: MobileHealthIngestStore::new(),
+            push_tokens: PushTokenRegistry::new(),
+            doctor_workspaces: BTreeMap::new(),
+            bridge_staging: PracticeSendReceiver::new(),
+            connected_care: ConnectedCareBridge::new(),
+            migration_version: EXPECTED_MIGRATION_VERSION,
+            restore_replay_verified: !require_restore_replay,
+            clock_secs: initial_clock_secs,
+            wal: Box::new(store),
+            journal,
+        };
+        for entry in entries {
+            svc.replay_wal_entry(entry);
+        }
+        Ok(svc)
+    }
+
+    /// Opens a PostgreSQL-backed durable [`MobileService`] via `ef-pgwire`, applying
+    /// `0001_m3_mobile.sql` idempotently and replaying all persisted mutations.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_postgres(
+        config: &ef_pgwire::PgConnectionConfig,
+        journal: Box<dyn PrivacyReceiptJournal>,
+        initial_clock_secs: u64,
+        require_restore_replay: bool,
+    ) -> Result<Self, MobileServiceError> {
+        let (store, entries) = PgMobileStore::open(config)?;
         let mut svc = Self {
             auth: MobileAuthAuthority::new(),
             records: PatientRecordStore::new(),

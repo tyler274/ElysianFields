@@ -1,0 +1,22 @@
+[package]
+name = "ef-pgwire"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Pure-Rust PostgreSQL Wire Protocol v3.0 client with SCRAM-SHA-256 authentication and parameterized Extended Query execution."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-clinic-domain = { workspace = true }
+ef-clinic-server = { path = "../ef-clinic-server" }
+ef-core = { workspace = true }
+ef-mobile-domain = { workspace = true }
+ef-mobile-server = { path = "../ef-mobile-server" }
+
+[lints]
+workspace = true

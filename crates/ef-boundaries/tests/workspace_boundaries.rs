@@ -59,6 +59,7 @@ fn scn_m3_0020_headless_classification_covers_all_m2_and_m3_headless_crates() {
         "ef-patient-bank",
         "ef-extension",
         "ef-public-site",
+        "ef-pgwire",
         "ef-clinic-worker",
     ] {
         assert!(
@@ -91,6 +92,7 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
             dependencies: vec![
                 "ef-clinic-domain".to_owned(),
                 "ef-mobile-domain".to_owned(),
+                "ef-pgwire".to_owned(),
                 "sqlx".to_owned(),
                 "bevy".to_owned(),
             ],
@@ -132,6 +134,12 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
     assert!(
         violations.contains(&BoundaryViolation::HeadlessCrateDependsOnBevy {
             crate_name: "ef-harness".to_owned(),
+        })
+    );
+    assert!(
+        violations.contains(&BoundaryViolation::HarnessDependsOnPersistence {
+            crate_name: "ef-harness".to_owned(),
+            forbidden_dep: "ef-pgwire".to_owned(),
         })
     );
     assert!(

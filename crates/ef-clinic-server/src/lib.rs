@@ -21,7 +21,7 @@ pub use http::{
     STRICT_CSP, format_sse_event,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub use persistence::DurableClinicStore;
+pub use persistence::{DurableClinicStore, PgClinicStore};
 pub use persistence::{
     InMemoryWal, WAL_FILE_NAME, WalAutoMatchSignal, WalEntry, WalError, WalMoveDestination,
     WalSink, WalTokenKind,

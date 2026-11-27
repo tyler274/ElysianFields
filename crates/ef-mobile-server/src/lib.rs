@@ -13,7 +13,7 @@ pub use http::{
     MobileHttpResponse,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub use persistence::DurableMobileStore;
+pub use persistence::{DurableMobileStore, PgMobileStore};
 pub use persistence::{
     InMemoryMobileWal, MOBILE_WAL_FILE_NAME, MobileWalEntry, MobileWalError, MobileWalSink,
 };

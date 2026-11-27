@@ -301,6 +301,8 @@ pub enum WalError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("WAL PostgreSQL error: {0}")]
+    Postgres(#[from] ef_pgwire::PgError),
 }
 
 /// Cross-instance RAII lock guard serializing multi-instance WAL access on native hosts.
@@ -513,5 +515,80 @@ impl WalSink for DurableClinicStore {
                 Err(err) => return Err(WalError::Io(err)),
             }
         }
+    }
+}
+
+/// PostgreSQL 18 durable WAL store backed by [`ef_pgwire::PgClient`].
+///
+/// Applies `migrations/0001_m2_clinic_slice.sql` idempotently on startup and persists
+/// every mutation into `ef_clinic_wal_events` using parameterized Extended Query statements.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct PgClinicStore {
+    client: ef_pgwire::PgClient,
+    last_synced_seq: i64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl PgClinicStore {
+    /// Connects to PostgreSQL, applies the Clinic migration + WAL journal DDL idempotently,
+    /// and returns all previously persisted entries in exact commit order.
+    pub fn open(config: &ef_pgwire::PgConnectionConfig) -> Result<(Self, Vec<WalEntry>), WalError> {
+        let mut client = ef_pgwire::PgClient::connect(config)?;
+        client.execute_batch_ddl(include_str!("../migrations/0001_m2_clinic_slice.sql"))?;
+        client.execute_batch_ddl(
+            "CREATE TABLE IF NOT EXISTS ef_clinic_wal_events (\
+                seq BIGSERIAL PRIMARY KEY, \
+                payload_json TEXT NOT NULL, \
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\
+            );",
+        )?;
+
+        let mut store = Self {
+            client,
+            last_synced_seq: 0,
+        };
+        let entries = store.load_entries_after(0)?;
+        Ok((store, entries))
+    }
+
+    fn load_entries_after(&mut self, after_seq: i64) -> Result<Vec<WalEntry>, WalError> {
+        let rows = self.client.query(
+            "SELECT seq, payload_json FROM ef_clinic_wal_events WHERE seq > $1 ORDER BY seq ASC",
+            &[ef_pgwire::PgParam::Int64(after_seq)],
+        )?;
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let seq = row.get_i64(0)?.unwrap_or(self.last_synced_seq);
+            let raw = row.get_text_required(1)?;
+            let line = usize::try_from(seq).unwrap_or(0);
+            let entry: WalEntry =
+                serde_json::from_str(&raw).map_err(|source| WalError::Json { line, source })?;
+            self.last_synced_seq = self.last_synced_seq.max(seq);
+            entries.push(entry);
+        }
+        Ok(entries)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WalSink for PgClinicStore {
+    fn append(&mut self, entry: &WalEntry) -> Result<(), WalError> {
+        let json =
+            serde_json::to_string(entry).map_err(|source| WalError::Json { line: 0, source })?;
+        let rows = self.client.query(
+            "INSERT INTO ef_clinic_wal_events (payload_json) VALUES ($1) RETURNING seq",
+            &[ef_pgwire::PgParam::Text(&json)],
+        )?;
+        if let Some(row) = rows.first()
+            && let Some(seq) = row.get_i64(0)?
+        {
+            self.last_synced_seq = self.last_synced_seq.max(seq);
+        }
+        Ok(())
+    }
+
+    fn sync_new_entries(&mut self) -> Result<Vec<WalEntry>, WalError> {
+        self.load_entries_after(self.last_synced_seq)
     }
 }

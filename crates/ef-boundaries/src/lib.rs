@@ -196,6 +196,7 @@ pub fn is_headless_crate(name: &str) -> bool {
             | "ef-extension"
             | "ef-public-site"
             | "ef-migration-rehearsal"
+            | "ef-pgwire"
     ) || name.ends_with("-domain")
         || name.ends_with("-server")
         || name.ends_with("-worker")
@@ -218,6 +219,7 @@ pub fn is_shared_neutral_crate(name: &str) -> bool {
             | "ef-patient-bank"
             | "ef-extension"
             | "ef-public-site"
+            | "ef-pgwire"
     )
 }
 
@@ -226,7 +228,8 @@ pub fn is_shared_neutral_crate(name: &str) -> bool {
 pub fn is_forbidden_harness_persistence_crate(dep: &str) -> bool {
     matches!(
         dep,
-        "sqlx"
+        "ef-pgwire"
+            | "sqlx"
             | "postgres"
             | "tokio-postgres"
             | "deadpool-postgres"
