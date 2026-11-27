@@ -1,0 +1,948 @@
+{
+  "schema_version": 1,
+  "revision": "4c9ef67",
+  "inventory_source": "docs/reference/scope-inventory.json",
+  "ledger_source": "specs/ledger.toml",
+  "summary": {
+    "items_total": 43,
+    "by_classification": {
+      "replace": 34,
+      "retain-as-tooling": 6,
+      "out-of-scope": 3
+    },
+    "by_retirement_status": {
+      "verified-ready-for-staged-cutover": 19,
+      "verified-with-hardware-signoff-gate": 15,
+      "retained-as-tooling": 6,
+      "out-of-scope": 3
+    },
+    "requirements_total": 33,
+    "requirements_covered": 33
+  },
+  "approved_narrow_adapters": [
+    {
+      "name": "Browser Single-Owner ARIA Bridge",
+      "decision": "M1 Decision D2 / Single-Owner Invariant",
+      "paths": [
+        "crates/m1-accessibility/web/a11y-bridge.js"
+      ],
+      "single_owner_proof": "253 LOC, 0 mirrored CSS rules, 1:1 accesskit::NodeId bijection forwarding interactions directly to Rust."
+    },
+    {
+      "name": "Chrome MV3 Semantic-HTML Extension Popup",
+      "decision": "Decision D2",
+      "paths": [
+        "extension/popup.html",
+        "extension/popup.css",
+        "extension/popup.js",
+        "extension/manifest.json",
+        "web/mv3-popup/popup.html"
+      ],
+      "single_owner_proof": "4,347 B uncompressed popup UI (0.41% of 1.0 MiB cap), 0 inline scripts, memory-only session storage."
+    },
+    {
+      "name": "Native Android & iOS Stateless OS Lifecycle and Health Adapters",
+      "decision": "M1 Decision D2 / Narrow OS Shims",
+      "paths": [
+        "crates/m1-mobile-lifecycle/platform/android/README.md",
+        "crates/m1-mobile-lifecycle/platform/ios/README.md"
+      ],
+      "single_owner_proof": "Stateless Kotlin/Swift OS touchpoints only; Rust owns lifecycle, EFSS v1 restore, health outbox, and AccessKit tree."
+    },
+    {
+      "name": "Public Site & Dei Recovery Finder Semantic HTML Surface",
+      "decision": "Architecture Section 5",
+      "paths": [
+        "crates/ef-public-site/src/lib.rs"
+      ],
+      "single_owner_proof": "Indexable zero-JS semantic HTML for public, legal, and crisis-first Dei recovery pages; zero transitional UI stack."
+    }
+  ],
+  "items": [
+    {
+      "id": "INV-01",
+      "inventory_key": "agent-skills",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-harness",
+        "crates/ef-clinical-lib"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0001",
+        "EF-HARNESS-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinical-lib/tests/m3_inc4_clinical_lib_and_guardrails.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-02",
+      "inventory_key": "ancestry",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "replacement_targets": [],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/reference/scope-inventory.json"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "out-of-scope"
+    },
+    {
+      "id": "INV-03",
+      "inventory_key": "ancestry-app",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "replacement_targets": [],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/reference/scope-inventory.json"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "out-of-scope"
+    },
+    {
+      "id": "INV-04",
+      "inventory_key": "ancestry-fit",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "replacement_targets": [],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/reference/scope-inventory.json"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "out-of-scope"
+    },
+    {
+      "id": "INV-05",
+      "inventory_key": "android",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "crates/m1-mobile-lifecycle/platform/android/README.md"
+      ],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/m1/mobile-lifecycle-report.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    },
+    {
+      "id": "INV-06",
+      "inventory_key": "availability-probe",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    },
+    {
+      "id": "INV-07",
+      "inventory_key": "boundaries",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "crates/ef-boundaries"
+      ],
+      "requirement_ids": [
+        "EF-PLATFORM-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-boundaries/tests/workspace_boundaries.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    },
+    {
+      "id": "INV-08",
+      "inventory_key": "clinical-library",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinical-lib"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0003"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinical-lib/tests/m3_inc4_clinical_lib_and_guardrails.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-09",
+      "inventory_key": "dei-site",
+      "zone": "Tooling",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-public-site"
+      ],
+      "requirement_ids": [
+        "EF-PUBLIC-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-10",
+      "inventory_key": "encoder",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-encoder"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-encoder/tests/offline_encoder_and_scoped_index.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-11",
+      "inventory_key": "extension-popup",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-extension",
+        "extension",
+        "web/mv3-popup"
+      ],
+      "requirement_ids": [
+        "EF-EXT-0001"
+      ],
+      "evidence_paths": [
+        "crates/ef-extension/tests/scn_m3_0017_extension.rs",
+        "docs/m1/decision-review.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-12",
+      "inventory_key": "front-door",
+      "zone": "Bridge",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-connected-care",
+        "crates/ef-migration-rehearsal"
+      ],
+      "requirement_ids": [
+        "EF-CONN-0001",
+        "EF-CONN-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-connected-care/tests/connected_care_scenarios.rs",
+        "crates/ef-migration-rehearsal/tests/rehearsal_suite.rs",
+        "docs/m3/verification-report.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-13",
+      "inventory_key": "gmail",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-workflows",
+        "crates/ef-clinic-server"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0002",
+        "EF-CLINIC-0010",
+        "EF-CLINIC-0015"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-workflows/tests/m3_inc1_scenarios.rs",
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-14",
+      "inventory_key": "harness",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-harness",
+        "crates/ef-clinical-lib"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0001",
+        "EF-HARNESS-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-harness/tests/harness_scenarios.rs",
+        "crates/ef-clinical-lib/tests/m3_inc4_clinical_lib_and_guardrails.rs",
+        "docs/m2/verification-and-estimate.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-15",
+      "inventory_key": "curie-http",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-core",
+        "crates/ef-clinic-server",
+        "crates/ef-mobile-server"
+      ],
+      "requirement_ids": [
+        "EF-PLATFORM-0001"
+      ],
+      "evidence_paths": [
+        "crates/ef-core/tests/core_invariants.rs",
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-16",
+      "inventory_key": "local-product",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-domain",
+        "crates/ef-clinic-workflows",
+        "crates/ef-clinic-server"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0005",
+        "EF-CLINIC-0006",
+        "EF-CLINIC-0007",
+        "EF-CLINIC-0008",
+        "EF-CLINIC-0009",
+        "EF-CLINIC-0014",
+        "EF-CLINIC-0015"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-domain/tests/m2_domain_scenarios.rs",
+        "crates/ef-clinic-workflows/tests/m3_inc1_scenarios.rs",
+        "docs/m2/verification-and-estimate.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-17",
+      "inventory_key": "mobile",
+      "zone": "Bridge",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-client",
+        "crates/ef-clinic-client",
+        "crates/m1-mobile-lifecycle"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-CONN-0001",
+        "EF-CONN-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
+        "docs/m1/mobile-lifecycle-report.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-18",
+      "inventory_key": "mobile-api",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-server",
+        "crates/ef-mobile-domain",
+        "crates/ef-migration-rehearsal"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-MOBILE-0002",
+        "EF-MOBILE-0004",
+        "EF-MOBILE-0005"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-server/tests/mobile_server_e2e.rs",
+        "crates/ef-migration-rehearsal/tests/rehearsal_suite.rs",
+        "docs/m3/verification-report.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-19",
+      "inventory_key": "mobile-app",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-client",
+        "crates/ef-ui-catalog",
+        "web/elysianfields"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-MOBILE-0002",
+        "EF-MOBILE-0004",
+        "EF-MOBILE-0005"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-20",
+      "inventory_key": "mobile-client",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-client",
+        "crates/ef-mobile-domain"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-MOBILE-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-21",
+      "inventory_key": "mobile-health",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-domain",
+        "crates/ef-mobile-client",
+        "crates/m1-mobile-lifecycle"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0003"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-22",
+      "inventory_key": "mobile-notify",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-domain",
+        "crates/ef-mobile-client",
+        "crates/m1-mobile-lifecycle"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0003",
+        "EF-MOBILE-0005"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-23",
+      "inventory_key": "mobile-stub",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-client",
+        "crates/ef-mobile-server"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-MOBILE-0002",
+        "EF-MOBILE-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
+        "crates/ef-mobile-server/tests/mobile_server_e2e.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-24",
+      "inventory_key": "mobile_wire",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-mobile-domain",
+        "crates/ef-mobile-server"
+      ],
+      "requirement_ids": [
+        "EF-MOBILE-0001",
+        "EF-MOBILE-0002",
+        "EF-MOBILE-0004",
+        "EF-MOBILE-0005"
+      ],
+      "evidence_paths": [
+        "crates/ef-mobile-server/tests/mobile_server_e2e.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-25",
+      "inventory_key": "observability-relay",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    },
+    {
+      "id": "INV-26",
+      "inventory_key": "patient-bank",
+      "zone": "Tooling",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-patient-bank",
+        "crates/ef-migration-rehearsal"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-patient-bank/tests/scn_m3_0016_patient_bank_and_semantic_retrieval.rs",
+        "crates/ef-migration-rehearsal/tests/rehearsal_suite.rs",
+        "docs/m3/verification-report.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-27",
+      "inventory_key": "patient-work",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-domain",
+        "crates/ef-clinic-workflows"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0007",
+        "EF-CLINIC-0008",
+        "EF-CLINIC-0009",
+        "EF-CLINIC-0010",
+        "EF-CLINIC-0011",
+        "EF-CLINIC-0012",
+        "EF-CLINIC-0013"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-domain/tests/m2_domain_scenarios.rs",
+        "crates/ef-clinic-workflows/tests/m3_inc1_scenarios.rs",
+        "docs/m2/verification-and-estimate.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-28",
+      "inventory_key": "physician-app",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-client",
+        "crates/ef-ui-catalog",
+        "web/elysianfields"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0001",
+        "EF-CLINIC-0002",
+        "EF-CLINIC-0003",
+        "EF-CLINIC-0004",
+        "EF-CLINIC-0005",
+        "EF-CLINIC-0006",
+        "EF-CLINIC-0007",
+        "EF-CLINIC-0008",
+        "EF-CLINIC-0009",
+        "EF-CLINIC-0010",
+        "EF-CLINIC-0011",
+        "EF-CLINIC-0012",
+        "EF-CLINIC-0013"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-client/tests/m2_physician_journey.rs",
+        "docs/m2/verification-and-estimate.md",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-29",
+      "inventory_key": "physician-auth",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-domain",
+        "crates/ef-clinic-server"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0001",
+        "EF-CLINIC-0002",
+        "EF-CLINIC-0003",
+        "EF-CLINIC-0004",
+        "EF-CLINIC-0005"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-domain/tests/m2_domain_scenarios.rs",
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-30",
+      "inventory_key": "physician-bus",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-server",
+        "crates/ef-clinic-domain"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0001",
+        "EF-CLINIC-0007"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-31",
+      "inventory_key": "physician-client",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-client",
+        "crates/ef-clinic-domain"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0001",
+        "EF-CLINIC-0007",
+        "EF-HARNESS-0001"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-client/tests/m2_physician_journey.rs",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-32",
+      "inventory_key": "physician-demo-api",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-public-site"
+      ],
+      "requirement_ids": [
+        "EF-PUBLIC-0001"
+      ],
+      "evidence_paths": [
+        "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-33",
+      "inventory_key": "physician-demo-db",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-public-site",
+        "crates/ef-patient-bank"
+      ],
+      "requirement_ids": [
+        "EF-PUBLIC-0001",
+        "EF-HARNESS-0004"
+      ],
+      "evidence_paths": [
+        "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-34",
+      "inventory_key": "physician-sample",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-server",
+        "crates/ef-clinic-workflows",
+        "crates/ef-migration-rehearsal"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0002",
+        "EF-CLINIC-0005",
+        "EF-CLINIC-0006",
+        "EF-CLINIC-0007",
+        "EF-CLINIC-0008",
+        "EF-CLINIC-0009",
+        "EF-HARNESS-0001",
+        "EF-PLATFORM-0001"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "crates/ef-migration-rehearsal/tests/rehearsal_suite.rs",
+        "docs/m2/verification-and-estimate.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-35",
+      "inventory_key": "physician-wire",
+      "zone": "Physician",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-domain",
+        "crates/ef-clinic-server"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0005",
+        "EF-CLINIC-0006",
+        "EF-CLINIC-0007"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-domain/tests/m2_domain_scenarios.rs",
+        "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-36",
+      "inventory_key": "public-site",
+      "zone": "Tooling",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-public-site"
+      ],
+      "requirement_ids": [
+        "EF-PUBLIC-0001",
+        "EF-PUBLIC-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-37",
+      "inventory_key": "recovery-directory",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-public-site"
+      ],
+      "requirement_ids": [
+        "EF-PUBLIC-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-38",
+      "inventory_key": "spruce",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-clinic-workflows"
+      ],
+      "requirement_ids": [
+        "EF-CLINIC-0010",
+        "EF-CLINIC-0015"
+      ],
+      "evidence_paths": [
+        "crates/ef-clinic-workflows/tests/m3_inc1_scenarios.rs",
+        "docs/m3/verification-report.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-39",
+      "inventory_key": "telemetry",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-harness",
+        "crates/ef-clinical-lib",
+        "crates/ef-migration-rehearsal"
+      ],
+      "requirement_ids": [
+        "EF-HARNESS-0001",
+        "EF-HARNESS-0002"
+      ],
+      "evidence_paths": [
+        "crates/ef-harness/tests/harness_scenarios.rs",
+        "crates/ef-clinical-lib/tests/m3_inc4_clinical_lib_and_guardrails.rs",
+        "docs/m3/verification-report.md",
+        "docs/m4/rehearsal-and-rollout.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-ready-for-staged-cutover"
+    },
+    {
+      "id": "INV-40",
+      "inventory_key": "ui",
+      "zone": "Shared",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-ui-catalog",
+        "crates/m1-accessibility/web/a11y-bridge.js",
+        "crates/m1-text-i18n",
+        "crates/m1-streaming-perf"
+      ],
+      "requirement_ids": [
+        "EF-PLATFORM-0002",
+        "EF-PLATFORM-0003"
+      ],
+      "evidence_paths": [
+        "crates/ef-ui-catalog/src/lib.rs",
+        "docs/m1/decision-review.md",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-41",
+      "inventory_key": "ui-gallery",
+      "zone": "Tooling",
+      "classification": "replace",
+      "replacement_targets": [
+        "crates/ef-ui-catalog",
+        "crates/m1-accessibility",
+        "crates/m1-streaming-perf"
+      ],
+      "requirement_ids": [
+        "EF-PLATFORM-0002",
+        "EF-PLATFORM-0003"
+      ],
+      "evidence_paths": [
+        "crates/ef-ui-catalog/src/lib.rs",
+        "docs/m1/decision-review.md",
+        "docs/m2/verification-and-estimate.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "verified-with-hardware-signoff-gate"
+    },
+    {
+      "id": "INV-42",
+      "inventory_key": "workspace-tools",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "scripts/dev-check.sh",
+        "scripts/ci_scope.py",
+        "scripts/ci_timings.py"
+      ],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/ci/budgets.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    },
+    {
+      "id": "INV-43",
+      "inventory_key": "mole-sandbox",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "replacement_targets": [
+        "scripts/board_split.py",
+        "scripts/check_wall.py"
+      ],
+      "requirement_ids": [],
+      "evidence_paths": [
+        "docs/wall/isolation-and-canary.md",
+        "book/src/clean-room-protocol.md"
+      ],
+      "revision": "4c9ef67",
+      "retirement_status": "retained-as-tooling"
+    }
+  ]
+}

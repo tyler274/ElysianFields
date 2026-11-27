@@ -69,6 +69,12 @@ jobs:
           elif [ -f scripts/check-wall.sh ]; then
             bash scripts/check-wall.sh
           fi
+          if [ -f scripts/check_ledger.py ]; then
+            python3 scripts/check_ledger.py
+          fi
+          if [ -f scripts/check_disposition.py ]; then
+            python3 scripts/check_disposition.py
+          fi
 
   rust-native:
     name: Rust native

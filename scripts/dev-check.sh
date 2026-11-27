@@ -150,6 +150,12 @@ run_optional_doc_and_wall_checks() {
   elif [ -f scripts/check-wall.sh ]; then
     bash scripts/check-wall.sh
   fi
+  if [ -f scripts/check_ledger.py ]; then
+    run_python scripts/check_ledger.py
+  fi
+  if [ -f scripts/check_disposition.py ]; then
+    run_python scripts/check_disposition.py
+  fi
   if [ -f book/book.toml ] && command -v mdbook >/dev/null 2>&1; then
     mdbook build book >/dev/null
   fi
