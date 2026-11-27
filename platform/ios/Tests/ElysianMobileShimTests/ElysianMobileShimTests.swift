@@ -171,7 +171,7 @@ final class ElysianMobileShimTests: XCTestCase {
 
     func testHealthKitBridgeHandlesUnavailablePlatformGracefullyWithoutLooping() {
         let bridge = HealthKitBridge()
-        #if !canImport(HealthKit)
+        #if !(canImport(HealthKit) && os(iOS))
         XCTAssertFalse(bridge.isAvailable())
         XCTAssertEqual(bridge.permissionState(for: .heartRateBpm), .unavailable)
 
