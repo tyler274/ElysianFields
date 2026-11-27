@@ -1,0 +1,65 @@
+schema_version = 1
+package = "specs/packages/example-session-shell"
+
+[[scenarios]]
+id = "SCN-CLINIC-0001"
+requirement_id = "EF-CLINIC-0001"
+title = "Physician sign-in boundary, multi-tab revocation, fault recovery, and accessibility"
+product = "curie-clinic"
+platforms = [
+  "browser-wasm-desktop",
+  "browser-wasm-mobile",
+  "desktop-linux",
+  "desktop-macos",
+  "desktop-windows",
+]
+fixture_profile = "synthetic-clinic-single-practice"
+
+[scenarios.preconditions]
+initial_session = "unauthenticated"
+base_path = "/elysianfields/clinic"
+session_authority = "reachable"
+synthetic_clinician = "dr.synthetic@example.invalid"
+
+[[scenarios.steps]]
+step = 1
+action = "Navigate directly to a protected patient route under the configured base path while unauthenticated."
+expected_visible = "Application presents the sign-in boundary with visible primary heading and credential controls; zero clinical data or blank canvas is rendered."
+expected_effects = "Protected route is retained as a validated in-app return destination."
+
+[[scenarios.steps]]
+step = 2
+action = "Attempt navigation with an external cross-origin return destination parameter while unauthenticated."
+expected_visible = "Application stays on the sign-in boundary and discards the external redirect target."
+expected_effects = "No cross-origin redirect is stored or scheduled."
+
+[[scenarios.steps]]
+step = 3
+action = "Submit invalid credentials using keyboard navigation and Enter submission."
+expected_visible = "Sign-in boundary displays a non-enumerating authentication error announced via assistive alert semantics; focus remains recoverable for correction."
+expected_effects = "No session is established; session authority records a failed sign-in audit event without storing plaintext credentials."
+
+[[scenarios.steps]]
+step = 4
+action = "Fault-inject session authority unavailability and submit valid credentials, then restore session authority and activate the retry control."
+expected_visible = "Outage renders a clear recoverable service-unavailable state (never a blank screen or empty workspace); retry succeeds and opens the authenticated physician shell at the preserved protected route."
+expected_effects = "Authenticated session is stored only in platform secure or HTTP-only storage; clinician identity and active practice context are loaded."
+
+[[scenarios.steps]]
+step = 5
+action = "Open a second sibling tab or window in the same profile, verify both show the authenticated shell, then trigger sign-out from the first tab."
+expected_visible = "Both tabs transition promptly to the sign-in boundary with a plain-language session-ended notice and zero protected clinical content remaining on screen."
+expected_effects = "Session authority invalidates the server session; both tabs clear in-memory and local protected clinical caches."
+
+[[scenarios.steps]]
+step = 6
+action = "Re-authenticate, reload the page (or suspend and resume on desktop), then revoke the session on the server and reload again."
+expected_visible = "First reload restores the authenticated shell cleanly; post-revocation reload returns cleanly to the sign-in boundary without flashing protected clinical data."
+expected_effects = "Session standing is re-verified with the session authority on every reload or resume boundary."
+
+[scenarios.accessibility]
+keyboard_only_completion = true
+visible_focus_indicators = true
+single_editable_state_owner = true
+live_region_error_announcements = true
+ime_and_paste_verified = true

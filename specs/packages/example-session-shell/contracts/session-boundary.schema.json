@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elysianfields.invalid/contracts/example-session-shell/session-boundary.schema.json",
+  "title": "Curie Clinic Session Standing Boundary",
+  "description": "Implementation-neutral state contract for clinician session standing responses and shell transitions.",
+  "type": "object",
+  "required": ["standing", "checked_at_ms"],
+  "properties": {
+    "standing": {
+      "type": "string",
+      "enum": [
+        "unauthenticated",
+        "authenticated",
+        "expired",
+        "revoked",
+        "service_unavailable"
+      ]
+    },
+    "checked_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "clinician": {
+      "type": "object",
+      "required": ["display_name", "practice_name"],
+      "properties": {
+        "display_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "practice_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "safe_return_path": {
+      "type": "string",
+      "pattern": "^/[^/].*$"
+    },
+    "retryable": {
+      "type": "boolean"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "standing": { "const": "authenticated" } },
+        "required": ["standing"]
+      },
+      "then": {
+        "required": ["clinician"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "standing": { "const": "service_unavailable" } },
+        "required": ["standing"]
+      },
+      "then": {
+        "properties": { "retryable": { "const": true } },
+        "required": ["retryable"]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,47 @@
+schema_version = 1
+
+[metadata]
+program = "Elysian Fields"
+id_pattern = "^EF-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-[0-9]{4}$"
+scenario_id_pattern = "^SCN-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-[0-9]{4}$"
+
+[[requirements]]
+id = "EF-CLINIC-0001"
+title = "Physician session shell and sign-in boundary"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = [
+  "browser-wasm-desktop",
+  "browser-wasm-mobile",
+  "desktop-linux",
+  "desktop-macos",
+  "desktop-windows",
+]
+status = "observed-and-required"
+package = "specs/packages/example-session-shell"
+scenario_id = "SCN-CLINIC-0001"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-macos]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-windows]
+state = "unknown"
+revision = ""
+evidence = ""
