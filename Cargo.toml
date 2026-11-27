@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/elysian-smoke",
     "crates/elysian-bevy-probe",
+    "crates/m1-accessibility",
 ]
 
 [workspace.package]
