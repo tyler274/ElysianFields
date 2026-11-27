@@ -369,19 +369,19 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0001"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CLINIC-0011"
@@ -394,14 +394,14 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0002"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CLINIC-0012"
@@ -414,14 +414,14 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0003"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CLINIC-0013"
@@ -434,14 +434,14 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0004"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CLINIC-0014"
@@ -454,9 +454,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0005"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CLINIC-0015"
@@ -469,9 +469,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0006"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-MOBILE-0001"
@@ -484,19 +484,22 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0007"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-MOBILE-0002"
@@ -509,24 +512,27 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0008"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-MOBILE-0003"
@@ -539,14 +545,16 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0009"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-MOBILE-0004"
@@ -559,24 +567,27 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0010"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-MOBILE-0005"
@@ -589,19 +600,21 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0011"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CONN-0001"
@@ -614,29 +627,32 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0012"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-CONN-0002"
@@ -649,19 +665,20 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0013"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-HARNESS-0002"
@@ -674,9 +691,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0014"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-HARNESS-0003"
@@ -689,9 +706,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0015"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-HARNESS-0004"
@@ -704,9 +721,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0016"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-EXT-0001"
@@ -719,9 +736,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0017"
 
 [requirements.coverage.chrome-extension-popup]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-PUBLIC-0001"
@@ -734,14 +751,14 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0018"
 
 [requirements.coverage.static-public-web]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [[requirements]]
 id = "EF-PUBLIC-0002"
@@ -754,19 +771,20 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0019"
 
 [requirements.coverage.static-public-web]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-PLATFORM-0004"
@@ -779,6 +797,6 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0020"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "5153302"
+evidence = "docs/m3/verification-report.md"
