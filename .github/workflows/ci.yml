@@ -141,10 +141,13 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -o pipefail
-          cargo build --locked --release --workspace 2>&1 \
+          native_bins="$(python3 scripts/ci_scope.py native-release-crates)"
+          echo "Selected native release binaries: ${native_bins}"
+          # shellcheck disable=SC2086
+          cargo build --locked --release ${native_bins} 2>&1 \
             | python3 scripts/ci_dep_audit.py --label "rust-native release" --workspace-root "$PWD"
           mkdir -p dist/native
-          printf '{"revision":"%s","target":"native-release"}\n' "$GITHUB_SHA" > dist/native/manifest.json
+          printf '{"revision":"%s","target":"native-release","crates":"%s"}\n' "$GITHUB_SHA" "$native_bins" > dist/native/manifest.json
           find target/release -maxdepth 1 -type f -executable -exec cp {} dist/native/ \;
       - name: Upload native release artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
