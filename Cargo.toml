@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/elysian-smoke",
+    "crates/elysian-bevy-probe",
 ]
 
 [workspace.package]
@@ -10,9 +11,24 @@ edition = "2024"
 license = "MIT"
 publish = false
 
+[workspace.dependencies]
+# Pinned Bevy + AccessKit versions for M1 feasibility and clean-room UI foundation.
+accesskit = "0.24.1"
+bevy = { version = "0.20.1", default-features = false }
+elysian-smoke = { path = "crates/elysian-smoke" }
+
 [workspace.lints.clippy]
 disallowed_methods = "warn"
 fn_params_excessive_bools = "warn"
 map_err_ignore = "warn"
 struct_excessive_bools = "warn"
 unused_result_ok = "warn"
+
+# Keep workspace incremental builds fast while optimizing Bevy and third-party
+# crates lightly so dev/test execution remains responsive without paying full
+# opt-level=3 cold-compile latency.
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 1
