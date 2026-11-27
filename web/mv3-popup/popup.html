@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elysian Fields — MV3 Popup</title>
+  <link rel="stylesheet" href="./popup.css">
+</head>
+<body>
+  <main class="popup-root">
+    <header class="popup-header">
+      <h1>Elysian Fields Connector</h1>
+      <p id="popup-status" role="status" aria-live="polite">Checking strict MV3 environment...</p>
+    </header>
+
+    <section class="popup-metrics" aria-label="Popup diagnostics">
+      <dl>
+        <dt>Graphics Backend</dt>
+        <dd id="popup-backend">probing</dd>
+        <dt>CSP Violations</dt>
+        <dd id="popup-csp-violations">0</dd>
+        <dt>Startup</dt>
+        <dd id="popup-startup">pending</dd>
+      </dl>
+    </section>
+
+    <canvas id="popup-canvas" width="328" height="120" aria-label="MV3 popup graphics probe canvas"></canvas>
+  </main>
+
+  <script type="module" src="./popup.js"></script>
+</body>
+</html>
