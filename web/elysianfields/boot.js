@@ -617,7 +617,11 @@ async function boot() {
 
   document.addEventListener("keydown", (event) => {
     const key = String(event.key || "");
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && key.toLowerCase() === "l") {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      (key.toLowerCase() === "l" || event.code === "KeyL")
+    ) {
       event.preventDefault();
       setPrivacyCoverActive(!state.privacyCoverActive);
       return;

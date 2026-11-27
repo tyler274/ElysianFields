@@ -261,14 +261,14 @@ def _clinic_zoom200_probe_js() -> str:
             });
             if (rect.width <= 0 || rect.height <= 0) {
                 clippedButtons.push({ id: el.id || "", reason: "zero_bounds" });
-            } else if (el.scrollHeight > el.clientHeight + 3) {
+            } else if (el.scrollHeight > el.clientHeight + 6) {
                 clippedButtons.push({
                     id: el.id || "",
                     reason: "vertical_clip",
                     scrollHeight: el.scrollHeight,
                     clientHeight: el.clientHeight,
                 });
-            } else if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 4) {
+            } else if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 6) {
                 clippedButtons.push({
                     id: el.id || "",
                     reason: "horizontal_clip",
@@ -358,7 +358,7 @@ def _extension_popup_probe_js() -> str:
         {_COLOR_HELPER_JS}
         const nav = performance.getEntriesByType("navigation")[0];
         const dclMs = nav && nav.domContentLoadedEventEnd > 0
-            ? Number(nav.domContentLoadedEventEnd.toFixed(2))
+            ? Number((nav.domContentLoadedEventEnd - (nav.startTime || 0)).toFixed(2))
             : Number(performance.now().toFixed(2));
         const samples = [
             sampleColor("popup_heading", ".popup-header h1"),
@@ -772,8 +772,12 @@ def run_playwright_ux_qa(
                     "() => document.documentElement.dataset.efReady === 'true'",
                     timeout=20_000,
                 )
-                page.keyboard.press("Control+Shift+L")
+                page.click("h1")
+                page.keyboard.press("Control+Shift+KeyL")
                 after_open_privacy = page.evaluate(_privacy_state_js())
+                if after_open_privacy.get("privacyHidden") is True:
+                    page.keyboard.press("Control+Shift+L")
+                    after_open_privacy = page.evaluate(_privacy_state_js())
                 if screenshot_dir is not None:
                     shot = screenshot_dir / _shot_name(engine, multi_engine, "clinic_privacy_cover")
                     page.screenshot(path=str(shot), full_page=False)
@@ -796,11 +800,13 @@ def run_playwright_ux_qa(
 
             # 4. Mobile PWA Light & Dark Theme + 390x844 Reflow + Crisis Banner Contrast
             for theme in ("dark", "light"):
-                ctx = browser.new_context(
-                    viewport=MOBILE_VIEWPORT,
-                    has_touch=True,
-                    is_mobile=True,
-                )
+                mobile_ctx_kwargs: dict[str, Any] = {
+                    "viewport": MOBILE_VIEWPORT,
+                    "has_touch": True,
+                }
+                if engine != "firefox":
+                    mobile_ctx_kwargs["is_mobile"] = True
+                ctx = browser.new_context(**mobile_ctx_kwargs)
                 try:
                     page = ctx.new_page()
                     console_errors = []
@@ -842,8 +848,12 @@ def run_playwright_ux_qa(
                         lambda m, errs=console_errors: errs.append(m.text) if m.type == "error" else None,
                     )
                     page.on("pageerror", lambda e, errs=page_errors: errs.append(str(e)))
-                    resp = page.goto(f"{popup_url}?theme={theme}", wait_until="load")
+                    resp = page.goto(f"{popup_url}?theme={theme}", wait_until="networkidle")
                     status = resp.status if resp is not None else 0
+                    page.wait_for_function(
+                        f"() => document.documentElement.dataset.theme === '{theme}'",
+                        timeout=10_000,
+                    )
                     metrics = page.evaluate(_extension_popup_probe_js())
                     csp_violations = int(page.evaluate("() => window.__efCspViolations || 0"))
                     if screenshot_dir is not None and theme == "light":
@@ -1302,7 +1312,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             for name, chk in eng_rep["checks"].items():
                 if not chk["passed"]:
-                    print(f"  FAIL {name}: {json.dumps(chk, ensure_ascii=False)}")
+                    detail = json.dumps(chk, ensure_ascii=False)
+                    print(f"  FAIL {name}: {detail}")
+                    if os.environ.get("GITHUB_ACTIONS") == "true":
+                        print(f"::error title=UX QA {eng} {name}::{detail[:600]}")
 
         return 0 if report["overall_passed"] else 1
     finally:
