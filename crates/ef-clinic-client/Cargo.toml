@@ -29,3 +29,8 @@ thiserror = { workspace = true }
 
 [lints]
 workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-clinic-server = { path = "../ef-clinic-server" }
+ef-clinic-workflows = { workspace = true }
+ef-connected-care = { workspace = true }

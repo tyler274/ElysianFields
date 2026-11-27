@@ -48,6 +48,8 @@ pub enum TransportError {
     Serialization(#[from] serde_json::Error),
     #[error("SSE wire frame error: {0}")]
     SseWire(#[from] crate::wire::SseWireError),
+    #[error("ingress rate limit exceeded; retry after {retry_after_secs}s")]
+    RateLimited { retry_after_secs: u64 },
     #[error("transport backend unavailable: {message}")]
     Unavailable { message: String },
 }
@@ -59,6 +61,7 @@ impl TransportError {
             Self::Auth(err) => err.http_status_code(),
             Self::Workspace(err) => err.http_status_code(),
             Self::Chat(err) => err.http_status_code(),
+            Self::RateLimited { .. } => 429,
             Self::Harness(_) | Self::Unavailable { .. } => 503,
             Self::Subpath(_) | Self::Serialization(_) | Self::SseWire(_) => 400,
         }

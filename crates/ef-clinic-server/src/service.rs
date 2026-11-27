@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ef_clinic_domain::auth::{
     AuthAuthority, AuthError, EmailAddress, PhysicianAccount, SignInMode, VerificationTokenKind,
@@ -19,6 +19,13 @@ use ef_clinic_domain::workspace::{
     CitedSourcePayload, MembershipTier, PatientWorkspaceSummary, WorkspaceAccessError,
     WorkspaceEvidenceStore,
 };
+use ef_clinic_workflows::matching::{MessageMatchingEngine, RawChannelFrame};
+use ef_clinic_workflows::memory::PatientMemoryStore;
+use ef_clinic_workflows::replies::{MessageReplyEngine, ReviewCompletion};
+use ef_clinic_workflows::today::{
+    ChannelHealthStatus, ScheduledVisitEntry, TodayQueueEngine, TodayQueueItem,
+};
+use ef_connected_care::{ConnectedCareBridge, InvitationId, PairKey};
 use ef_core::{
     ChatId, PhysicianId, PracticeId, SessionId, SourceKey, Subpath, WorkItemId, WorkspaceId,
 };
@@ -36,6 +43,9 @@ use crate::http::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::persistence::DurableClinicStore;
 use crate::persistence::{InMemoryWal, WalEntry, WalError, WalSink, WalTokenKind};
+use crate::rate_limit::{IpSlidingWindowLimiter, RateLimitConfig, RateLimitDecision};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::static_files::serve_static_asset;
 
 /// Minimal static entry document served at `GET /elysianfields/` under strict CSP.
 const ENTRY_HTML: &str = "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Curie Clinic</title></head><body><div id=\"app\" data-mount=\"/elysianfields/\">Curie Clinic</div></body></html>";
@@ -92,18 +102,50 @@ struct ChatSnapshotResponse {
     draft: PersistedDraft,
 }
 
+#[derive(Debug, Serialize)]
+struct ClientWorkspaceDetailWire {
+    patient_workspace_id: WorkspaceId,
+    display_name: String,
+    membership: MembershipTier,
+    time_zone: String,
+    default_chat_id: ChatId,
+    patient_synopsis: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ClientChatSnapshotWire {
+    workspace_id: WorkspaceId,
+    chat_id: ChatId,
+    transcript: Vec<ExchangeRecord>,
+    sources: BTreeMap<SourceKey, CitedSourcePayload>,
+    queued: Vec<String>,
+    archived: bool,
+}
+
 /// Authoritative headless Curie Clinic vertical-slice service.
 pub struct ClinicService {
     auth: AuthAuthority,
-    evidence: WorkspaceEvidenceStore,
+    pub(crate) evidence: WorkspaceEvidenceStore,
     chats: BTreeMap<(WorkspaceId, ChatId), ChatEngine>,
     drafts: DraftStore,
     retry_mode: RetryBackoffMode,
     agent_loop: AgentLoop,
     default_cited_source: SourceKey,
     queued_providers: VecDeque<StubProvider>,
-    clock_secs: u64,
-    wal: Box<dyn WalSink>,
+    pub(crate) clock_secs: u64,
+    pub(crate) wal: Box<dyn WalSink>,
+    rate_limiter: IpSlidingWindowLimiter,
+    #[cfg(not(target_arch = "wasm32"))]
+    web_dir: Option<PathBuf>,
+    pub(crate) today_engine: TodayQueueEngine,
+    pub(crate) today_candidates: Vec<TodayQueueItem>,
+    pub(crate) scheduled_visits: Vec<ScheduledVisitEntry>,
+    pub(crate) today_also_reviewed: usize,
+    pub(crate) matching_engine: MessageMatchingEngine,
+    pub(crate) reply_engine: MessageReplyEngine,
+    pub(crate) patient_memories: BTreeMap<WorkspaceId, PatientMemoryStore>,
+    pub(crate) connected_care: ConnectedCareBridge,
+    pub(crate) invitation_pairs: BTreeMap<InvitationId, PairKey>,
 }
 
 impl ClinicService {
@@ -126,6 +168,18 @@ impl ClinicService {
             queued_providers: VecDeque::new(),
             clock_secs: initial_clock_secs,
             wal: Box::new(InMemoryWal::new()),
+            rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
+            #[cfg(not(target_arch = "wasm32"))]
+            web_dir: None,
+            today_engine: TodayQueueEngine::new(),
+            today_candidates: Vec::new(),
+            scheduled_visits: Vec::new(),
+            today_also_reviewed: 0,
+            matching_engine: MessageMatchingEngine::new(),
+            reply_engine: MessageReplyEngine::new(),
+            patient_memories: BTreeMap::new(),
+            connected_care: ConnectedCareBridge::new(),
+            invitation_pairs: BTreeMap::new(),
         }
     }
 
@@ -151,11 +205,66 @@ impl ClinicService {
             queued_providers: VecDeque::new(),
             clock_secs: initial_clock_secs,
             wal: Box::new(store),
+            rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
+            web_dir: None,
+            today_engine: TodayQueueEngine::new(),
+            today_candidates: Vec::new(),
+            scheduled_visits: Vec::new(),
+            today_also_reviewed: 0,
+            matching_engine: MessageMatchingEngine::new(),
+            reply_engine: MessageReplyEngine::new(),
+            patient_memories: BTreeMap::new(),
+            connected_care: ConnectedCareBridge::new(),
+            invitation_pairs: BTreeMap::new(),
         };
         for entry in entries {
             service.replay_wal_entry(entry);
         }
         Ok(service)
+    }
+
+    /// Configures the per-IP sliding-window ingress rate limiter.
+    pub fn set_rate_limit(&mut self, config: RateLimitConfig) {
+        self.rate_limiter.reconfigure(config);
+    }
+
+    /// Configures an optional directory serving static web assets under `/elysianfields/`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_web_dir(&mut self, dir: PathBuf) {
+        self.web_dir = Some(dir);
+    }
+
+    /// Durably seeds a Today queue item.
+    pub fn seed_today_item(&mut self, item: TodayQueueItem) -> Result<(), ClinicServiceError> {
+        self.today_candidates.push(item.clone());
+        self.wal.append(&WalEntry::AddTodayItem { item })?;
+        Ok(())
+    }
+
+    /// Durably seeds a scheduled visit entry for Today.
+    pub fn seed_scheduled_visit(
+        &mut self,
+        visit: ScheduledVisitEntry,
+    ) -> Result<(), ClinicServiceError> {
+        self.scheduled_visits.push(visit.clone());
+        self.wal.append(&WalEntry::AddScheduledVisit { visit })?;
+        Ok(())
+    }
+
+    /// Durably updates a practice communication channel health status (`TodaySaysSo`).
+    pub fn set_channel_health(
+        &mut self,
+        channel_id: impl Into<String>,
+        status: ChannelHealthStatus,
+    ) -> Result<(), ClinicServiceError> {
+        let channel_id = channel_id.into();
+        self.today_engine
+            .set_channel_health(channel_id.clone(), status.clone());
+        self.matching_engine
+            .register_channel(channel_id.clone(), status.clone());
+        self.wal
+            .append(&WalEntry::SetChannelHealth { channel_id, status })?;
+        Ok(())
     }
 
     /// Advances or sets the deterministic service clock in Unix epoch seconds.
@@ -239,6 +348,27 @@ impl ClinicService {
 
     /// Routes and executes a single HTTP/1.1 request strictly under `/elysianfields/`.
     pub fn handle_request(&mut self, req: &HttpRequest) -> HttpResponse {
+        let client_ip = req
+            .header("x-forwarded-for")
+            .and_then(|raw| raw.split(',').next())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("127.0.0.1")
+            .to_owned();
+        self.handle_request_from_ip(req, &client_ip)
+    }
+
+    /// Routes and executes a single HTTP/1.1 request attributed to `client_ip` with
+    /// per-IP sliding-window ingress rate limiting.
+    pub fn handle_request_from_ip(&mut self, req: &HttpRequest, client_ip: &str) -> HttpResponse {
+        // 0. Enforce per-IP sliding-window ingress rate limit.
+        if let RateLimitDecision::Exceeded { retry_after_secs } = self
+            .rate_limiter
+            .check_and_record(client_ip, self.clock_secs)
+        {
+            return HttpResponse::too_many_requests(retry_after_secs);
+        }
+
         // 1. Canonical trailing slash redirect for bare `/elysianfields`.
         if matches!(req.method, HttpMethod::Get | HttpMethod::Head)
             && let Some(location) = Subpath::canonical_redirect_if_bare(&req.target)
@@ -259,12 +389,22 @@ impl ClinicService {
             return HttpResponse::not_found();
         };
 
-        // 3. Entry HTML under `/elysianfields/`.
-        if subpath == "/" || subpath == "/index.html" {
-            return match req.method {
-                HttpMethod::Get | HttpMethod::Head => HttpResponse::html_entry(ENTRY_HTML),
-                HttpMethod::Post | HttpMethod::Put => HttpResponse::method_not_allowed(),
-            };
+        // 3. Entry HTML and optional static assets under `/elysianfields/` (non-API paths).
+        if !subpath.starts_with("/api/") {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(web_dir) = self.web_dir.clone()
+                && let Some(resp) = serve_static_asset(&web_dir, req.method, subpath)
+            {
+                return resp;
+            }
+
+            if subpath == "/" || subpath == "/index.html" {
+                return match req.method {
+                    HttpMethod::Get | HttpMethod::Head => HttpResponse::html_entry(ENTRY_HTML),
+                    HttpMethod::Post | HttpMethod::Put => HttpResponse::method_not_allowed(),
+                };
+            }
+            return HttpResponse::not_found();
         }
 
         // 4. API routes under `/elysianfields/api/...`.
@@ -287,25 +427,72 @@ impl ClinicService {
         }
 
         match segments.as_slice() {
-            ["patients"] => self.route_patients_list(req, query),
+            // M2 Clinic core routes + canonical client ClinicEndpoint routes
+            ["patients"] | ["patient-workspaces"] | ["patient-roster"] => {
+                self.route_patients_list(req, query)
+            }
             ["patients", workspace_id, "workspace"] => {
                 self.route_patient_workspace(req, workspace_id)
             }
-            ["patients", workspace_id, "citations", source_key] => {
-                self.route_patient_citation(req, workspace_id, source_key)
+            ["patient-workspaces", "events"] => self.route_workspace_events_stream(req, query),
+            ["patient-workspaces", workspace_id] => {
+                self.route_client_workspace_detail(req, workspace_id)
             }
+            [
+                "patient-workspaces",
+                workspace_id,
+                "chats",
+                chat_id,
+                "snapshot",
+            ] => self.route_client_chat_snapshot(req, workspace_id, chat_id),
+            ["patients", workspace_id, "citations", source_key]
+            | [
+                "patient-workspaces",
+                workspace_id,
+                "chats",
+                _,
+                "sources",
+                source_key,
+            ] => self.route_patient_citation(req, workspace_id, source_key),
             ["workspaces", workspace_id, "chats", chat_id] => {
                 self.route_chat_snapshot(req, workspace_id, chat_id)
             }
             ["workspaces", workspace_id, "chats", chat_id, "commands"] => {
-                self.route_chat_commands(req, workspace_id, chat_id)
+                self.route_chat_commands(req, Some((workspace_id, chat_id)))
             }
+            ["commands"] => self.route_chat_commands(req, None),
             ["workspaces", workspace_id, "chats", chat_id, "stream"] => {
                 self.route_chat_stream(req, workspace_id, chat_id, query)
             }
-            ["workspaces", workspace_id, "chats", chat_id, "draft"] => {
+            ["workspaces", workspace_id, "chats", chat_id, "draft"]
+            | ["physician-state", "drafts", workspace_id, chat_id] => {
                 self.route_chat_draft(req, workspace_id, chat_id)
             }
+
+            // M3 Clinic Workflow routes
+            ["today"] => self.route_today_get(req),
+            ["today", "standing"] => self.route_today_standing(req),
+            ["messages", "ingest"] => self.route_messages_ingest(req),
+            ["messages", "decide"] => self.route_messages_decide(req),
+            ["messages", "undo"] => self.route_messages_undo(req),
+            ["replies", conversation_id] => self.route_replies(req, conversation_id, None),
+            ["replies", conversation_id, action] => {
+                self.route_replies(req, conversation_id, Some(action))
+            }
+            ["patients", workspace_id, "memory"] => self.route_patient_memory(req, workspace_id),
+
+            // M3 Connected Care Clinic invitation routes
+            ["connected-care", "invitations"] => self.route_connected_care_create_invitation(req),
+            ["connected-care", "invitations", invitation_id] => {
+                self.route_connected_care_get_invitation(req, invitation_id)
+            }
+            ["connected-care", "invitations", invitation_id, "cancel"] => {
+                self.route_connected_care_cancel_invitation(req, invitation_id)
+            }
+            ["connected-care", "invitations", invitation_id, "resend"] => {
+                self.route_connected_care_resend_invitation(req, invitation_id)
+            }
+
             _ => HttpResponse::not_found(),
         }
     }
@@ -391,7 +578,10 @@ impl ClinicService {
         }
     }
 
-    fn authenticate_request(&mut self, req: &HttpRequest) -> Result<WhoAmIPayload, HttpResponse> {
+    pub(crate) fn authenticate_request(
+        &mut self,
+        req: &HttpRequest,
+    ) -> Result<WhoAmIPayload, HttpResponse> {
         let bearer = match req.bearer_token() {
             None => None,
             Some(raw) => match SessionId::new(raw) {
@@ -427,7 +617,7 @@ impl ClinicService {
             Ok(w) => w,
             Err(resp) => return resp,
         };
-        let q = query_param(query, "q");
+        let q = query_param(query, "q").or_else(|| query_param(query, "query"));
         let roster =
             self.evidence
                 .query_patient_roster(&whoami.practice_id, &whoami.physician_id, q, false);
@@ -505,6 +695,170 @@ impl ClinicService {
                 chats,
             },
         )
+    }
+
+    fn route_client_workspace_detail(
+        &mut self,
+        req: &HttpRequest,
+        raw_workspace_id: &str,
+    ) -> HttpResponse {
+        if req.method != HttpMethod::Get {
+            return HttpResponse::method_not_allowed();
+        }
+        let whoami = match self.authenticate_request(req) {
+            Ok(w) => w,
+            Err(resp) => return resp,
+        };
+        let workspace_id = match WorkspaceId::new(raw_workspace_id) {
+            Ok(id) => id,
+            Err(err) => return HttpResponse::bad_request(err.to_string()),
+        };
+
+        let membership = match self.evidence.membership_for(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            &workspace_id,
+        ) {
+            Ok(tier) => tier,
+            Err(err) => return workspace_error_response(err),
+        };
+        if membership == MembershipTier::Denied {
+            return HttpResponse::not_found();
+        }
+
+        let display_name = match self.evidence.query_patient_roster(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            None,
+            false,
+        ) {
+            ef_clinic_domain::workspace::PatientRosterState::Loaded { patients, .. } => patients
+                .into_iter()
+                .find(|p| p.patient_workspace_id == workspace_id)
+                .map(|p| p.display_name),
+            _ => None,
+        };
+        let Some(display_name) = display_name else {
+            return HttpResponse::not_found();
+        };
+
+        let default_chat_id = self
+            .chats
+            .keys()
+            .find(|(ws, _)| ws == &workspace_id)
+            .map(|(_, chat_id)| chat_id.clone())
+            .unwrap_or_else(|| ChatId::new("chat-main").expect("valid static chat id"));
+
+        HttpResponse::json_clinical(
+            200,
+            &ClientWorkspaceDetailWire {
+                patient_workspace_id: workspace_id,
+                display_name,
+                membership,
+                time_zone: "UTC".to_owned(),
+                default_chat_id,
+                patient_synopsis: None,
+            },
+        )
+    }
+
+    fn route_client_chat_snapshot(
+        &mut self,
+        req: &HttpRequest,
+        raw_workspace_id: &str,
+        raw_chat_id: &str,
+    ) -> HttpResponse {
+        if req.method != HttpMethod::Get {
+            return HttpResponse::method_not_allowed();
+        }
+        let whoami = match self.authenticate_request(req) {
+            Ok(w) => w,
+            Err(resp) => return resp,
+        };
+        let (workspace_id, chat_id) = match parse_ws_and_chat(raw_workspace_id, raw_chat_id) {
+            Ok(pair) => pair,
+            Err(resp) => return resp,
+        };
+        if let Err(err) = self.evidence.require_clinical_access(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            &workspace_id,
+        ) {
+            return workspace_error_response(err);
+        }
+
+        let transcript = self
+            .chats
+            .get(&(workspace_id.clone(), chat_id.clone()))
+            .map(|engine| engine.transcript_snapshot().into_iter().cloned().collect())
+            .unwrap_or_default();
+
+        HttpResponse::json_clinical(
+            200,
+            &ClientChatSnapshotWire {
+                workspace_id,
+                chat_id,
+                transcript,
+                sources: BTreeMap::new(),
+                queued: Vec::new(),
+                archived: false,
+            },
+        )
+    }
+
+    fn route_workspace_events_stream(
+        &mut self,
+        req: &HttpRequest,
+        query: Option<&str>,
+    ) -> HttpResponse {
+        if req.method != HttpMethod::Get {
+            return HttpResponse::method_not_allowed();
+        }
+        let whoami = match self.authenticate_request(req) {
+            Ok(w) => w,
+            Err(resp) => return resp,
+        };
+
+        let after_event_id = query_param(query, "since")
+            .or_else(|| query_param(query, "after_event_id"))
+            .or_else(|| req.header("last-event-id"))
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let filter_ws =
+            query_param(query, "workspace_id").and_then(|raw| WorkspaceId::new(raw).ok());
+        let filter_chat = query_param(query, "chat_id").and_then(|raw| ChatId::new(raw).ok());
+
+        let mut sse = String::new();
+        for ((ws_id, chat_id), engine) in &self.chats {
+            if let Some(ref target_ws) = filter_ws
+                && ws_id != target_ws
+            {
+                continue;
+            }
+            if let Some(ref target_chat) = filter_chat
+                && chat_id != target_chat
+            {
+                continue;
+            }
+            if self
+                .evidence
+                .require_clinical_access(&whoami.practice_id, &whoami.physician_id, ws_id)
+                .is_err()
+            {
+                continue;
+            }
+            for event in engine.events() {
+                if let Some(id) = stream_event_id(event)
+                    && id <= after_event_id
+                {
+                    continue;
+                }
+                sse.push_str(&format_sse_event(event));
+            }
+        }
+        sse.push_str(&format_sse_event(&ChatStreamEvent::KeepAlive));
+        HttpResponse::sse_stream(sse)
     }
 
     fn route_patient_citation(
@@ -586,8 +940,7 @@ impl ClinicService {
     fn route_chat_commands(
         &mut self,
         req: &HttpRequest,
-        raw_workspace_id: &str,
-        raw_chat_id: &str,
+        route_scope: Option<(&str, &str)>,
     ) -> HttpResponse {
         if req.method != HttpMethod::Post {
             return HttpResponse::method_not_allowed();
@@ -596,33 +949,41 @@ impl ClinicService {
             Ok(w) => w,
             Err(resp) => return resp,
         };
-        let (workspace_id, chat_id) = match parse_ws_and_chat(raw_workspace_id, raw_chat_id) {
-            Ok(pair) => pair,
-            Err(resp) => return resp,
-        };
-        if let Err(err) = self.evidence.require_clinical_access(
-            &whoami.practice_id,
-            &whoami.physician_id,
-            &workspace_id,
-        ) {
-            return workspace_error_response(err);
-        }
 
         let envelope: CommandEnvelope = match serde_json::from_slice(&req.body) {
             Ok(env) => env,
             Err(err) => return HttpResponse::bad_request(err.to_string()),
         };
 
-        // Enforce path-to-payload workspace/chat consistency.
         let (payload_ws, payload_chat) = match &envelope.command {
-            CommandPayload::MessageSubmit(p) => (&p.patient_workspace_id, &p.chat_id),
-            CommandPayload::WorkStop(p) => (&p.patient_workspace_id, &p.chat_id),
-            CommandPayload::WorkResume(p) => (&p.patient_workspace_id, &p.chat_id),
+            CommandPayload::MessageSubmit(p) => (p.patient_workspace_id.clone(), p.chat_id.clone()),
+            CommandPayload::WorkStop(p) => (p.patient_workspace_id.clone(), p.chat_id.clone()),
+            CommandPayload::WorkResume(p) => (p.patient_workspace_id.clone(), p.chat_id.clone()),
         };
-        if payload_ws != &workspace_id || payload_chat != &chat_id {
-            return HttpResponse::bad_request(
-                "command payload workspace/chat does not match route",
-            );
+
+        let (workspace_id, chat_id) = match route_scope {
+            Some((raw_ws, raw_chat)) => {
+                let (ws, chat) = match parse_ws_and_chat(raw_ws, raw_chat) {
+                    Ok(pair) => pair,
+                    Err(resp) => return resp,
+                };
+                // Enforce path-to-payload workspace/chat consistency.
+                if payload_ws != ws || payload_chat != chat {
+                    return HttpResponse::bad_request(
+                        "command payload workspace/chat does not match route",
+                    );
+                }
+                (ws, chat)
+            }
+            None => (payload_ws, payload_chat),
+        };
+
+        if let Err(err) = self.evidence.require_clinical_access(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            &workspace_id,
+        ) {
+            return workspace_error_response(err);
         }
 
         let should_drive_worker = matches!(
@@ -1095,6 +1456,200 @@ impl ClinicService {
                     .drafts
                     .put(&workspace_id, chat_id.as_str(), text, expected_revision);
             }
+            WalEntry::AddTodayItem { item } => {
+                self.today_candidates.push(item);
+            }
+            WalEntry::AddScheduledVisit { visit } => {
+                self.scheduled_visits.push(visit);
+            }
+            WalEntry::SetChannelHealth { channel_id, status } => {
+                self.today_engine
+                    .set_channel_health(channel_id.clone(), status.clone());
+                self.matching_engine.register_channel(channel_id, status);
+            }
+            WalEntry::MarkTodaySeen {
+                physician_id,
+                item_id,
+                version_id,
+            } => {
+                self.today_engine
+                    .mark_seen(&physician_id, &item_id, version_id);
+            }
+            WalEntry::MarkTodayDone { physician_id, item } => {
+                let _ = self.today_engine.mark_done(&physician_id, &item);
+            }
+            WalEntry::IngestChannelMessage {
+                channel_id,
+                cursor_seq,
+                conversation_id,
+                message_id,
+                body,
+                unreadable_reason,
+                auto_signal,
+                now_secs,
+            } => {
+                let frame = if let Some(reason) = unreadable_reason {
+                    RawChannelFrame::Unreadable { cursor_seq, reason }
+                } else if let (Some(conv), Some(mid), Some(text)) =
+                    (conversation_id, message_id, body)
+                {
+                    RawChannelFrame::Readable {
+                        cursor_seq,
+                        conversation_id: conv,
+                        message_id: mid,
+                        body: text,
+                    }
+                } else {
+                    return;
+                };
+                let _ = self.apply_ingest_message(&channel_id, frame, auto_signal, now_secs);
+            }
+            WalEntry::DecideMessageMove {
+                physician_id,
+                practice_id,
+                conversation_id,
+                destination,
+                now_secs,
+            } => {
+                let _ = self.apply_decide_move(
+                    &practice_id,
+                    &physician_id,
+                    &conversation_id,
+                    destination.into(),
+                    now_secs,
+                );
+            }
+            WalEntry::UndoMessageMove { conversation_id } => {
+                let _ = self.matching_engine.undo_move(&conversation_id);
+            }
+            WalEntry::ReplyCompleteReview {
+                conversation_id,
+                for_patient,
+                proposed_reply_text,
+                basis_citations,
+                flagged_concern,
+                answered_by_human_reply,
+            } => {
+                if let Ok((review_id, _)) = self.reply_engine.start_review(&conversation_id) {
+                    let _ = self.reply_engine.complete_review(
+                        &conversation_id,
+                        ReviewCompletion {
+                            review_id,
+                            for_patient,
+                            proposed_reply_text,
+                            basis_citations,
+                            flagged_concern,
+                            answered_by_human_reply,
+                        },
+                    );
+                }
+            }
+            WalEntry::ReplyEditDraft {
+                physician_id,
+                practice_id,
+                conversation_id,
+                draft_text,
+            } => {
+                let _ = self.reply_engine.edit_personal_draft(
+                    &physician_id,
+                    &conversation_id,
+                    draft_text,
+                    |phys, ws| {
+                        self.evidence
+                            .require_clinical_access(&practice_id, phys, ws)
+                            .is_ok()
+                    },
+                );
+            }
+            WalEntry::ReplyRestoreSystem {
+                physician_id,
+                practice_id,
+                conversation_id,
+            } => {
+                let _ = self.reply_engine.restore_system_reply(
+                    &physician_id,
+                    &conversation_id,
+                    |phys, ws| {
+                        self.evidence
+                            .require_clinical_access(&practice_id, phys, ws)
+                            .is_ok()
+                    },
+                );
+            }
+            WalEntry::ReplyClose {
+                physician_id,
+                practice_id,
+                conversation_id,
+            } => {
+                let _ =
+                    self.reply_engine
+                        .close_reply(&physician_id, &conversation_id, |phys, ws| {
+                            self.evidence
+                                .require_clinical_access(&practice_id, phys, ws)
+                                .is_ok()
+                        });
+            }
+            WalEntry::ReplyUndoClose {
+                physician_id,
+                practice_id,
+                conversation_id,
+            } => {
+                let _ = self.reply_engine.undo_close_reply(
+                    &physician_id,
+                    &conversation_id,
+                    |phys, ws| {
+                        self.evidence
+                            .require_clinical_access(&practice_id, phys, ws)
+                            .is_ok()
+                    },
+                );
+            }
+            WalEntry::MemoryRecordEntry {
+                workspace_id,
+                topic,
+                statement,
+                observed_at,
+                authority,
+            } => {
+                let store = self
+                    .patient_memories
+                    .entry(workspace_id.clone())
+                    .or_insert_with(|| PatientMemoryStore::new(workspace_id));
+                let _ = store.record_entry(topic, statement, observed_at, authority);
+            }
+            WalEntry::MemoryRunRounds {
+                workspace_id,
+                observations,
+                abort_mid_run,
+            } => {
+                let store = self
+                    .patient_memories
+                    .entry(workspace_id.clone())
+                    .or_insert_with(|| PatientMemoryStore::new(workspace_id));
+                let _ = store.run_rounds(&observations, abort_mid_run);
+            }
+            WalEntry::MemoryRetireEntry {
+                workspace_id,
+                entry_id,
+                resolved_at,
+                reason,
+            } => {
+                if let Some(store) = self.patient_memories.get_mut(&workspace_id) {
+                    let _ = store.retire_entry(&entry_id, resolved_at, reason);
+                }
+            }
+            WalEntry::CreateConnectedCareInvitation { request } => {
+                let pair = request.pair.clone();
+                if let Ok(issued) = self.connected_care.create_invitation(request) {
+                    self.invitation_pairs.insert(issued.invitation_id, pair);
+                }
+            }
+            WalEntry::ResendConnectedCareInvitation { pair, resent_at } => {
+                let _ = self.connected_care.resend_invitation(&pair, resent_at);
+            }
+            WalEntry::CancelConnectedCareInvitation { pair, cancelled_at } => {
+                let _ = self.connected_care.cancel_invitation(&pair, cancelled_at);
+            }
         }
     }
 
@@ -1138,7 +1693,7 @@ fn auth_error_response(err: AuthError) -> HttpResponse {
     }
 }
 
-fn workspace_error_response(err: WorkspaceAccessError) -> HttpResponse {
+pub(crate) fn workspace_error_response(err: WorkspaceAccessError) -> HttpResponse {
     let status = err.http_status_code();
     match err {
         WorkspaceAccessError::NotFound => HttpResponse::not_found(),
@@ -1178,7 +1733,7 @@ fn chat_error_response(err: ChatCommandError) -> HttpResponse {
     )
 }
 
-fn wal_failure_response(err: &WalError) -> HttpResponse {
+pub(crate) fn wal_failure_response(err: &WalError) -> HttpResponse {
     HttpResponse::json_clinical(
         503,
         &serde_json::json!({
