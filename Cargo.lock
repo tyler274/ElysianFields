@@ -1636,6 +1636,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-clinic-client"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "bevy",
+ "ef-clinic-domain",
+ "ef-core",
+ "ef-harness",
+ "ef-ui-catalog",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-clinic-domain"
 version = "0.1.0"
 dependencies = [

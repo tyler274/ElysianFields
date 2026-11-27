@@ -1,0 +1,31 @@
+[package]
+name = "ef-clinic-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Curie Clinic Bevy 0.20.1 vertical-slice client built on ef-ui-catalog, ef-clinic-domain, and ef-harness."
+
+[dependencies]
+accesskit = { workspace = true }
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+ef-clinic-domain = { workspace = true }
+ef-core = { workspace = true }
+ef-harness = { workspace = true }
+ef-ui-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
