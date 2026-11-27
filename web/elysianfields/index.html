@@ -3,19 +3,72 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Elysian Fields — M1 Web Delivery Harness</title>
+  <title>Elysian Fields — Curie Clinic Web Shell</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main id="elysian-app" class="app-shell" data-mount-prefix="/elysianfields">
+  <div id="elysian-app" class="app-shell" data-mount-prefix="/elysianfields">
     <header class="app-header">
-      <h1>Elysian Fields M1 Web Delivery</h1>
+      <h1>Elysian Fields — Curie Clinic</h1>
       <p id="status-banner" class="status-banner" role="status" aria-live="polite">
-        Initializing browser delivery probe...
+        Initializing Curie Clinic browser shell...
       </p>
     </header>
 
-    <section class="diagnostics-grid" aria-label="Delivery diagnostics">
+    <section id="fallback-panel" class="fallback-panel" hidden>
+      <h2>Hardware-accelerated browser graphics unavailable</h2>
+      <p id="fallback-detail">
+        Elysian Fields requires WebGL2 (or WebGPU) to render GPU workspaces. Accessible controls remain available below.
+      </p>
+    </section>
+
+    <div class="workspace-grid">
+      <nav class="panel" aria-label="Patient roster">
+        <h2>Patient Roster</h2>
+        <form id="auth-form" class="auth-form" aria-label="Clinician sign-in">
+          <label for="signin-email">Clinician email</label>
+          <input id="signin-email" name="email" type="email" autocomplete="username" placeholder="clinician@practice.example">
+          <div class="auth-row">
+            <button id="btn-signin" type="submit" class="btn btn-primary">Sign in</button>
+            <button id="btn-refresh-roster" type="button" class="btn">Reload roster</button>
+          </div>
+        </form>
+        <ul id="patient-roster-list" class="roster-list" aria-label="Assigned patients">
+          <li><button type="button" class="roster-btn" data-workspace-id="ws-demo-1">Avery, Jordan (Synthetic)</button></li>
+        </ul>
+      </nav>
+
+      <main class="panel" aria-label="Clinical workspace">
+        <h2>Clinical Transcript &amp; Composer</h2>
+        <section aria-label="Evidence citations">
+          <h3>Evidence Panel</h3>
+          <ul id="evidence-list" class="evidence-list">
+            <li class="transcript-item">Ready to inspect cited clinical evidence under /elysianfields/api/.</li>
+          </ul>
+        </section>
+
+        <section aria-label="Transcript stream">
+          <h3>Transcript Stream</h3>
+          <ul id="transcript-list" class="transcript-list" aria-live="polite">
+            <li class="transcript-item">Select a patient workspace or submit a question below.</li>
+          </ul>
+        </section>
+
+        <form id="composer-form" class="composer-form" aria-label="Clinical prompt composer">
+          <label for="composer-draft">Clinical prompt (preserved across context loss):</label>
+          <textarea id="composer-draft" rows="3">Summarize recent glycemic control and active medications.</textarea>
+          <div class="composer-actions">
+            <button id="btn-send-prompt" type="submit" class="btn btn-primary">Send prompt</button>
+            <button id="btn-load-wasm" type="button" class="btn">Load Wasm runtime</button>
+          </div>
+        </form>
+
+        <canvas id="elysian-canvas" width="640" height="180" aria-label="Elysian Fields WebGL2/WebGPU surface"></canvas>
+      </main>
+    </div>
+
+    <section class="panel" aria-label="Delivery diagnostics">
+      <h2>Delivery Diagnostics</h2>
       <dl class="metric-list">
         <dt>Mount Subpath</dt>
         <dd id="metric-subpath">pending</dd>
@@ -23,29 +76,20 @@
         <dd id="metric-backend">probing</dd>
         <dt>Context State</dt>
         <dd id="metric-context">initializing</dd>
+        <dt>ARIA Bridge Nodes</dt>
+        <dd id="metric-a11y-nodes">0</dd>
+        <dt>API Connection</dt>
+        <dd id="metric-api-state">standby</dd>
         <dt>CSP Violations</dt>
         <dd id="metric-csp-violations">0</dd>
-        <dt>Wasm Cold Start</dt>
+        <dt>Cold Start</dt>
         <dd id="metric-cold-start">pending</dd>
         <dt>Wasm Probe Code</dt>
-        <dd id="metric-probe-code">pending</dd>
+        <dd id="metric-probe-code">standby</dd>
       </dl>
     </section>
+  </div>
 
-    <section id="fallback-panel" class="fallback-panel" hidden>
-      <h2>Hardware-accelerated browser graphics unavailable</h2>
-      <p id="fallback-detail">
-        Elysian Fields requires WebGL2 (or WebGPU) to render interactive workspaces.
-      </p>
-    </section>
-
-    <section class="workspace-panel">
-      <label for="composer-draft">Draft composer state (preserved across context loss):</label>
-      <textarea id="composer-draft" rows="3">Order follow-up metabolic panel in 2 weeks.</textarea>
-      <canvas id="elysian-canvas" width="640" height="240" aria-label="Elysian Fields WebGL2/WebGPU surface"></canvas>
-    </section>
-  </main>
-
-  <script type="module" src="./bootstrap.js"></script>
+  <script type="module" src="./boot.js"></script>
 </body>
 </html>
