@@ -23,8 +23,8 @@ scenario_id = "SCN-CLINIC-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "blocked"
@@ -38,16 +38,14 @@ revision = "4d69f5f"
 evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
 
 [requirements.coverage.desktop-windows]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
 
 [[requirements]]
 id = "EF-CLINIC-0002"
@@ -68,8 +66,8 @@ scenario_id = "SCN-M2-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -77,16 +75,14 @@ revision = "4d69f5f"
 evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
 
 [requirements.coverage.desktop-windows]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
 
 [requirements.coverage.android-native]
 state = "blocked"
@@ -112,8 +108,8 @@ scenario_id = "SCN-M2-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [[requirements]]
 id = "EF-CLINIC-0004"
@@ -127,8 +123,8 @@ scenario_id = "SCN-M2-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [[requirements]]
 id = "EF-CLINIC-0005"
@@ -142,13 +138,13 @@ scenario_id = "SCN-M2-0004"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [[requirements]]
 id = "EF-CLINIC-0006"
@@ -162,8 +158,8 @@ scenario_id = "SCN-M2-0005"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -194,8 +190,8 @@ scenario_id = "SCN-M2-0006"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -226,13 +222,13 @@ scenario_id = "SCN-M2-0007"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0009"
@@ -246,13 +242,13 @@ scenario_id = "SCN-M2-0008"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-HARNESS-0001"
@@ -266,13 +262,13 @@ scenario_id = "SCN-M2-0009"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-PLATFORM-0001"
@@ -286,13 +282,13 @@ scenario_id = "SCN-M2-0010"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-PLATFORM-0002"
@@ -306,8 +302,8 @@ scenario_id = "SCN-M2-0011"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -315,16 +311,14 @@ revision = "4d69f5f"
 evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
 
 [requirements.coverage.desktop-windows]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
 
 [[requirements]]
 id = "EF-PLATFORM-0003"
@@ -338,8 +332,8 @@ scenario_id = "SCN-M2-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -370,8 +364,8 @@ scenario_id = "SCN-M3-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -380,8 +374,8 @@ evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0011"
@@ -395,13 +389,13 @@ scenario_id = "SCN-M3-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0012"
@@ -415,13 +409,13 @@ scenario_id = "SCN-M3-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0013"
@@ -435,13 +429,13 @@ scenario_id = "SCN-M3-0004"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0014"
@@ -455,8 +449,8 @@ scenario_id = "SCN-M3-0005"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CLINIC-0015"
@@ -470,8 +464,8 @@ scenario_id = "SCN-M3-0006"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-MOBILE-0001"
@@ -531,8 +525,8 @@ reason = "Physical OS/mobile device unavailable on headless Linux host; automate
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-MOBILE-0003"
@@ -586,8 +580,8 @@ reason = "Physical OS/mobile device unavailable on headless Linux host; automate
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-MOBILE-0005"
@@ -601,8 +595,8 @@ scenario_id = "SCN-M3-0011"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [requirements.coverage.android-native]
 state = "blocked"
@@ -628,8 +622,8 @@ scenario_id = "SCN-M3-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "blocked"
@@ -651,8 +645,8 @@ reason = "Physical OS/mobile device unavailable on headless Linux host; automate
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-CONN-0002"
@@ -672,13 +666,13 @@ reason = "Physical OS/mobile device unavailable on headless Linux host; automate
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-HARNESS-0002"
@@ -692,8 +686,8 @@ scenario_id = "SCN-M3-0014"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-HARNESS-0003"
@@ -707,8 +701,8 @@ scenario_id = "SCN-M3-0015"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-HARNESS-0004"
@@ -722,8 +716,8 @@ scenario_id = "SCN-M3-0016"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-EXT-0001"
@@ -737,8 +731,8 @@ scenario_id = "SCN-M3-0017"
 
 [requirements.coverage.chrome-extension-popup]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright MV3 popup 15.6ms/36ms/19ms job 140665588452)
 
 [[requirements]]
 id = "EF-PUBLIC-0001"
@@ -752,13 +746,13 @@ scenario_id = "SCN-M3-0018"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright JS-disabled public/Dei job 140665588452)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
 
 [[requirements]]
 id = "EF-PUBLIC-0002"
@@ -772,13 +766,13 @@ scenario_id = "SCN-M3-0019"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright JS-disabled public/Dei job 140665588452)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "blocked"
@@ -798,5 +792,5 @@ scenario_id = "SCN-M3-0020"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
+revision = "a9f7abd"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)

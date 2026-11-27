@@ -23,8 +23,8 @@ Targets are evaluated in strict rollout order: **Linux services -> developer bui
 | 2 | **Developer builds** (`x86_64-unknown-linux-gnu`) | **Qualified (opt-in)** | **Qualified (opt-in)** | Clean dev relink matches `lld` (`1.365 s` vs `1.320 s`); ThinLTO release symbolization passes. Incremental in-place ELF patching (`15` `.incr` dirs) requires explicit `--gc-mode incremental-no-gc` (`-Wl,--no-gc-sections -Wl,--incremental`) because default `--gc-sections` falls back to a full padded link (`0` `.incr` dirs). |
 | 3 | **Browser Wasm** (`wasm32-unknown-unknown`) | **Platform default** | **Platform default** | **Blocking upstream gaps**: `elymalloc-core` and `elymalloc-wasm-smoke` pass `cargo check --target wasm32-unknown-unknown`, and `elyld --features wasm` passes `cargo check`, but Wasm `ElyMalloc` uses `memory.grow` without `munmap` shrinking and disables guard pages/threading, `elyld-wasm` is an experimental non-default feature, and neither has been qualified on Bevy `0.20.1` browser Wasm bundles or browser memory-soak/bundle-size budgets. |
 | 4 | **Android** (`aarch64-linux-android`) | **Platform default** | **Platform default** | **Blocking upstream & hardware gaps**: `ElyMalloc` does not list Android/Bionic support in its supported target matrix; `ElyLD` supports Linux ELF AArch64 but Android NDK/Bionic dynamic-linker compatibility is unqualified; no Android device/NDK qualification hardware is attached (`blocked-no-hardware`). |
-| 5 | **Apple (macOS / iOS)** (`aarch64-apple-darwin`, `aarch64-apple-ios`) | **Platform default** | **Platform default** | **Blocking upstream & hardware gaps**: `ElyMalloc` checks cleanly for `aarch64-apple-darwin` but iOS is unlisted and Darwin runtime soak/zone integration is unverified; `ElyLD` Mach-O support (`elyld-macho`) is experimental behind `--features macho` and AArch64-only; no Apple macOS/iOS host or device is attached (`blocked-no-hardware`). |
-| 6 | **Windows** (`x86_64-pc-windows-msvc`) | **Platform default** | **Platform default** | **Blocking upstream & hardware gaps**: `ElyLD` has **no COFF/PE linker support** (hard upstream gap); `ElyMalloc` checks cleanly for `x86_64-pc-windows-msvc` but CRT/runtime soak is unverified because no Windows host is attached (`blocked-no-hardware`). |
+| 5 | **Apple (macOS / iOS)** (`aarch64-apple-darwin`, `aarch64-apple-ios`) | **Platform default** *(macOS core PASS)* | **Platform default** | **Partial macOS proof + remaining upstream/mobile gaps**: On real `macos-15` Apple Silicon (`Cross-Platform Qualification` run `46046078022`, job `140665588115`), pinned `ElyMalloc` (`cce11466`) `cargo test -p elymalloc-core` passed (**`109 passed, 0 failed`** in `0.89 s`). Full-stack macOS adoption stays on platform default pending Darwin C-ABI/malloc-zone soak qualification; iOS remains unlisted in `ElyMalloc` (`blocked-no-hardware`); `ElyLD` Mach-O (`elyld-macho`) remains experimental AArch64-only behind `--features macho`. |
+| 6 | **Windows** (`x86_64-pc-windows-msvc`) | **Platform default** *(MSVC core PASS)* | **Platform default** | **Partial Windows proof + hard linker gap**: On real `windows-latest` (`Windows-2025Server-10.0.26100-SP0`, run `46046078022`, job `140665588503`), pinned `ElyMalloc` (`cce11466`) `elymalloc-core` passed (**`exit_code: 0`** in `8.83 s`). Full-stack Windows allocator adoption stays on platform default pending CRT/runtime soak qualification; `ElyLD` has **no COFF/PE linker backend** (hard upstream gap). |
 
 ---
 
@@ -132,17 +132,20 @@ Built `m1_streaming_perf_bench` and `ef-clinic-server` in `--release` (workspace
 
 ## 5. Apple (macOS and iOS)
 
+- **Verified macOS `ElyMalloc` core proof (`Cross-Platform Qualification` run [`46046078022`](https://github.com/tyler274/ElysianFields/actions/runs/46046078022), job `140665588115` on `macos-15` Apple Silicon)**:
+  - `cargo test -p elymalloc-core` on pinned `tyler274/ElyMalloc` (`cce11466569646e4e1f7afe9b44c6c80dd613b9f`): **`109 passed, 0 failed` in `0.89 s`**.
 - **Compile check run**: `cargo check --locked -p elyld --features macho` (`1.47 s`) succeeded.
 - **Why Apple targets stay on platform default**:
-  1. `ElyMalloc` (`cce11466`) lists `aarch64-apple-darwin` check support but does not list iOS, and Darwin malloc-zone / runtime soak qualification requires an Apple host.
+  1. While `elymalloc-core` unit/property tests pass on `macos-15` Apple Silicon, full-process Darwin C-ABI / malloc-zone soak qualification on Elysian Fields services/clients has not yet been executed, and iOS (`aarch64-apple-ios`) is unlisted in `ElyMalloc`'s target matrix (`blocked-no-hardware`).
   2. `ElyLD`'s Mach-O linker (`elyld-macho`) is experimental behind `--features macho`, AArch64-only, and untested on Apple SDK code signing / `dyld` loading.
-  3. No macOS or iOS hardware is attached (`blocked-no-hardware`).
 
 ## 6. Windows
 
+- **Verified Windows `ElyMalloc` core proof (`Cross-Platform Qualification` run [`46046078022`](https://github.com/tyler274/ElysianFields/actions/runs/46046078022), job `140665588503` on `windows-latest` / `Windows-2025Server-10.0.26100-SP0` MSVC)**:
+  - `cargo test -p elymalloc-core` on pinned `tyler274/ElyMalloc` (`cce11466569646e4e1f7afe9b44c6c80dd613b9f`): **`exit_code: 0` in `8.83 s`**.
 - **Why Windows stays on platform default**:
   1. `ElyLD` (`1b1e263f`) has **no COFF/PE linker backend** (hard upstream gap).
-  2. `ElyMalloc` (`cce11466`) checks cleanly for `x86_64-pc-windows-msvc`, but Windows CRT/runtime soak qualification requires a Windows host (`blocked-no-hardware`).
+  2. While `elymalloc-core` passes on real Windows MSVC, full-process Windows CRT/C-ABI soak qualification on Elysian Fields binaries has not yet been executed.
 
 ---
 
