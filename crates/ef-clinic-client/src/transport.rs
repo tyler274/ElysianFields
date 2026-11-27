@@ -12,6 +12,7 @@ use ef_clinic_domain::chat::{
     ChatCommandError, ChatEngine, ChatStreamEvent, CommandAcceptance, CommandEnvelope,
     CommandPayload, DraftSaveOutcome, DraftStore, PersistedDraft, RetryBackoffMode,
 };
+use ef_clinic_domain::harness_adapter::{ReadRecordsTool, SearchChartTool};
 use ef_clinic_domain::workspace::{
     CitedSourcePayload, MembershipTier, PatientRosterState, WorkspaceAccessError,
     WorkspaceEvidenceStore,
@@ -21,8 +22,7 @@ use ef_core::{
     WorkspaceId,
 };
 use ef_harness::{
-    AgentLoop, CancellationToken, ClinicalTool, HarnessError, ReadRecordsTool, SearchChartTool,
-    StubProvider, TurnExecutionOutcome,
+    AgentLoop, AgentTool, CancellationToken, HarnessError, StubProvider, TurnExecutionOutcome,
 };
 use thiserror::Error;
 
@@ -222,7 +222,7 @@ impl VerticalSliceBackend {
             physician_id: physician_id.clone(),
             store: &self.evidence,
         };
-        let tools: [&dyn ClinicalTool; 2] = [&search_tool, &read_tool];
+        let tools: [&dyn AgentTool; 2] = [&search_tool, &read_tool];
         let outcome = self.agent_loop.run_turn_attempt(
             &mut self.chat,
             &work_item_id,

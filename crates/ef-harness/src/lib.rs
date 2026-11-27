@@ -1,22 +1,18 @@
-//! Headless clinical agent execution loop, `ModelProvider` and `ClinicalTool` traits,
-//! deterministic `StubProvider` fixture (Chapter 3 §3.6), and allowlisted content-free
-//! telemetry spans.
+//! Product-neutral headless agent execution harness, `ModelProvider`, `AgentTool`,
+//! and `TurnStateAdapter` traits, deterministic `StubProvider` fixture, and
+//! allowlisted content-free telemetry spans.
 //!
-//! Strictly free of rendering engine dependencies (`bevy` is forbidden).
+//! Strictly free of product dependencies (`ef-clinic-*`, `ef-mobile-*`), persistence
+//! crates, and rendering engine dependencies (`bevy`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ef_clinic_domain::chat::{
-    ChatCommandError, ChatEngine, ExchangeStep, MAX_FAILURE_ATTEMPTS, StepExecutionState,
-};
-use ef_clinic_domain::workspace::{
-    AnswerSegment, CitationTarget, WorkspaceAccessError, WorkspaceEvidenceStore,
-};
-use ef_core::{
-    AttemptId, ChatId, PhysicianId, PracticeId, ResponseId, SourceKey, WorkItemId, WorkspaceId,
-};
+use ef_core::{AttemptId, ChatId, ResponseId, SourceKey, WorkItemId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+/// Default maximum consecutive transient failures before transitioning to `CouldntFinish`.
+pub const DEFAULT_MAX_FAILURE_ATTEMPTS: u32 = 5;
 
 /// Structured request passed to a [`ModelProvider`] for one execution round.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,26 +35,41 @@ pub struct ToolCall {
     pub arguments: serde_json::Value,
 }
 
-/// Result returned by executing a [`ClinicalTool`].
+/// Result returned by executing an [`AgentTool`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolOutput {
     pub call_id: String,
     pub tool_name: String,
-    pub step: ExchangeStep,
+    /// Product-owned structured step payload recorded by the [`TurnStateAdapter`].
+    pub step_payload: serde_json::Value,
     pub cited_sources: Vec<SourceKey>,
     pub summary: String,
+}
+
+/// Neutral citation reference returned in a completed [`FinalAnswerDraft`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CitedPassage {
+    pub source_key: SourceKey,
+    pub number: u16,
+    pub label: String,
+    pub quote: String,
+}
+
+/// Product-neutral final answer payload produced by a [`ModelProvider`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinalAnswerDraft {
+    pub response_id: ResponseId,
+    pub text: String,
+    pub citations: Vec<CitedPassage>,
 }
 
 /// Outcome returned by a single [`ModelProvider::execute_round`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderRoundOutcome {
-    /// Model requested one or more clinical tool calls before generating final prose.
+    /// Model requested one or more tool calls before generating final prose.
     ToolCalls(Vec<ToolCall>),
-    /// Model finished streaming its clinical answer with verified inline citations.
-    FinalAnswer {
-        response_id: ResponseId,
-        segments: Vec<AnswerSegment>,
-    },
+    /// Model finished streaming its answer with verified inline citations.
+    FinalAnswer(FinalAnswerDraft),
     /// Stream was cancelled mid-flight; partial chunks already delivered remain kept.
     Cancelled,
 }
@@ -72,22 +83,22 @@ pub enum ProviderError {
     NonRetryableRejection { message: String },
 }
 
-/// Typed error returned by [`ClinicalTool::execute`].
+/// Typed error returned by [`AgentTool::execute`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ToolError {
-    #[error("workspace access denied for tool call: {0}")]
-    Access(#[from] WorkspaceAccessError),
+    #[error("access denied for tool call: {message}")]
+    AccessDenied { message: String },
     #[error("invalid tool arguments: {message}")]
     InvalidArguments { message: String },
-    #[error("unknown clinical tool '{name}'")]
+    #[error("unknown agent tool '{name}'")]
     UnknownTool { name: String },
 }
 
-/// Top-level error returned by [`AgentLoop::run_attempt`].
+/// Top-level error returned by [`AgentLoop::run_turn_attempt`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum HarnessError {
-    #[error("chat state transition failed: {0}")]
-    Chat(#[from] ChatCommandError),
+    #[error("turn state transition failed: {message}")]
+    StateTransition { message: String },
     #[error("provider failed: {0}")]
     Provider(#[from] ProviderError),
     #[error("tool execution failed: {0}")]
@@ -96,7 +107,7 @@ pub enum HarnessError {
 
 /// Sink receiving incremental streamed chunks during a provider turn.
 pub trait StreamSink {
-    fn on_delta(&mut self, text_delta: &str) -> Result<(), ChatCommandError>;
+    fn on_delta(&mut self, text_delta: &str) -> Result<(), HarnessError>;
 }
 
 /// Cooperative cancellation token checked between rounds and streamed chunks.
@@ -133,10 +144,58 @@ pub trait ModelProvider {
     ) -> Result<ProviderRoundOutcome, ProviderError>;
 }
 
-/// Scoped clinical tool abstraction (e.g., `search_chart`, `read_records`).
-pub trait ClinicalTool {
+/// Scoped product-neutral agent tool abstraction (e.g., chart search, record read).
+pub trait AgentTool {
     fn name(&self) -> &'static str;
     fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError>;
+}
+
+/// Snapshot of the active work item supplied by a product's [`TurnStateAdapter`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnContext {
+    pub workspace_id: WorkspaceId,
+    pub chat_id: ChatId,
+    pub work_item_id: WorkItemId,
+    pub prompt_text: String,
+    pub failed_attempts: u32,
+}
+
+/// Product-owned state adapter bridging [`AgentLoop`] to any product's turn engine
+/// without coupling `ef-harness` to product domain types.
+pub trait TurnStateAdapter {
+    fn load_turn_context(&self, work_item_id: &WorkItemId) -> Result<TurnContext, HarnessError>;
+
+    fn append_delta(
+        &mut self,
+        work_item_id: &WorkItemId,
+        text_delta: &str,
+        now_secs: u64,
+    ) -> Result<(), HarnessError>;
+
+    fn record_tool_output(
+        &mut self,
+        work_item_id: &WorkItemId,
+        output: &ToolOutput,
+        now_secs: u64,
+    ) -> Result<(), HarnessError>;
+
+    fn complete_turn(
+        &mut self,
+        work_item_id: &WorkItemId,
+        answer: FinalAnswerDraft,
+        attempt_id: AttemptId,
+        now_secs: u64,
+    ) -> Result<(), HarnessError>;
+
+    fn record_attempt_failure(
+        &mut self,
+        work_item_id: &WorkItemId,
+        now_secs: u64,
+    ) -> Result<u32, HarnessError>;
+
+    fn max_failure_attempts(&self) -> u32 {
+        DEFAULT_MAX_FAILURE_ATTEMPTS
+    }
 }
 
 /// Allowlisted content-free telemetry span emitted by [`AgentLoop`].
@@ -161,7 +220,7 @@ pub struct ScriptedToolRound {
     pub arguments: serde_json::Value,
 }
 
-/// Deterministic provider fixture satisfying Chapter 3 §3.6:
+/// Deterministic provider fixture:
 /// - Scripted tool rounds with `fixed-<round>-<index>` call IDs
 /// - Streamed answer chunks with cooperative mid-stream cancellation
 /// - Countdown `remaining_failures` (transient) and `remaining_rejections` (non-retryable)
@@ -179,7 +238,7 @@ pub struct StubProvider {
 }
 
 impl StubProvider {
-    /// Creates a standard 2-tool-round (`search_chart`, `read_records`) + streamed clinical answer fixture.
+    /// Creates a standard 2-tool-round (`search_chart`, `read_records`) + streamed answer fixture.
     #[must_use]
     pub fn clinical_two_round_fixture(cited_source: SourceKey) -> Self {
         Self {
@@ -279,128 +338,22 @@ impl ModelProvider for StubProvider {
             })?;
         self.next_response_seq = self.next_response_seq.saturating_add(1);
 
-        let mut segments = vec![AnswerSegment::Text {
-            text: self.answer_chunks.concat(),
-        }];
-        for (source_key, number, label, quote) in &self.answer_citations {
-            segments.push(AnswerSegment::Citation {
+        let citations = self
+            .answer_citations
+            .iter()
+            .map(|(source_key, number, label, quote)| CitedPassage {
                 source_key: source_key.clone(),
                 number: *number,
                 label: label.clone(),
                 quote: quote.clone(),
-                target: CitationTarget::Passage {
-                    quote: quote.clone(),
-                },
-            });
-        }
+            })
+            .collect();
 
-        Ok(ProviderRoundOutcome::FinalAnswer {
+        Ok(ProviderRoundOutcome::FinalAnswer(FinalAnswerDraft {
             response_id,
-            segments,
-        })
-    }
-}
-
-/// Workspace-scoped `search_chart` tool implementation backed by [`WorkspaceEvidenceStore`].
-pub struct SearchChartTool<'a> {
-    pub practice_id: PracticeId,
-    pub physician_id: PhysicianId,
-    pub store: &'a WorkspaceEvidenceStore,
-}
-
-impl ClinicalTool for SearchChartTool<'_> {
-    fn name(&self) -> &'static str {
-        "search_chart"
-    }
-
-    fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
-        self.store.require_clinical_access(
-            &self.practice_id,
-            &self.physician_id,
-            &call.workspace_id,
-        )?;
-        let query = call
-            .arguments
-            .get("query")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("chart")
-            .to_owned();
-        let group = call
-            .arguments
-            .get("group")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("all")
-            .to_owned();
-        let page = call
-            .arguments
-            .get("page")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|v| u32::try_from(v).ok())
-            .unwrap_or(1);
-
-        Ok(ToolOutput {
-            call_id: call.call_id.clone(),
-            tool_name: self.name().to_owned(),
-            step: ExchangeStep::SearchedChart {
-                query,
-                group,
-                page,
-                state: StepExecutionState::Completed,
-            },
-            cited_sources: Vec::new(),
-            summary: "chart search completed".to_owned(),
-        })
-    }
-}
-
-/// Workspace-scoped `read_records` tool enforcing cross-patient and withdrawn-source isolation.
-pub struct ReadRecordsTool<'a> {
-    pub practice_id: PracticeId,
-    pub physician_id: PhysicianId,
-    pub store: &'a WorkspaceEvidenceStore,
-}
-
-impl ClinicalTool for ReadRecordsTool<'_> {
-    fn name(&self) -> &'static str {
-        "read_records"
-    }
-
-    fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
-        let raw_keys = call
-            .arguments
-            .get("source_keys")
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| ToolError::InvalidArguments {
-                message: "missing source_keys array".to_owned(),
-            })?;
-
-        let mut verified_keys = Vec::with_capacity(raw_keys.len());
-        for raw in raw_keys {
-            let key_str = raw.as_str().ok_or_else(|| ToolError::InvalidArguments {
-                message: "source_keys entries must be strings".to_owned(),
-            })?;
-            let key = SourceKey::new(key_str).map_err(|e| ToolError::InvalidArguments {
-                message: e.to_string(),
-            })?;
-            let _payload = self.store.fetch_cited_source(
-                &self.practice_id,
-                &self.physician_id,
-                &call.workspace_id,
-                &key,
-            )?;
-            verified_keys.push(key);
-        }
-
-        Ok(ToolOutput {
-            call_id: call.call_id.clone(),
-            tool_name: self.name().to_owned(),
-            step: ExchangeStep::ReadRecords {
-                requested: verified_keys.clone(),
-                state: StepExecutionState::Completed,
-            },
-            cited_sources: verified_keys,
-            summary: "verified records read".to_owned(),
-        })
+            text: self.answer_chunks.concat(),
+            citations,
+        }))
     }
 }
 
@@ -414,17 +367,16 @@ pub enum TurnExecutionOutcome {
     RejectedNonRetryable { message: String },
 }
 
-struct EngineStreamSink<'a> {
-    engine: &'a mut ChatEngine,
+struct AdapterStreamSink<'a> {
+    adapter: &'a mut dyn TurnStateAdapter,
     work_item_id: &'a WorkItemId,
     now_secs: u64,
     chunks_emitted: u64,
 }
 
-impl StreamSink for EngineStreamSink<'_> {
-    fn on_delta(&mut self, text_delta: &str) -> Result<(), ChatCommandError> {
-        let _seq = self
-            .engine
+impl StreamSink for AdapterStreamSink<'_> {
+    fn on_delta(&mut self, text_delta: &str) -> Result<(), HarnessError> {
+        self.adapter
             .append_delta(self.work_item_id, text_delta, self.now_secs)?;
         self.chunks_emitted = self.chunks_emitted.saturating_add(1);
         Ok(())
@@ -432,7 +384,7 @@ impl StreamSink for EngineStreamSink<'_> {
 }
 
 /// Headless agent execution loop driving tool calls, incremental streaming, cancel,
-/// bounded 5-failure retry exhaustion, and content-free telemetry spans.
+/// bounded retry exhaustion, and content-free telemetry spans.
 #[derive(Debug, Default)]
 pub struct AgentLoop {
     telemetry: Vec<TelemetrySpan>,
@@ -446,40 +398,36 @@ impl AgentLoop {
         }
     }
 
-    /// Executes one attempt for a claimed `work_item_id` against `provider` and `tools`.
+    /// Executes one attempt for a claimed `work_item_id` against `adapter`, `provider`, and `tools`.
     pub fn run_turn_attempt(
         &mut self,
-        engine: &mut ChatEngine,
+        adapter: &mut dyn TurnStateAdapter,
         work_item_id: &WorkItemId,
         provider: &mut dyn ModelProvider,
-        tools: &[&dyn ClinicalTool],
+        tools: &[&dyn AgentTool],
         cancel: &CancellationToken,
         now_secs: u64,
     ) -> Result<TurnExecutionOutcome, HarnessError> {
-        let Some(exchange) = engine.exchange(work_item_id).cloned() else {
-            return Err(HarnessError::Chat(ChatCommandError::NotFound {
-                work_item_id: work_item_id.as_str().to_owned(),
-            }));
-        };
-
-        let attempt_num = exchange.failed_attempts.saturating_add(1);
+        let context = adapter.load_turn_context(work_item_id)?;
+        let attempt_num = context.failed_attempts.saturating_add(1);
+        let max_failures = adapter.max_failure_attempts().max(1);
         let mut tool_results = Vec::new();
         let mut total_chunks = 0u64;
 
         for round in 1..=8u32 {
             let request = ProviderRequest {
-                workspace_id: exchange.workspace_id.clone(),
-                chat_id: exchange.chat_id.clone(),
+                workspace_id: context.workspace_id.clone(),
+                chat_id: context.chat_id.clone(),
                 work_item_id: work_item_id.clone(),
                 round,
                 attempt: attempt_num,
-                prompt_text: exchange.prompt_text.clone(),
+                prompt_text: context.prompt_text.clone(),
                 tool_results: tool_results.clone(),
             };
 
             let outcome = {
-                let mut sink = EngineStreamSink {
-                    engine,
+                let mut sink = AdapterStreamSink {
+                    adapter,
                     work_item_id,
                     now_secs,
                     chunks_emitted: 0,
@@ -500,10 +448,10 @@ impl AgentLoop {
                                 name: call.tool_name.clone(),
                             })?;
                         let output = tool.execute(&call)?;
-                        engine.record_step(work_item_id, output.step.clone(), now_secs)?;
+                        adapter.record_tool_output(work_item_id, &output, now_secs)?;
                         self.telemetry.push(TelemetrySpan {
                             span_name: "harness.tool.execute",
-                            workspace_id: exchange.workspace_id.clone(),
+                            workspace_id: context.workspace_id.clone(),
                             work_item_id: work_item_id.clone(),
                             attempt: attempt_num,
                             tool_name: Some(call.tool_name),
@@ -513,25 +461,17 @@ impl AgentLoop {
                         tool_results.push(output);
                     }
                 }
-                Ok(ProviderRoundOutcome::FinalAnswer {
-                    response_id,
-                    segments,
-                }) => {
+                Ok(ProviderRoundOutcome::FinalAnswer(answer)) => {
+                    let response_id = answer.response_id.clone();
                     let attempt_id = AttemptId::new(format!("att-{attempt_num}")).map_err(|e| {
-                        HarnessError::Chat(ChatCommandError::Rejected {
+                        HarnessError::StateTransition {
                             message: e.to_string(),
-                        })
+                        }
                     })?;
-                    engine.complete_exchange(
-                        work_item_id,
-                        response_id.clone(),
-                        attempt_id,
-                        format!("epoch-{now_secs}"),
-                        segments,
-                    )?;
+                    adapter.complete_turn(work_item_id, answer, attempt_id, now_secs)?;
                     self.telemetry.push(TelemetrySpan {
                         span_name: "harness.turn.complete",
-                        workspace_id: exchange.workspace_id,
+                        workspace_id: context.workspace_id,
                         work_item_id: work_item_id.clone(),
                         attempt: attempt_num,
                         tool_name: None,
@@ -543,7 +483,7 @@ impl AgentLoop {
                 Ok(ProviderRoundOutcome::Cancelled) => {
                     self.telemetry.push(TelemetrySpan {
                         span_name: "harness.turn.cancelled",
-                        workspace_id: exchange.workspace_id,
+                        workspace_id: context.workspace_id,
                         work_item_id: work_item_id.clone(),
                         attempt: attempt_num,
                         tool_name: None,
@@ -553,11 +493,11 @@ impl AgentLoop {
                     return Ok(TurnExecutionOutcome::StoppedMidStream);
                 }
                 Err(ProviderError::Transient { .. }) => {
-                    let failures = engine.record_attempt_failure(work_item_id, now_secs)?;
-                    let exhausted = failures >= MAX_FAILURE_ATTEMPTS;
+                    let failures = adapter.record_attempt_failure(work_item_id, now_secs)?;
+                    let exhausted = failures >= max_failures;
                     self.telemetry.push(TelemetrySpan {
                         span_name: "harness.turn.failure",
-                        workspace_id: exchange.workspace_id,
+                        workspace_id: context.workspace_id,
                         work_item_id: work_item_id.clone(),
                         attempt: attempt_num,
                         tool_name: None,
@@ -581,7 +521,7 @@ impl AgentLoop {
                 Err(ProviderError::NonRetryableRejection { message }) => {
                     self.telemetry.push(TelemetrySpan {
                         span_name: "harness.turn.rejected",
-                        workspace_id: exchange.workspace_id,
+                        workspace_id: context.workspace_id,
                         work_item_id: work_item_id.clone(),
                         attempt: attempt_num,
                         tool_name: None,

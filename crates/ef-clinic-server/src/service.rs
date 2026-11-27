@@ -15,6 +15,7 @@ use ef_clinic_domain::chat::{
     CommandPayload, DraftSaveOutcome, DraftStore, ExchangeRecord, MAX_FAILURE_ATTEMPTS,
     PersistedDraft, RetryBackoffMode,
 };
+use ef_clinic_domain::harness_adapter::{ReadRecordsTool, SearchChartTool};
 use ef_clinic_domain::workspace::{
     CitedSourcePayload, MembershipTier, PatientWorkspaceSummary, WorkspaceAccessError,
     WorkspaceEvidenceStore,
@@ -29,10 +30,7 @@ use ef_connected_care::{ConnectedCareBridge, InvitationId, PairKey};
 use ef_core::{
     ChatId, PhysicianId, PracticeId, SessionId, SourceKey, Subpath, WorkItemId, WorkspaceId,
 };
-use ef_harness::{
-    AgentLoop, CancellationToken, ClinicalTool, ReadRecordsTool, SearchChartTool, StubProvider,
-    TurnExecutionOutcome,
-};
+use ef_harness::{AgentLoop, AgentTool, CancellationToken, StubProvider, TurnExecutionOutcome};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -358,9 +356,34 @@ impl ClinicService {
         self.handle_request_from_ip(req, &client_ip)
     }
 
+    /// Replays any WAL entries committed by peer server instances sharing the same durable directory.
+    pub fn sync_from_wal(&mut self) -> Result<usize, ClinicServiceError> {
+        let new_entries = self.wal.sync_new_entries()?;
+        let count = new_entries.len();
+        for entry in new_entries {
+            self.replay_wal_entry(entry);
+        }
+        Ok(count)
+    }
+
     /// Routes and executes a single HTTP/1.1 request attributed to `client_ip` with
-    /// per-IP sliding-window ingress rate limiting.
+    /// per-IP sliding-window ingress rate limiting and cross-instance WAL synchronization.
     pub fn handle_request_from_ip(&mut self, req: &HttpRequest, client_ip: &str) -> HttpResponse {
+        let _lock = match self.wal.acquire_cross_instance_lock() {
+            Ok(guard) => guard,
+            Err(err) => return wal_failure_response(&err),
+        };
+        if let Err(ClinicServiceError::Wal(err)) = self.sync_from_wal() {
+            return wal_failure_response(&err);
+        }
+        self.handle_request_from_ip_locked(req, client_ip)
+    }
+
+    fn handle_request_from_ip_locked(
+        &mut self,
+        req: &HttpRequest,
+        client_ip: &str,
+    ) -> HttpResponse {
         // 0. Enforce per-IP sliding-window ingress rate limit.
         if let RateLimitDecision::Exceeded { retry_after_secs } = self
             .rate_limiter
@@ -1184,7 +1207,7 @@ impl ClinicService {
             physician_id: physician_id.clone(),
             store: &self.evidence,
         };
-        let tools: [&dyn ClinicalTool; 2] = [&search_tool, &read_tool];
+        let tools: [&dyn AgentTool; 2] = [&search_tool, &read_tool];
 
         for _ in 0..MAX_FAILURE_ATTEMPTS {
             let now_secs = self.clock_secs;
