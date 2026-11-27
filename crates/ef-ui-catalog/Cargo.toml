@@ -1,0 +1,26 @@
+[package]
+name = "ef-ui-catalog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared Bevy 0.20.1 UI catalog for Curie Clinic and Curie Mobile: WCAG AA themes, reduced motion, idle redraw gate, composer/IME, AccessKit/ARIA bridge, virtualized lists/tables, shortcuts, and 9-locale i18n."
+
+[dependencies]
+accesskit = { workspace = true }
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
