@@ -67,8 +67,8 @@ class TestCheckDisposition(unittest.TestCase):
         self.assertEqual(stats["requirements_total"], 33)
         self.assertEqual(stats["requirements_covered"], 33)
         self.assertEqual(stats["ledger_unknown_cells"], 0)
-        self.assertEqual(stats["ledger_passed_cells"], 51)
-        self.assertEqual(stats["ledger_blocked_cells"], 33)
+        self.assertEqual(stats["ledger_passed_cells"], 57)
+        self.assertEqual(stats["ledger_blocked_cells"], 27)
 
     def test_m5_docs_have_zero_wall_violations_across_all_scopes(self) -> None:
         m5_dir = REPO_ROOT / "docs" / "m5"
