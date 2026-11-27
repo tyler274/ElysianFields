@@ -15,6 +15,7 @@ members = [
     "crates/ef-boundaries",
     "crates/ef-clinic-server",
     "crates/ef-clinic-client",
+    "crates/ef-connected-care",
 ]
 
 [workspace.package]
@@ -33,6 +34,7 @@ ef-core = { path = "crates/ef-core" }
 ef-clinic-domain = { path = "crates/ef-clinic-domain" }
 ef-harness = { path = "crates/ef-harness" }
 ef-ui-catalog = { path = "crates/ef-ui-catalog" }
+ef-connected-care = { path = "crates/ef-connected-care" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
