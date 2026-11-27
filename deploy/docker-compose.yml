@@ -1,0 +1,118 @@
+# Local and staging multi-service stack for Elysian Fields.
+# Runs PostgreSQL 18 with strictly isolated Clinic and Mobile databases alongside
+# the three rootless Rust server images (`ef-clinic-server`, `ef-mobile-server`,
+# and `ef-public-site`). No production secrets are stored here.
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: ${EF_PG_USER:-elysian}
+      POSTGRES_PASSWORD: ${EF_PG_PASSWORD:-elysian_local_dev}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres-init/01-init-isolated-dbs.sh:/docker-entrypoint-initdb.d/01-init-isolated-dbs.sh:ro
+      - ../crates/ef-clinic-server/migrations:/migrations/clinic:ro
+      - ../crates/ef-mobile-server/migrations:/migrations/mobile:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${EF_PG_USER:-elysian} -d ef_clinic && pg_isready -U ${EF_PG_USER:-elysian} -d ef_mobile"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  clinic:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.clinic
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EF_CLINIC_BIND: 0.0.0.0:8088
+      EF_CLINIC_DATA_DIR: /var/lib/elysian/clinic
+      EF_CLINIC_WEB_DIR: /srv/elysianfields/web
+      EF_CLINIC_DATABASE_URL: postgresql://${EF_PG_USER:-elysian}:${EF_PG_PASSWORD:-elysian_local_dev}@postgres:5432/ef_clinic
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - clinic-data:/var/lib/elysian/clinic
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8088/elysianfields/ >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mobile:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.mobile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      EF_MOBILE_BIND: 0.0.0.0:8089
+      EF_MOBILE_DATA_DIR: /var/lib/elysian/mobile-data
+      EF_MOBILE_JOURNAL_DIR: /var/lib/elysian/mobile-journal
+      EF_MOBILE_DATABASE_URL: postgresql://${EF_PG_USER:-elysian}:${EF_PG_PASSWORD:-elysian_local_dev}@postgres:5432/ef_mobile
+    ports:
+      - "127.0.0.1:8089:8089"
+    volumes:
+      - mobile-data:/var/lib/elysian/mobile-data
+      - mobile-journal:/var/lib/elysian/mobile-journal
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8089/elysianfields/mobile-api/readyz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  public-site:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.public
+    environment:
+      EF_PUBLIC_BIND: 0.0.0.0:8082
+      EF_PUBLIC_MODE: ${EF_PUBLIC_MODE:-production}
+    ports:
+      - "127.0.0.1:8082:8082"
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8082/health >/dev/null && curl -fsS http://127.0.0.1:8082/readyz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres-data:
+  clinic-data:
+  mobile-data:
+  mobile-journal:

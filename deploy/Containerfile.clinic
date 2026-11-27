@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.7
+# Rootless multi-stage production image for the headless Curie Clinic server
+# (`ef-clinic-server`) serving `/elysianfields/` static assets and HTTP/SSE APIs.
+
+FROM rust:1.99.1-slim-bookworm AS builder
+
+WORKDIR /src
+
+# Copy workspace manifests first for dependency layer caching.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml deny.toml ./
+COPY crates ./crates
+
+RUN cargo build --locked --release -p ef-clinic-server --bin ef-clinic-server
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 --system elysian \
+    && useradd --uid 10001 --gid 10001 --system --no-create-home --shell /usr/sbin/nologin elysian \
+    && mkdir -p /var/lib/elysian/clinic /srv/elysianfields/web \
+    && chown -R 10001:10001 /var/lib/elysian/clinic
+
+COPY --from=builder /src/target/release/ef-clinic-server /usr/local/bin/ef-clinic-server
+COPY web/elysianfields/ /srv/elysianfields/web/
+
+ENV EF_CLINIC_BIND=0.0.0.0:8088 \
+    EF_CLINIC_DATA_DIR=/var/lib/elysian/clinic \
+    EF_CLINIC_WEB_DIR=/srv/elysianfields/web
+
+USER 10001:10001
+EXPOSE 8088
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8088/elysianfields/ >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/ef-clinic-server"]

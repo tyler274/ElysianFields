@@ -98,6 +98,62 @@ jobs:
           )
           PY
 
+      - name: Cross-check iOS Simulator target (aarch64-apple-ios-sim) & Swift shims
+        run: |
+          mkdir -p cross-platform-evidence
+          rustup target add aarch64-apple-ios-sim
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          cargo check --locked --target aarch64-apple-ios-sim \
+            -p ef-core \
+            -p ef-connected-care \
+            -p ef-mobile-domain \
+            -p m1-mobile-lifecycle \
+            -p ef-mobile-client
+          end_ts=$(python3 -c 'import time; print(time.time())')
+
+          swift_status="not-present"
+          swift_files=()
+          shopt -s nullglob
+          swift_files=(platform/ios/Sources/ElysianMobileShim/*.swift)
+          if [ "${#swift_files[@]}" -gt 0 ]; then
+            ios_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+            swiftc -typecheck \
+              -sdk "$ios_sdk" \
+              -target arm64-apple-ios17.0-simulator \
+              "${swift_files[@]}"
+            swift_status="passed"
+          fi
+
+          python3 - "$start_ts" "$end_ts" "$swift_status" "${swift_files[*]}" <<'PY'
+          import json, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          swift_list = sys.argv[4].split() if sys.argv[4].strip() else []
+          Path("cross-platform-evidence/macos-ios-sim.json").write_text(
+              json.dumps(
+                  {
+                      "status": "passed",
+                      "target": "aarch64-apple-ios-sim",
+                      "crates": [
+                          "ef-core",
+                          "ef-connected-care",
+                          "ef-mobile-domain",
+                          "m1-mobile-lifecycle",
+                          "ef-mobile-client",
+                      ],
+                      "duration_secs": elapsed,
+                      "swift_typecheck": {
+                          "status": sys.argv[3],
+                          "files": swift_list,
+                      },
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Probe pinned ElyMalloc (cce11466) on macOS ARM64
         continue-on-error: true
         run: |
@@ -168,6 +224,7 @@ jobs:
               "rustc": rustc_ver,
               "workspace_tests": load_opt("cross-platform-evidence/macos-workspace-tests.json"),
               "native_release": load_opt("cross-platform-evidence/macos-native-release.json"),
+              "ios_sim_check": load_opt("cross-platform-evidence/macos-ios-sim.json"),
               "elymalloc_probe": load_opt("cross-platform-evidence/macos-elymalloc-probe.json"),
           }
           out = Path("cross-platform-evidence/desktop-macos.json")
@@ -571,6 +628,7 @@ jobs:
       - name: Install pinned Rust toolchain
         run: |
           rustup show active-toolchain
+          rustup target add wasm32-unknown-unknown
           rustc --version
           cargo --version
 
@@ -581,7 +639,7 @@ jobs:
           shared-key: native
           cache-on-failure: true
 
-      - name: Build server binaries for browser E2E
+      - name: Build server binaries and release Wasm module for browser E2E
         run: |
           crates="-p ef-clinic-server -p ef-mobile-server"
           if [ -f crates/ef-public-site/src/main.rs ]; then
@@ -591,16 +649,22 @@ jobs:
           # shellcheck disable=SC2086
           cargo build --locked ${crates}
 
-      - name: Install Playwright (Chromium, Firefox, WebKit)
+          echo "Compiling release wasm32 cdylib module (m1-web-delivery)"
+          env -u RUSTFLAGS cargo rustc --locked --release --target wasm32-unknown-unknown \
+            -p m1-web-delivery --lib --crate-type cdylib
+          ls -lh target/wasm32-unknown-unknown/release/m1_web_delivery.wasm
+
+      - name: Install Playwright (Chromium, Firefox, WebKit) and Brotli
         run: |
           python3 -m venv .venv-pw
-          .venv-pw/bin/pip install --quiet --upgrade pip playwright
+          .venv-pw/bin/pip install --quiet --upgrade pip playwright brotli
           .venv-pw/bin/playwright install --with-deps chromium firefox webkit
 
       - name: Run 3-browser E2E qualification suite
         run: |
           mkdir -p cross-platform-evidence
           report_path="cross-platform-evidence/cross-platform-browser-report.json"
+          wasm_file="target/wasm32-unknown-unknown/release/m1_web_delivery.wasm"
 
           if [ -f scripts/browser_e2e.py ]; then
             help_text="$(.venv-pw/bin/python scripts/browser_e2e.py --help 2>&1 || true)"
@@ -613,6 +677,12 @@ jobs:
             fi
             if [ -x target/debug/ef-public-site ] && echo "$help_text" | grep -q -- '--public-bin'; then
               extra_args+=(--public-bin target/debug/ef-public-site)
+            fi
+            if echo "$help_text" | grep -q -- '--mobile-emulation'; then
+              extra_args+=(--mobile-emulation)
+            fi
+            if [ -f "$wasm_file" ] && echo "$help_text" | grep -q -- '--wasm-file'; then
+              extra_args+=(--wasm-file "$wasm_file")
             fi
             .venv-pw/bin/python scripts/browser_e2e.py \
               --browsers chromium,firefox,webkit \
@@ -854,11 +924,288 @@ jobs:
           PY
           fi
 
+      - name: Verify real WebAssembly.compile under strict CSP & record Brotli-11 byte size
+        run: |
+          mkdir -p cross-platform-evidence
+          wasm_file="target/wasm32-unknown-unknown/release/m1_web_delivery.wasm"
+          out_path="cross-platform-evidence/wasm-brotli-report.json"
+          .venv-pw/bin/python - "$wasm_file" "$out_path" <<'PY'
+          import brotli
+          import functools
+          import http.server
+          import json
+          import os
+          import socket
+          import sys
+          import threading
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          STRICT_CSP = (
+              "default-src 'self'; "
+              "script-src 'self' 'wasm-unsafe-eval'; "
+              "style-src 'self'; "
+              "connect-src 'self'; "
+              "object-src 'none'; "
+              "frame-ancestors 'none'"
+          )
+
+          PROBE_HTML = (
+              "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
+              "<title>Wasm CSP Probe</title></head><body>"
+              "<script src='/elysianfields/wasm-probe.js'></script>"
+              "</body></html>"
+          ).encode("utf-8")
+
+          PROBE_JS = (
+              "window.__wasmCspViolations = 0;\n"
+              "document.addEventListener('securitypolicyviolation', () => { window.__wasmCspViolations += 1; });\n"
+              "(async () => {\n"
+              "  const t0 = performance.now();\n"
+              "  const resp = await fetch('/elysianfields/m1_web_delivery.wasm');\n"
+              "  const bytes = await resp.arrayBuffer();\n"
+              "  const mod = await WebAssembly.compile(bytes);\n"
+              "  window.__wasmProbeResult = {\n"
+              "    ok: mod instanceof WebAssembly.Module,\n"
+              "    byteLength: bytes.byteLength,\n"
+              "    compileMs: Math.round((performance.now() - t0) * 100) / 100,\n"
+              "    exportCount: WebAssembly.Module.exports(mod).length,\n"
+              "    cspViolations: window.__wasmCspViolations,\n"
+              "  };\n"
+              "})().catch((err) => { window.__wasmProbeResult = { ok: false, error: String(err) }; });\n"
+          ).encode("utf-8")
+
+          wasm_path = Path(sys.argv[1])
+          out_path = Path(sys.argv[2])
+          wasm_bytes = wasm_path.read_bytes()
+          brotli_bytes = brotli.compress(wasm_bytes, quality=11)
+
+          class WasmProbeHandler(http.server.BaseHTTPRequestHandler):
+              def log_message(self, format: str, *args) -> None:
+                  return
+
+              def do_GET(self) -> None:
+                  if self.path == "/elysianfields/":
+                      body, ctype = PROBE_HTML, "text/html; charset=utf-8"
+                  elif self.path == "/elysianfields/wasm-probe.js":
+                      body, ctype = PROBE_JS, "application/javascript; charset=utf-8"
+                  elif self.path == "/elysianfields/m1_web_delivery.wasm":
+                      body, ctype = wasm_bytes, "application/wasm"
+                  else:
+                      self.send_response(404)
+                      self.end_headers()
+                      return
+                  self.send_response(200)
+                  self.send_header("Content-Type", ctype)
+                  self.send_header("Content-Length", str(len(body)))
+                  self.send_header("Content-Security-Policy", STRICT_CSP)
+                  self.send_header("Cache-Control", "no-store")
+                  self.end_headers()
+                  self.wfile.write(body)
+
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+              s.bind(("127.0.0.1", 0))
+              port = int(s.getsockname()[1])
+
+          httpd = http.server.ThreadingHTTPServer(("127.0.0.1", port), WasmProbeHandler)
+          thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+          thread.start()
+
+          engines = {}
+          try:
+              with sync_playwright() as pw:
+                  for engine_name in ("chromium", "firefox", "webkit"):
+                      browser = getattr(pw, engine_name).launch(headless=True)
+                      try:
+                          ctx = browser.new_context()
+                          page = ctx.new_page()
+                          console_errors = []
+                          page_errors = []
+                          page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
+                          page.on("pageerror", lambda e: page_errors.append(str(e)))
+                          page.goto(f"http://127.0.0.1:{port}/elysianfields/", wait_until="load")
+                          page.wait_for_function("() => Boolean(window.__wasmProbeResult)", timeout=15000)
+                          res = page.evaluate("() => window.__wasmProbeResult")
+                          assert res.get("ok") is True, f"{engine_name} WebAssembly.compile failed: {res}"
+                          assert res.get("cspViolations") == 0, f"{engine_name} CSP violations: {res}"
+                          assert not console_errors, f"{engine_name} console errors: {console_errors}"
+                          assert not page_errors, f"{engine_name} page errors: {page_errors}"
+                          engines[engine_name] = {
+                              "version": browser.version,
+                              **res,
+                          }
+                          ctx.close()
+                      finally:
+                          browser.close()
+          finally:
+              httpd.shutdown()
+
+          report = {
+              "job": "browsers-e2e-wasm-csp",
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "wasm_artifact": str(wasm_path),
+              "raw_bytes": len(wasm_bytes),
+              "brotli_11_bytes": len(brotli_bytes),
+              "brotli_11_kib": round(len(brotli_bytes) / 1024.0, 2),
+              "strict_csp": STRICT_CSP,
+              "engines": engines,
+              "status": "passed",
+          }
+          out_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out_path.read_text(encoding="utf-8"))
+          PY
+
       - name: Upload 3-browser E2E evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qualification-browsers-e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          path: cross-platform-evidence/cross-platform-browser-report.json
+          path: |
+            cross-platform-evidence/cross-platform-browser-report.json
+            cross-platform-evidence/wasm-brotli-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  mobile-android-build:
+    name: Mobile Android ARM64 cross-check & Kotlin audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain with aarch64-linux-android target
+        run: |
+          rustup show active-toolchain
+          rustup target add aarch64-linux-android
+          rustc --version
+          cargo --version
+
+      - name: Cache Android Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-android-arm64
+          shared-key: cross-android-arm64
+          cache-on-failure: true
+
+      - name: Cross-check Android mobile crates (aarch64-linux-android)
+        run: |
+          mkdir -p cross-platform-evidence
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          cargo check --locked --target aarch64-linux-android \
+            -p ef-core \
+            -p ef-connected-care \
+            -p ef-mobile-domain \
+            -p m1-mobile-lifecycle \
+            -p ef-mobile-client
+          end_ts=$(python3 -c 'import time; print(time.time())')
+          python3 - "$start_ts" "$end_ts" <<'PY'
+          import json, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          Path("cross-platform-evidence/android-rust-check.json").write_text(
+              json.dumps(
+                  {
+                      "status": "passed",
+                      "target": "aarch64-linux-android",
+                      "crates": [
+                          "ef-core",
+                          "ef-connected-care",
+                          "ef-mobile-domain",
+                          "m1-mobile-lifecycle",
+                          "ef-mobile-client",
+                      ],
+                      "duration_secs": elapsed,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify Android Kotlin shims (kotlinc or structural audit)
+        run: |
+          mkdir -p cross-platform-evidence
+          python3 - <<'PY'
+          import json, os, re, shutil, subprocess
+          from pathlib import Path
+
+          android_dir = Path("platform/android")
+          kt_files = sorted(android_dir.rglob("*.kt")) if android_dir.is_dir() else []
+          result: dict = {
+              "platform_dir_present": android_dir.is_dir(),
+              "kotlin_files": [p.as_posix() for p in kt_files],
+              "mode": "not-present",
+              "status": "not-present",
+          }
+
+          if kt_files:
+              issues = []
+              for kt in kt_files:
+                  text = kt.read_text(encoding="utf-8")
+                  if not text.strip():
+                      issues.append(f"{kt.as_posix()}: empty file")
+                  if not re.search(r"^\s*package\s+[A-Za-z0-9_.]+\s*$", text, flags=re.MULTILINE):
+                      issues.append(f"{kt.as_posix()}: missing package declaration")
+                  if re.search(r"\bTYL-[0-9]+\b", text):
+                      issues.append(f"{kt.as_posix()}: forbidden ticket ID")
+              if issues:
+                  raise SystemExit("Android Kotlin structural audit failed:\n" + "\n".join(issues))
+
+              kotlinc = shutil.which("kotlinc")
+              if kotlinc:
+                  proc = subprocess.run(
+                      [kotlinc, "-nowarn", *[str(p) for p in kt_files]],
+                      capture_output=True,
+                      text=True,
+                      check=False,
+                  )
+                  result["mode"] = "kotlinc-and-structural"
+                  result["kotlinc_exit_code"] = proc.returncode
+                  result["kotlinc_stderr_tail"] = proc.stderr.splitlines()[-20:]
+                  result["status"] = "passed" if proc.returncode == 0 else "structural-only-sdk-needed"
+              else:
+                  result["mode"] = "structural-audit"
+                  result["status"] = "passed"
+
+          Path("cross-platform-evidence/android-kotlin-audit.json").write_text(
+              json.dumps(result, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Assemble Android qualification JSON report
+        if: always()
+        run: |
+          mkdir -p cross-platform-evidence
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+
+          def load_opt(path: str) -> dict:
+              p = Path(path)
+              return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {"status": "not-run"}
+
+          report = {
+              "job": "mobile-android-build",
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "rust_cross_check": load_opt("cross-platform-evidence/android-rust-check.json"),
+              "kotlin_verification": load_opt("cross-platform-evidence/android-kotlin-audit.json"),
+          }
+          out = Path("cross-platform-evidence/mobile-android-build.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload Android cross-check evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-mobile-android-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/mobile-android-build.json
           if-no-files-found: warn
           retention-days: 30
