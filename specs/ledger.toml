@@ -22,29 +22,32 @@ package = "specs/packages/example-session-shell"
 scenario_id = "SCN-CLINIC-0001"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.desktop-windows]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CLINIC-0002"
@@ -64,34 +67,38 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0001"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.desktop-windows]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CLINIC-0003"
@@ -104,9 +111,9 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0002"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-CLINIC-0004"
@@ -119,9 +126,9 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0003"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-CLINIC-0005"
@@ -134,14 +141,14 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0004"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-CLINIC-0006"
@@ -154,24 +161,26 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0005"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CLINIC-0007"
@@ -184,24 +193,26 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0006"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CLINIC-0008"
@@ -214,14 +225,14 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0007"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-CLINIC-0009"
@@ -234,14 +245,14 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0008"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-HARNESS-0001"
@@ -254,14 +265,14 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0009"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-PLATFORM-0001"
@@ -274,14 +285,14 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0010"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.hosted-services]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [[requirements]]
 id = "EF-PLATFORM-0002"
@@ -294,24 +305,26 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0011"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.desktop-windows]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-PLATFORM-0003"
@@ -324,24 +337,26 @@ package = "specs/packages/m2-physician-vertical-slice"
 scenario_id = "SCN-M2-0012"
 
 [requirements.coverage.browser-wasm-desktop]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-linux]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "passed"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [requirements.coverage.ios-native]
-state = "unknown"
-revision = ""
-evidence = ""
+state = "blocked"
+revision = "4d69f5f"
+evidence = "docs/m2/verification-and-estimate.md"
+reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
 
 [[requirements]]
 id = "EF-CLINIC-0010"
