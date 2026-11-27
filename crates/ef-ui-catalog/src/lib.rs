@@ -28,7 +28,8 @@ pub use composer::{
     next_cluster_boundary, prev_cluster_boundary,
 };
 pub use i18n::{
-    HorizontalEdge, LOCALE_STORAGE_KEY, Locale, TextDirection, UiKey, UiLocale, translate,
+    ChromeProduct, HorizontalEdge, LOCALE_STORAGE_KEY, Locale, LocalizedChrome, TextDirection,
+    UiKey, UiLocale, localized_chrome, translate,
 };
 pub use motion::{
     AnimationMode, FrameDecision, IdleRedrawGate, MotionPolicy, RedrawReason, ReducedMotion,
@@ -122,6 +123,10 @@ mod tests {
             Locale::resolve(Some("ar-EG"), Some("fr"), &["de-DE"]),
             Locale::Ar
         );
+        assert_eq!(Locale::parse_bcp47("he-IL"), Some(Locale::He));
+        assert_eq!(Locale::parse_bcp47("iw"), Some(Locale::He));
+        assert_eq!(Locale::parse_bcp47("vi-VN"), Some(Locale::Vi));
+        assert_eq!(Locale::parse_bcp47("hi-IN"), Some(Locale::Hi));
         assert_eq!(
             Locale::resolve(Some("unknown"), Some("zh_Hans"), &["ja-JP"]),
             Locale::ZhHans
@@ -132,15 +137,32 @@ mod tests {
         );
         assert_eq!(Locale::resolve(None, None, &["xx-YY"]), Locale::En);
 
-        // RTL mirroring for Arabic vs LTR for all other 8 locales.
-        assert!(Locale::Ar.is_rtl());
-        assert_eq!(Locale::Ar.sidebar_edge(), HorizontalEdge::Right);
-        assert_eq!(Locale::Ar.citation_panel_edge(), HorizontalEdge::Left);
-        assert_eq!(Locale::En.sidebar_edge(), HorizontalEdge::Left);
-        assert_eq!(Locale::En.citation_panel_edge(), HorizontalEdge::Right);
+        // RTL mirroring for BOTH Arabic and Hebrew vs LTR for all other 10 locales.
+        for rtl_locale in [Locale::Ar, Locale::He] {
+            assert!(rtl_locale.is_rtl());
+            assert_eq!(rtl_locale.direction(), TextDirection::Rtl);
+            assert_eq!(
+                rtl_locale.row_flex_direction(),
+                bevy::ui::FlexDirection::RowReverse
+            );
+            assert_eq!(rtl_locale.sidebar_edge(), HorizontalEdge::Right);
+            assert_eq!(rtl_locale.citation_panel_edge(), HorizontalEdge::Left);
+        }
+        for ltr_locale in [
+            Locale::En,
+            Locale::ZhHans,
+            Locale::Ja,
+            Locale::Vi,
+            Locale::Hi,
+        ] {
+            assert!(!ltr_locale.is_rtl());
+            assert_eq!(ltr_locale.sidebar_edge(), HorizontalEdge::Left);
+            assert_eq!(ltr_locale.citation_panel_edge(), HorizontalEdge::Right);
+        }
 
-        // Compile-time exhaustive check: all 9 locales x 56 keys (504 entries) are non-empty.
-        assert!(UiKey::ALL.len() >= 51);
+        // Compile-time exhaustive check: all 12 locales x 56 keys (672 entries) are non-empty.
+        assert_eq!(Locale::ALL.len(), 12);
+        assert_eq!(UiKey::ALL.len(), 56);
         for locale in Locale::ALL {
             for key in UiKey::ALL {
                 let text = translate(locale, key);
@@ -149,6 +171,13 @@ mod tests {
                     "empty translation for {locale:?} / {key:?}"
                 );
             }
+            let clinic_chrome = localized_chrome(locale, ChromeProduct::Clinic);
+            let mobile_chrome = localized_chrome(locale, ChromeProduct::Mobile);
+            assert!(!clinic_chrome.app_brand.is_empty());
+            assert!(!mobile_chrome.app_brand.is_empty());
+            assert!(mobile_chrome.crisis_heading.contains("988"));
+            assert!(mobile_chrome.crisis_heading.contains("911"));
+            assert!(mobile_chrome.crisis_heading.contains("SAMHSA"));
         }
     }
 
@@ -236,6 +265,43 @@ mod tests {
             bottom_inset_px: 310.0,
         });
         assert!((arabic.visible_height_above_keyboard(844.0) - 534.0).abs() < 0.01);
+
+        // Hebrew RTL with Nikud vowel points (`שָׁלוֹם`, `מְטוּפָּל`): never split mid-diacritic.
+        let mut hebrew = ComposerSurface::new(TextDirection::Rtl);
+        let _ = hebrew.apply(ComposerAction::InsertText("שָׁלוֹם".to_owned()));
+        let first_end = next_cluster_boundary(hebrew.text(), 0);
+        assert_eq!(&hebrew.text()[..first_end], "שָׁ");
+        assert_eq!(
+            hebrew.apply(ComposerAction::Backspace),
+            ComposerOutcome::Edited
+        );
+        assert_eq!(hebrew.text(), "שָׁלוֹ");
+
+        let mut hebrew_patient = ComposerSurface::new(TextDirection::Rtl);
+        let _ = hebrew_patient.apply(ComposerAction::InsertText("מְטוּפָּל".to_owned()));
+        let m_end = next_cluster_boundary(hebrew_patient.text(), 0);
+        assert_eq!(&hebrew_patient.text()[..m_end], "מְ");
+        let t_end = next_cluster_boundary(hebrew_patient.text(), m_end);
+        assert_eq!(&hebrew_patient.text()[m_end..t_end], "ט");
+        let vav_end = next_cluster_boundary(hebrew_patient.text(), t_end);
+        assert_eq!(&hebrew_patient.text()[t_end..vav_end], "וּ");
+        let p_end = next_cluster_boundary(hebrew_patient.text(), vav_end);
+        assert_eq!(&hebrew_patient.text()[vav_end..p_end], "פָּ");
+
+        // Vietnamese stacked diacritics (precomposed & decomposed) stay intact.
+        let mut viet = ComposerSurface::new(TextDirection::Ltr);
+        let _ = viet.apply(ComposerAction::InsertText("Nguyễn Thị Hương".to_owned()));
+        assert_eq!(viet.text(), "Nguyễn Thị Hương");
+        let decomposed_vi = "e\u{0302}\u{0303}";
+        assert_eq!(next_cluster_boundary(decomposed_vi, 0), decomposed_vi.len());
+
+        // Modern Hindi Devanagari virama conjuncts (`चिकित्सा मूल्यांकन`, `रक्तचाप`).
+        let mut hindi = ComposerSurface::new(TextDirection::Ltr);
+        let _ = hindi.apply(ComposerAction::InsertText("रक्तचाप".to_owned()));
+        let ra_end = next_cluster_boundary(hindi.text(), 0);
+        let kta_end = next_cluster_boundary(hindi.text(), ra_end);
+        assert_eq!(&hindi.text()[..ra_end], "र");
+        assert_eq!(&hindi.text()[ra_end..kta_end], "क्त");
     }
 
     #[test]

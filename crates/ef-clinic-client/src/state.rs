@@ -44,19 +44,21 @@ pub const fn core_to_ui_locale(locale: ef_core::Locale) -> UiLocaleKind {
     }
 }
 
-/// Total exhaustive conversion from `ef_ui_catalog::Locale` to `ef_core::Locale`.
+/// Exhaustive conversion from `ef_ui_catalog::Locale` to `ef_core::Locale` when represented
+/// in the core clinical wire locale set (`None` for UI-extended locales such as `he`, `vi`, `hi`).
 #[must_use]
-pub const fn ui_to_core_locale(locale: UiLocaleKind) -> ef_core::Locale {
+pub const fn ui_to_core_locale(locale: UiLocaleKind) -> Option<ef_core::Locale> {
     match locale {
-        UiLocaleKind::En => ef_core::Locale::En,
-        UiLocaleKind::Es => ef_core::Locale::Es,
-        UiLocaleKind::Fr => ef_core::Locale::Fr,
-        UiLocaleKind::Pt => ef_core::Locale::Pt,
-        UiLocaleKind::De => ef_core::Locale::De,
-        UiLocaleKind::ZhHans => ef_core::Locale::ZhHans,
-        UiLocaleKind::Ja => ef_core::Locale::Ja,
-        UiLocaleKind::Ko => ef_core::Locale::Ko,
-        UiLocaleKind::Ar => ef_core::Locale::Ar,
+        UiLocaleKind::En => Some(ef_core::Locale::En),
+        UiLocaleKind::Es => Some(ef_core::Locale::Es),
+        UiLocaleKind::Fr => Some(ef_core::Locale::Fr),
+        UiLocaleKind::Pt => Some(ef_core::Locale::Pt),
+        UiLocaleKind::De => Some(ef_core::Locale::De),
+        UiLocaleKind::ZhHans => Some(ef_core::Locale::ZhHans),
+        UiLocaleKind::Ja => Some(ef_core::Locale::Ja),
+        UiLocaleKind::Ko => Some(ef_core::Locale::Ko),
+        UiLocaleKind::Ar => Some(ef_core::Locale::Ar),
+        UiLocaleKind::He | UiLocaleKind::Vi | UiLocaleKind::Hi => None,
     }
 }
 

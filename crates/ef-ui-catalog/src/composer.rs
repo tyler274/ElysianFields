@@ -584,7 +584,12 @@ fn is_combining_or_indic_mark(ch: char) -> bool {
     let cp = ch as u32;
     matches!(
         cp,
-        0x0300..=0x036F // Combining diacritical marks
+        0x0300..=0x036F // Combining diacritical marks (Latin, Vietnamese decomposed)
+            | 0x0591..=0x05BD // Hebrew cantillation & nikud vowel points
+            | 0x05BF // Hebrew rafe
+            | 0x05C1..=0x05C2 // Hebrew shin/sin dot
+            | 0x05C4..=0x05C5 // Hebrew upper/lower dot
+            | 0x05C7 // Hebrew qamats qatan
             | 0x064B..=0x065F // Arabic harakat / shadda / sukun
             | 0x0670 // Arabic superscript alef
             | 0x0901..=0x0903 // Devanagari signs
