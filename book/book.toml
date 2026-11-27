@@ -1,0 +1,14 @@
+[book]
+title = "Elysian Fields Protocol & Specifications"
+authors = ["Elysian Fields Program"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+no-section-label = false
