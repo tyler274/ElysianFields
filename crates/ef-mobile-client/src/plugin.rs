@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use bevy::a11y::AccessibilityNode;
 use bevy::prelude::*;
 use ef_connected_care::{
     ConnectionId, ConnectionStanding, DateOfBirth, DobVerificationOutcome, EnvelopeItem,
@@ -14,8 +15,9 @@ use ef_mobile_domain::{
     PushTokenRegistry, SavepointBatchReport,
 };
 use ef_ui_catalog::{
-    ComposerAction, ComposerSurface, EfUiCatalogPlugin, FrameDecision, IdleRedrawGate,
-    RedrawReason, SoftKeyboardInsets,
+    A11yNodeMarker, A11ySemanticKey, ComposerAction, ComposerSurface, EfUiCatalogPlugin,
+    FrameDecision, IdleRedrawGate, Locale as UiLocaleKind, NodeInteractivity, RedrawReason,
+    SoftKeyboardInsets, UiLocale,
 };
 
 use crate::transport::{
@@ -48,6 +50,7 @@ pub enum MobileClientCommand {
     SetVisibility(MobileVisibility),
     SetSoftKeyboardInsetPx(f32),
     SwitchTab(MobileTab),
+    SwitchLocale(UiLocaleKind),
     SignIn {
         email: String,
     },
@@ -98,6 +101,10 @@ impl MobileClientCommandQueue {
     }
 }
 
+/// Marker component tagging managed Curie Mobile Bevy UI + AccessKit entities.
+#[derive(Component, Debug)]
+pub struct ManagedMobileA11yNode;
+
 /// Single authoritative Curie Mobile client UI state resource.
 #[derive(Resource)]
 pub struct MobileClientState {
@@ -120,6 +127,8 @@ pub struct MobileClientState {
     pub frames_drawn: u64,
     pub frames_skipped_background: u64,
     pub clock_secs: u64,
+    pub a11y_tree_generation: u64,
+    pub last_rendered_a11y_generation: u64,
 }
 
 impl Default for MobileClientState {
@@ -142,6 +151,8 @@ impl Default for MobileClientState {
             frames_drawn: 0,
             frames_skipped_background: 0,
             clock_secs: 1_760_000_000,
+            a11y_tree_generation: 1,
+            last_rendered_a11y_generation: 0,
         }
     }
 }
@@ -194,7 +205,12 @@ impl Plugin for CurieMobileClientPlugin {
             .init_resource::<MobileTransportResource>()
             .add_systems(
                 Update,
-                (process_mobile_client_commands, drive_mobile_redraw_gate).chain(),
+                (
+                    process_mobile_client_commands,
+                    sync_mobile_a11y_entities_system,
+                    drive_mobile_redraw_gate,
+                )
+                    .chain(),
             );
     }
 }
@@ -204,13 +220,16 @@ fn process_mobile_client_commands(
     mut state: ResMut<MobileClientState>,
     mut transport_res: ResMut<MobileTransportResource>,
     mut composer: ResMut<ComposerSurface>,
+    mut ui_locale: ResMut<UiLocale>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
+    let mut tree_dirty = false;
     while let Some(cmd) = queue.pending.pop_front() {
         match cmd {
             MobileClientCommand::SetConnectivity(conn) => {
                 state.auth_device.set_connectivity(conn);
                 gate.request_redraw(RedrawReason::StreamDelta);
+                tree_dirty = true;
             }
             MobileClientCommand::SetVisibility(vis) => {
                 state.visibility = vis;
@@ -225,6 +244,13 @@ fn process_mobile_client_commands(
             MobileClientCommand::SwitchTab(tab) => {
                 state.active_tab = tab;
                 gate.request_redraw(RedrawReason::UserInput);
+                tree_dirty = true;
+            }
+            MobileClientCommand::SwitchLocale(next_locale) => {
+                ui_locale.current = next_locale;
+                composer.set_direction(next_locale.direction());
+                gate.request_redraw(RedrawReason::LocaleOrThemeChange);
+                tree_dirty = true;
             }
             MobileClientCommand::SignIn { email } => {
                 let now = state.clock_secs;
@@ -266,6 +292,7 @@ fn process_mobile_client_commands(
                 let _ = composer.apply(ComposerAction::Backspace);
                 let _ = composer.apply(ComposerAction::InsertText(text));
                 gate.request_redraw(RedrawReason::UserInput);
+                tree_dirty = true;
             }
             MobileClientCommand::SignOut { device_id } => {
                 if let Some(dev_id) = device_id {
@@ -498,6 +525,119 @@ fn process_mobile_client_commands(
             }
         }
     }
+    if tree_dirty {
+        state.a11y_tree_generation = state.a11y_tree_generation.saturating_add(1);
+    }
+}
+
+fn sync_mobile_a11y_entities_system(
+    mut commands: Commands,
+    existing: Query<Entity, With<ManagedMobileA11yNode>>,
+    mut state: ResMut<MobileClientState>,
+    composer: Res<ComposerSurface>,
+    ui_locale: Res<UiLocale>,
+) {
+    if state.last_rendered_a11y_generation == state.a11y_tree_generation
+        && state.last_rendered_a11y_generation != 0
+    {
+        return;
+    }
+
+    for entity in &existing {
+        commands.entity(entity).despawn();
+    }
+
+    let is_arabic = ui_locale.current.is_rtl();
+    let mut order = 0usize;
+    let mut spawn_node =
+        |key: A11ySemanticKey, interactivity: NodeInteractivity, node: accesskit::Node| {
+            commands.spawn((
+                ManagedMobileA11yNode,
+                Node::default(),
+                A11yNodeMarker {
+                    key,
+                    reading_order: order,
+                    interactivity,
+                },
+                AccessibilityNode(node),
+            ));
+            order += 1;
+        };
+
+    let mut nav = accesskit::Node::new(accesskit::Role::Navigation);
+    nav.set_label(if is_arabic {
+        "تنقل كوري موبايل"
+    } else {
+        "Curie Mobile navigation"
+    });
+    spawn_node(
+        A11ySemanticKey::NavigationLandmark,
+        NodeInteractivity::Structural,
+        nav,
+    );
+
+    let mut crisis = accesskit::Node::new(accesskit::Role::Region);
+    crisis.set_label(if is_arabic {
+        "الدعم الفوري للأزمات 988 و 911 و SAMHSA National Helpline"
+    } else {
+        "Immediate crisis support 988, 911, and SAMHSA National Helpline"
+    });
+    spawn_node(
+        A11ySemanticKey::CitationPanelRegion,
+        NodeInteractivity::Structural,
+        crisis,
+    );
+
+    let mut main = accesskit::Node::new(accesskit::Role::Main);
+    main.set_label(if is_arabic {
+        "مساحة عمل كوري موبايل"
+    } else {
+        "Curie Mobile workspace"
+    });
+    spawn_node(
+        A11ySemanticKey::MainLandmark,
+        NodeInteractivity::Structural,
+        main,
+    );
+
+    let mut share_btn = accesskit::Node::new(accesskit::Role::Button);
+    share_btn.set_label(if is_arabic {
+        "تأكيد مشاركة الرعاية المتصلة"
+    } else {
+        "Confirm Connected Care Share"
+    });
+    spawn_node(
+        A11ySemanticKey::ListRow(0),
+        NodeInteractivity::Interactive,
+        share_btn,
+    );
+
+    let mut note_input = accesskit::Node::new(accesskit::Role::MultilineTextInput);
+    note_input.set_label(if is_arabic {
+        "ملاحظة منسقة لطبيبي"
+    } else {
+        "For my doctor curated note"
+    });
+    note_input.set_value(composer.display_text());
+    spawn_node(
+        A11ySemanticKey::ComposerInput,
+        NodeInteractivity::Interactive,
+        note_input,
+    );
+
+    let mut signout_btn = accesskit::Node::new(accesskit::Role::Button);
+    signout_btn.set_label(if is_arabic {
+        "تسجيل الخروج بأمان دون اتصال"
+    } else {
+        "Sign out safely offline"
+    });
+    spawn_node(
+        A11ySemanticKey::SendButton,
+        NodeInteractivity::Interactive,
+        signout_btn,
+    );
+
+    state.last_rendered_a11y_generation = state.a11y_tree_generation;
 }
 
 fn drive_mobile_redraw_gate(
