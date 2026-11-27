@@ -1,0 +1,24 @@
+# Build & test outputs
+/target/
+**/target/
+
+# Worktrees & observer staging
+/.worktrees/
+/.observer-staging/
+
+# CI timing reports & local staging bundles
+/ci-timings/
+/dist/
+/result
+/result*
+
+# Direnv & local environment
+/.direnv/
+
+# Built documentation
+/book/book/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+.pytest_cache/

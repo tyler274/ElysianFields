@@ -1,0 +1,329 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scope:
+    name: Select CI scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.select.outputs.docs_only }}
+      native: ${{ steps.select.outputs.native }}
+      wasm: ${{ steps.select.outputs.wasm }}
+      desktop: ${{ steps.select.outputs.desktop }}
+      mobile: ${{ steps.select.outputs.mobile }}
+      server: ${{ steps.select.outputs.server }}
+      client_only: ${{ steps.select.outputs.client_only }}
+      full: ${{ steps.select.outputs.full }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify change scope
+        id: select
+        run: python3 scripts/ci_scope.py select
+
+  lightweight:
+    name: Lightweight checks
+    needs: [scope]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run Python CI script unit tests
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Validate CI budgets schema and offline doc checks
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          budgets = json.loads(Path("docs/ci/budgets.json").read_text(encoding="utf-8"))
+          for key in ("pr_feedback_secs", "merge_to_live_secs", "client_only_merge_secs", "per_job_budgets"):
+              assert key in budgets, f"missing {key} in docs/ci/budgets.json"
+          for job in ("scope", "lightweight", "rust-native", "rust-wasm", "cargo-deny", "deploy-client"):
+              assert budgets["per_job_budgets"].get(job, 0) > 0, f"missing positive budget for {job}"
+          print("budgets.json validated.")
+          PY
+          if [ -f scripts/check_wall.py ]; then
+            python3 scripts/check_wall.py
+          elif [ -f scripts/check-wall.sh ]; then
+            bash scripts/check-wall.sh
+          fi
+
+  rust-native:
+    name: Rust native
+    needs: [scope]
+    if: needs.scope.outputs.full == 'true' || needs.scope.outputs.native == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+      - name: Cache native Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: native-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+      - name: Check formatting and host Clippy lints
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+      - name: Run workspace unit tests
+        run: cargo test --locked --workspace
+      - name: Build native release artifacts once on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo build --locked --release --workspace
+          mkdir -p dist/native
+          printf '{"revision":"%s","target":"native-release"}\n' "$GITHUB_SHA" > dist/native/manifest.json
+          find target/release -maxdepth 1 -type f -executable -exec cp {} dist/native/ \;
+      - name: Upload native release artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/native/
+          if-no-files-found: error
+          retention-days: 7
+
+  rust-wasm:
+    name: Rust Wasm
+    needs: [scope]
+    if: >-
+      needs.scope.outputs.full == 'true' ||
+      needs.scope.outputs.wasm == 'true' ||
+      needs.scope.outputs.client_only == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain with wasm32 target
+        run: |
+          rustup show active-toolchain
+          rustup target add wasm32-unknown-unknown
+          rustc --version
+      - name: Cache wasm32 Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm32
+          shared-key: wasm32
+      - name: Check wasm32 Clippy lints
+        run: cargo clippy --workspace --target wasm32-unknown-unknown -- -D warnings
+      - name: Build wasm32 target (dev on PR)
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+        run: cargo build --locked --workspace --target wasm32-unknown-unknown
+      - name: Build wasm32 release artifacts once on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          cargo build --locked --release --workspace --target wasm32-unknown-unknown
+          mkdir -p dist/wasm
+          shopt -s nullglob
+          wasm_files=(target/wasm32-unknown-unknown/release/*.wasm)
+          if [ "${#wasm_files[@]}" -gt 0 ]; then
+            if command -v wasm-opt >/dev/null 2>&1; then
+              for f in "${wasm_files[@]}"; do
+                wasm-opt -Oz -o "dist/wasm/$(basename "$f")" "$f"
+              done
+            else
+              cp "${wasm_files[@]}" dist/wasm/
+            fi
+          fi
+          printf '{"revision":"%s","target":"wasm32-unknown-unknown","wasm_binaries":%d}\n' \
+            "$GITHUB_SHA" "${#wasm_files[@]}" > dist/wasm/build-manifest.json
+      - name: Upload wasm32 release artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-client-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/wasm/
+          if-no-files-found: error
+          retention-days: 7
+
+  cargo-deny:
+    name: cargo-deny
+    needs: [scope]
+    if: >-
+      needs.scope.outputs.full == 'true' ||
+      needs.scope.outputs.native == 'true' ||
+      needs.scope.outputs.wasm == 'true' ||
+      needs.scope.outputs.client_only == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check advisories, bans, licenses, and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+          command-arguments: advisories bans licenses sources
+
+  deploy-client:
+    name: Deploy client (/elysianfields)
+    needs: [scope, lightweight, rust-native, rust-wasm, cargo-deny]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      (needs.scope.outputs.client_only == 'true' || needs.scope.outputs.wasm == 'true' || needs.scope.outputs.full == 'true') &&
+      needs.lightweight.result == 'success' &&
+      needs.rust-wasm.result == 'success' &&
+      (needs.rust-native.result == 'success' || needs.rust-native.result == 'skipped') &&
+      (needs.cargo-deny.result == 'success' || needs.cargo-deny.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download prebuilt wasm32 client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-client-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/wasm
+      - name: Package and verify /elysianfields static bundle (no server image rebuild)
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          mount = "/elysianfields"
+          bundle_root = Path("dist/elysianfields")
+          bundle_root.mkdir(parents=True, exist_ok=True)
+
+          wasm_src = Path("dist/wasm")
+          for item in sorted(wasm_src.iterdir()):
+              if item.is_file():
+                  shutil.copy2(item, bundle_root / item.name)
+
+          web_src = Path("web")
+          if web_src.is_dir():
+              for item in sorted(web_src.rglob("*")):
+                  if item.is_file():
+                      rel = item.relative_to(web_src)
+                      dest = bundle_root / rel
+                      dest.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(item, dest)
+
+          assets = []
+          for item in sorted(bundle_root.rglob("*")):
+              if item.is_file() and item.name != "asset-manifest.json":
+                  rel = item.relative_to(bundle_root).as_posix()
+                  route = f"{mount}/{rel}"
+                  assert route.startswith(f"{mount}/"), f"invalid route: {route}"
+                  assert ".." not in route.split("/"), f"traversal in route: {route}"
+                  digest = hashlib.sha256(item.read_bytes()).hexdigest()
+                  assets.append({"path": route, "bytes": item.stat().st_size, "sha256": digest})
+
+          manifest = {
+              "mount_path": mount,
+              "revision": os.environ.get("GITHUB_SHA", "unknown"),
+              "server_image_rebuilt": False,
+              "assets": assets,
+          }
+          manifest_path = bundle_root / "asset-manifest.json"
+          manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+          # Verify manifest invariants.
+          loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+          assert loaded["mount_path"] == "/elysianfields"
+          assert loaded["server_image_rebuilt"] is False
+          assert len(loaded["assets"]) >= 1
+          for entry in loaded["assets"]:
+              assert entry["path"].startswith("/elysianfields/")
+          print(f"Verified {len(loaded['assets'])} static asset(s) under /elysianfields.")
+          PY
+      - name: Upload /elysianfields static client bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-bundle-elysianfields-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/elysianfields/
+          if-no-files-found: error
+          retention-days: 7
+
+  result:
+    name: CI result
+    needs:
+      - scope
+      - lightweight
+      - rust-native
+      - rust-wasm
+      - cargo-deny
+      - deploy-client
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require every selected check to pass
+        env:
+          CI_NEEDS: ${{ toJson(needs) }}
+        run: python3 scripts/ci_scope.py result
+      - name: Measure job timings and enforce CI time budgets
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SCOPE_CLIENT_ONLY: ${{ needs.scope.outputs.client_only }}
+        run: |
+          python3 scripts/ci_timings.py run \
+            --budgets docs/ci/budgets.json \
+            --check-budgets \
+            --output ci-timings/report.html \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Upload CI timing report
+        id: timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-timings-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-timings/
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Link timing report in summary
+        if: always() && steps.timings.outputs.artifact-url != ''
+        env:
+          REPORT_URL: ${{ steps.timings.outputs.artifact-url }}
+        run: |
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "[Download CI timing report](${REPORT_URL})" >> "$GITHUB_STEP_SUMMARY"
