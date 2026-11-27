@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "baseline_source": "docs/ci/dabney-moe-website-ci-baseline.md",
+  "pr_feedback_secs": 360,
+  "merge_to_live_secs": 480,
+  "client_only_merge_secs": 240,
+  "per_job_budgets": {
+    "scope": 45,
+    "lightweight": 90,
+    "rust-native": 240,
+    "rust-wasm": 240,
+    "cargo-deny": 90,
+    "deploy-client": 120
+  }
+}

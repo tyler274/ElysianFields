@@ -1,0 +1,10 @@
+[package]
+name = "elysian-smoke"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Minimal no_std and Wasm-compatible smoke crate validating workspace lints and multi-target CI."
+
+[lints]
+workspace = true
