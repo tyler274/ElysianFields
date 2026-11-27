@@ -1670,8 +1670,10 @@ version = "0.1.0"
 dependencies = [
  "ef-clinic-domain",
  "ef-clinic-workflows",
+ "ef-clinical-lib",
  "ef-connected-care",
  "ef-core",
+ "ef-encoder",
  "ef-harness",
  "serde",
  "serde_json",
@@ -1753,11 +1755,14 @@ name = "ef-migration-rehearsal"
 version = "0.1.0"
 dependencies = [
  "ef-clinic-domain",
+ "ef-clinic-server",
  "ef-clinic-workflows",
  "ef-connected-care",
  "ef-core",
  "ef-mobile-domain",
+ "ef-mobile-server",
  "ef-patient-bank",
+ "ef-public-site",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

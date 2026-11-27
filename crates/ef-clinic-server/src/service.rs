@@ -144,6 +144,7 @@ pub struct ClinicService {
     pub(crate) patient_memories: BTreeMap<WorkspaceId, PatientMemoryStore>,
     pub(crate) connected_care: ConnectedCareBridge,
     pub(crate) invitation_pairs: BTreeMap<InvitationId, PairKey>,
+    pub(crate) intelligence: crate::intelligence::ClinicIntelligenceState,
 }
 
 impl ClinicService {
@@ -178,6 +179,7 @@ impl ClinicService {
             patient_memories: BTreeMap::new(),
             connected_care: ConnectedCareBridge::new(),
             invitation_pairs: BTreeMap::new(),
+            intelligence: crate::intelligence::ClinicIntelligenceState::default(),
         }
     }
 
@@ -214,6 +216,7 @@ impl ClinicService {
             patient_memories: BTreeMap::new(),
             connected_care: ConnectedCareBridge::new(),
             invitation_pairs: BTreeMap::new(),
+            intelligence: crate::intelligence::ClinicIntelligenceState::default(),
         };
         for entry in entries {
             service.replay_wal_entry(entry);
@@ -317,6 +320,7 @@ impl ClinicService {
 
     /// Durably inserts a cited clinical source record scoped to `payload.workspace_id`.
     pub fn seed_source(&mut self, payload: CitedSourcePayload) -> Result<(), ClinicServiceError> {
+        self.intelligence.index_source(&payload);
         self.evidence.insert_source(payload.clone());
         self.wal.append(&WalEntry::InsertSource { payload })?;
         Ok(())
@@ -330,6 +334,7 @@ impl ClinicService {
     ) -> Result<bool, ClinicServiceError> {
         let changed = self.evidence.withdraw_source(workspace_id, source_key);
         if changed {
+            self.intelligence.mark_withdrawn(workspace_id, source_key);
             self.wal.append(&WalEntry::WithdrawSource {
                 workspace_id: workspace_id.clone(),
                 source_key: source_key.clone(),
@@ -503,6 +508,10 @@ impl ClinicService {
                 self.route_replies(req, conversation_id, Some(action))
             }
             ["patients", workspace_id, "memory"] => self.route_patient_memory(req, workspace_id),
+            ["patients", workspace_id, "search"] => {
+                self.route_patient_semantic_search(req, workspace_id)
+            }
+            ["clinical-library", "query"] => self.route_clinical_library_query(req),
 
             // M3 Connected Care Clinic invitation routes
             ["connected-care", "invitations"] => self.route_connected_care_create_invitation(req),
@@ -1388,11 +1397,15 @@ impl ClinicService {
                     panel_physicians,
                 );
             }
-            WalEntry::InsertSource { payload } => self.evidence.insert_source(payload),
+            WalEntry::InsertSource { payload } => {
+                self.intelligence.index_source(&payload);
+                self.evidence.insert_source(payload);
+            }
             WalEntry::WithdrawSource {
                 workspace_id,
                 source_key,
             } => {
+                self.intelligence.mark_withdrawn(&workspace_id, &source_key);
                 let _ = self.evidence.withdraw_source(&workspace_id, &source_key);
             }
             WalEntry::ExecuteChatCommand {

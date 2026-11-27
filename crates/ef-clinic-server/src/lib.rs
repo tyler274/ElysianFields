@@ -6,6 +6,7 @@
 //! static file server, and filesystem WAL live behind `#[cfg(not(target_arch = "wasm32"))]`.
 
 pub mod http;
+pub mod intelligence;
 pub mod persistence;
 pub mod rate_limit;
 #[cfg(not(target_arch = "wasm32"))]
