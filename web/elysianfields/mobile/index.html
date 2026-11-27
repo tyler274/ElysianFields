@@ -13,7 +13,23 @@
     <header class="mobile-header">
       <div class="header-row">
         <h1 id="mobile-title">Curie Mobile</h1>
-        <button id="btn-toggle-lang" type="button" class="touch-btn">العربية (RTL)</button>
+        <div class="header-controls">
+          <select id="locale-select" class="touch-select" aria-label="Language">
+            <option value="en">English</option>
+            <option value="he">עברית (Hebrew · RTL)</option>
+            <option value="ar">العربية (Arabic · RTL)</option>
+            <option value="zh-Hans">简体中文 (Chinese)</option>
+            <option value="ja">日本語 (Japanese)</option>
+            <option value="vi">Tiếng Việt (Vietnamese)</option>
+            <option value="hi">हिन्दी (Hindi · Devanagari)</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="pt">Português</option>
+            <option value="de">Deutsch</option>
+            <option value="ko">한국어</option>
+          </select>
+          <button id="btn-toggle-lang" type="button" class="touch-btn">العربية (RTL)</button>
+        </div>
       </div>
       <p id="mobile-status" class="status-banner" role="status" aria-live="polite">
         Initializing Curie Mobile standalone shell...
@@ -23,24 +39,39 @@
     <section id="crisis-resources" class="crisis-banner" aria-label="Immediate crisis support">
       <h2 id="crisis-heading">Immediate Crisis &amp; Recovery Support</h2>
       <ul class="crisis-list">
-        <li><strong>988 Suicide &amp; Crisis Lifeline:</strong> Call or text <a href="tel:988">988</a> (24/7, free).</li>
-        <li><strong>Emergency:</strong> Call <a href="tel:911">911</a> immediately.</li>
-        <li><strong>SAMHSA National Helpline:</strong> Call <a href="tel:18006624357">1-800-662-4357</a> (24/7 referral).</li>
+        <li>
+          <strong id="crisis-988-label">988 Suicide &amp; Crisis Lifeline:</strong>
+          <span id="crisis-988-prefix">Call or text</span>
+          <a dir="ltr" class="crisis-tel" href="tel:988">988</a>
+          <span id="crisis-988-suffix">(24/7, free).</span>
+        </li>
+        <li>
+          <strong id="crisis-911-label">Emergency:</strong>
+          <span id="crisis-911-prefix">Call</span>
+          <a dir="ltr" class="crisis-tel" href="tel:911">911</a>
+          <span id="crisis-911-suffix">immediately.</span>
+        </li>
+        <li>
+          <strong id="crisis-samhsa-label">SAMHSA National Helpline:</strong>
+          <span id="crisis-samhsa-prefix">Call</span>
+          <a dir="ltr" class="crisis-tel" href="tel:18006624357">1-800-662-4357</a>
+          <span id="crisis-samhsa-suffix">(24/7 referral).</span>
+        </li>
       </ul>
     </section>
 
     <nav class="mobile-nav" aria-label="Curie Mobile navigation">
-      <a class="touch-btn" href="#section-account">Account</a>
-      <a class="touch-btn" href="#section-connected-care">Connected Care</a>
-      <a class="touch-btn" href="#section-for-my-doctor">For my doctor</a>
+      <a id="nav-account" class="touch-btn" href="#section-account">Account</a>
+      <a id="nav-connected-care" class="touch-btn" href="#section-connected-care">Connected Care</a>
+      <a id="nav-for-my-doctor" class="touch-btn" href="#section-for-my-doctor">For my doctor</a>
     </nav>
 
     <main id="mobile-main" aria-label="Curie Mobile workspace">
       <section id="section-account" class="card" aria-label="Standalone patient account">
-        <h2>Standalone Account &amp; Offline Sign-Out</h2>
+        <h2 id="heading-account">Standalone Account &amp; Offline Sign-Out</h2>
         <form id="mobile-auth-form" class="stack-form">
-          <label for="mobile-email">Patient email</label>
-          <input id="mobile-email" class="touch-input" name="email" type="email" autocomplete="username" placeholder="patient@example.org">
+          <label id="label-mobile-email" for="mobile-email">Patient email</label>
+          <input id="mobile-email" class="touch-input" name="email" type="email" dir="ltr" autocomplete="username" placeholder="patient@example.org">
           <div class="btn-row">
             <button id="btn-mobile-signin" type="submit" class="touch-btn touch-btn-primary">Sign in</button>
             <button id="btn-mobile-signout" type="button" class="touch-btn">Sign out (offline-safe)</button>
@@ -49,12 +80,12 @@
       </section>
 
       <section id="section-connected-care" class="card" aria-label="Connected Care invitation">
-        <h2>Connected Care</h2>
+        <h2 id="heading-connected-care">Connected Care</h2>
         <form id="connected-care-form" class="stack-form">
-          <label for="invite-code">Invitation code</label>
-          <input id="invite-code" class="touch-input" name="code" type="text" placeholder="INV-123456">
-          <label for="verify-dob">Date of birth (YYYY-MM-DD)</label>
-          <input id="verify-dob" class="touch-input" name="dob" type="text" placeholder="1985-04-12">
+          <label id="label-invite-code" for="invite-code">Invitation code</label>
+          <input id="invite-code" class="touch-input" name="code" type="text" dir="ltr" placeholder="INV-123456">
+          <label id="label-verify-dob" for="verify-dob">Date of birth (YYYY-MM-DD)</label>
+          <input id="verify-dob" class="touch-input" name="dob" type="text" dir="ltr" placeholder="1985-04-12">
           <div class="btn-row">
             <button id="btn-verify-dob" type="submit" class="touch-btn">Verify DOB</button>
             <button id="btn-share-consent" type="button" class="touch-btn touch-btn-primary">Share</button>
@@ -63,16 +94,17 @@
       </section>
 
       <section id="section-for-my-doctor" class="card" aria-label="For my doctor sharing">
-        <h2>For My Doctor</h2>
+        <h2 id="heading-for-my-doctor">For My Doctor</h2>
         <form id="doctor-note-form" class="stack-form">
-          <label for="doctor-note">Curated note (nothing sends until you confirm)</label>
-          <textarea id="doctor-note" class="touch-textarea" rows="3" placeholder="Add a short update for your care team..."></textarea>
+          <label id="label-doctor-note" for="doctor-note">Curated note (nothing sends until you confirm)</label>
+          <textarea id="doctor-note" class="touch-textarea" rows="3" dir="auto" placeholder="Add a short update for your care team..."></textarea>
           <button id="btn-send-doctor" type="submit" class="touch-btn touch-btn-primary">Review &amp; Send</button>
         </form>
+        <ul id="doctor-sent-list" class="sent-list" aria-live="polite" dir="auto"></ul>
       </section>
 
       <section class="card" aria-label="Mobile delivery diagnostics">
-        <h2>Mobile Diagnostics</h2>
+        <h2 id="heading-mobile-diagnostics">Mobile Diagnostics</h2>
         <dl class="metric-grid">
           <dt>Mount Subpath</dt>
           <dd id="mobile-metric-subpath">pending</dd>

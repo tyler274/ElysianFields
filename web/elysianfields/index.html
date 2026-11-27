@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,26 @@
 <body>
   <div id="elysian-app" class="app-shell" data-mount-prefix="/elysianfields">
     <header class="app-header">
-      <h1>Elysian Fields — Curie Clinic</h1>
+      <div class="header-row">
+        <h1 id="clinic-title">Elysian Fields — Curie Clinic</h1>
+        <div class="locale-control">
+          <label id="label-locale" class="locale-label" for="locale-select">Language</label>
+          <select id="locale-select" class="locale-select" aria-label="Language">
+            <option value="en">English</option>
+            <option value="he">עברית (Hebrew · RTL)</option>
+            <option value="ar">العربية (Arabic · RTL)</option>
+            <option value="zh-Hans">简体中文 (Chinese)</option>
+            <option value="ja">日本語 (Japanese)</option>
+            <option value="vi">Tiếng Việt (Vietnamese)</option>
+            <option value="hi">हिन्दी (Hindi · Devanagari)</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="pt">Português</option>
+            <option value="de">Deutsch</option>
+            <option value="ko">한국어</option>
+          </select>
+        </div>
+      </div>
       <p id="status-banner" class="status-banner" role="status" aria-live="polite">
         Initializing Curie Clinic browser shell...
       </p>
@@ -23,40 +42,40 @@
     </section>
 
     <div class="workspace-grid">
-      <nav class="panel" aria-label="Patient roster">
-        <h2>Patient Roster</h2>
+      <nav id="clinic-nav" class="panel" aria-label="Patient roster">
+        <h2 id="heading-roster">Patient Roster</h2>
         <form id="auth-form" class="auth-form" aria-label="Clinician sign-in">
-          <label for="signin-email">Clinician email</label>
-          <input id="signin-email" name="email" type="email" autocomplete="username" placeholder="clinician@practice.example">
+          <label id="label-signin-email" for="signin-email">Clinician email</label>
+          <input id="signin-email" name="email" type="email" dir="ltr" autocomplete="username" placeholder="clinician@practice.example">
           <div class="auth-row">
             <button id="btn-signin" type="submit" class="btn btn-primary">Sign in</button>
             <button id="btn-refresh-roster" type="button" class="btn">Reload roster</button>
           </div>
         </form>
         <ul id="patient-roster-list" class="roster-list" aria-label="Assigned patients">
-          <li><button type="button" class="roster-btn" data-workspace-id="ws-demo-1">Avery, Jordan (Synthetic)</button></li>
+          <li><button id="sample-patient-btn" type="button" class="roster-btn" data-workspace-id="ws-demo-1">Avery, Jordan (Synthetic)</button></li>
         </ul>
       </nav>
 
-      <main class="panel" aria-label="Clinical workspace">
-        <h2>Clinical Transcript &amp; Composer</h2>
+      <main id="clinic-main" class="panel" aria-label="Clinical workspace">
+        <h2 id="heading-workspace">Clinical Transcript &amp; Composer</h2>
         <section aria-label="Evidence citations">
-          <h3>Evidence Panel</h3>
-          <ul id="evidence-list" class="evidence-list">
-            <li class="transcript-item">Ready to inspect cited clinical evidence under /elysianfields/api/.</li>
+          <h3 id="heading-evidence">Evidence Panel</h3>
+          <ul id="evidence-list" class="evidence-list" dir="auto">
+            <li id="sample-evidence-item" class="transcript-item" dir="auto">Ready to inspect cited clinical evidence under /elysianfields/api/.</li>
           </ul>
         </section>
 
         <section aria-label="Transcript stream">
-          <h3>Transcript Stream</h3>
-          <ul id="transcript-list" class="transcript-list" aria-live="polite">
-            <li class="transcript-item">Select a patient workspace or submit a question below.</li>
+          <h3 id="heading-transcript">Transcript Stream</h3>
+          <ul id="transcript-list" class="transcript-list" aria-live="polite" dir="auto">
+            <li id="sample-transcript-item" class="transcript-item" dir="auto">Select a patient workspace or submit a question below.</li>
           </ul>
         </section>
 
         <form id="composer-form" class="composer-form" aria-label="Clinical prompt composer">
-          <label for="composer-draft">Clinical prompt (preserved across context loss):</label>
-          <textarea id="composer-draft" rows="3">Summarize recent glycemic control and active medications.</textarea>
+          <label id="label-composer" for="composer-draft">Clinical prompt (preserved across context loss):</label>
+          <textarea id="composer-draft" rows="3" dir="auto">Summarize recent glycemic control and active medications.</textarea>
           <div class="composer-actions">
             <button id="btn-send-prompt" type="submit" class="btn btn-primary">Send prompt</button>
             <button id="btn-load-wasm" type="button" class="btn">Load Wasm runtime</button>
@@ -68,10 +87,12 @@
     </div>
 
     <section class="panel" aria-label="Delivery diagnostics">
-      <h2>Delivery Diagnostics</h2>
+      <h2 id="heading-diagnostics">Delivery Diagnostics</h2>
       <dl class="metric-list">
         <dt>Mount Subpath</dt>
         <dd id="metric-subpath">pending</dd>
+        <dt>Direction / Locale</dt>
+        <dd id="metric-locale">ltr / en</dd>
         <dt>Graphics Backend</dt>
         <dd id="metric-backend">probing</dd>
         <dt>Context State</dt>
