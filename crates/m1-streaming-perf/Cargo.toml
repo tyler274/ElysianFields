@@ -1,0 +1,23 @@
+[package]
+name = "m1-streaming-perf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "M1 Bevy 0.20.1 feasibility prototype and benchmark suite for long streaming clinical transcripts, 5,000-row virtualized tables, and reactive zero-redraw idle policy."
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+
+[lints]
+workspace = true
