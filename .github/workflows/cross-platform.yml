@@ -1093,6 +1093,19 @@ jobs:
       - name: Cross-check Android mobile crates (aarch64-linux-android)
         run: |
           mkdir -p cross-platform-evidence
+          ndk_root="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
+          if [ -n "$ndk_root" ] && [ -d "$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin" ]; then
+            ndk_bin="$ndk_root/toolchains/llvm/prebuilt/linux-x86_64/bin"
+            clang_bin="$(ls -1 "$ndk_bin"/aarch64-linux-android*-clang | sort -V | tail -n 1)"
+            clangxx_bin="$(ls -1 "$ndk_bin"/aarch64-linux-android*-clang++ | sort -V | tail -n 1)"
+            export CC_aarch64_linux_android="$clang_bin"
+            export CXX_aarch64_linux_android="$clangxx_bin"
+            export AR_aarch64_linux_android="$ndk_bin/llvm-ar"
+            export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$clang_bin"
+            echo "Using Android NDK toolchain: $clang_bin"
+          else
+            echo "Android NDK not found; falling back to pure-Rust blake3 if needed"
+          fi
           start_ts=$(python3 -c 'import time; print(time.time())')
           cargo check --locked --target aarch64-linux-android \
             -p ef-core \
