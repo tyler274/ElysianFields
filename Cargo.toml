@@ -13,6 +13,7 @@ members = [
     "crates/ef-clinic-domain",
     "crates/ef-harness",
     "crates/ef-boundaries",
+    "crates/ef-clinic-server",
 ]
 
 [workspace.package]

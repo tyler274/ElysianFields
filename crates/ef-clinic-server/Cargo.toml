@@ -1,0 +1,18 @@
+[package]
+name = "ef-clinic-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless Curie Clinic M2 HTTP/1.1 + SSE vertical-slice service with durable WAL persistence."
+
+[dependencies]
+ef-clinic-domain = { workspace = true }
+ef-core = { workspace = true }
+ef-harness = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
