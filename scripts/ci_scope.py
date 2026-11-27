@@ -128,6 +128,7 @@ HEADLESS_SERVER_CRATES: frozenset[str] = frozenset(
         "ef-patient-bank",
         "ef-extension",
         "ef-public-site",
+        "ef-migration-rehearsal",
     }
 )
 

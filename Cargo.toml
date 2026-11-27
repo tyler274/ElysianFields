@@ -25,6 +25,7 @@ members = [
     "crates/ef-mobile-client",
     "crates/ef-extension",
     "crates/ef-public-site",
+    "crates/ef-migration-rehearsal",
 ]
 
 [workspace.package]
@@ -49,6 +50,7 @@ ef-clinical-lib = { path = "crates/ef-clinical-lib" }
 ef-encoder = { path = "crates/ef-encoder" }
 ef-patient-bank = { path = "crates/ef-patient-bank" }
 ef-mobile-domain = { path = "crates/ef-mobile-domain" }
+ef-migration-rehearsal = { path = "crates/ef-migration-rehearsal" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
