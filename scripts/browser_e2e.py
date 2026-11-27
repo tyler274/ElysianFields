@@ -59,6 +59,9 @@ MV3_STRICT_CSP = (
 )
 
 DEFAULT_MV3_COLD_START_BUDGET_MS = 250.0
+DESKTOP_WASM_BROTLI11_BUDGET_BYTES = int(3.5 * 1024 * 1024)
+MOBILE_WASM_BROTLI11_BUDGET_BYTES = int(2.5 * 1024 * 1024)
+BEVY_RUST_WASM_RUNTIME_ID = "bevy-rust-wasm"
 
 # Minimal valid WebAssembly v1 binary module exporting `add(i32, i32) -> i32` (41 bytes).
 MINIMAL_VALID_WASM_BYTES = bytes(
@@ -221,6 +224,14 @@ def evaluate_mv3_popup_budget(
     return cold_start_ms >= 0.0 and cold_start_ms <= max_ms
 
 
+def evaluate_wasm_brotli11_budget(
+    brotli11_bytes: int | None,
+    max_bytes: int,
+) -> bool:
+    """Checks that a compiled `.wasm` binary's Brotli-11 size was measured and fits within budget."""
+    return brotli11_bytes is not None and 0 < brotli11_bytes <= max_bytes
+
+
 def _safe_resolve_under(base_dir: Path, rel_path: str) -> Path | None:
     if "\\" in rel_path or "\x00" in rel_path:
         return None
@@ -256,13 +267,23 @@ class StrictStaticPreviewServer:
         extension_dir: Path,
         clinic_api_origin: str | None = None,
         wasm_file: Path | None = None,
+        clinic_wasm: Path | None = None,
+        mobile_wasm: Path | None = None,
     ) -> None:
         self.web_dir = web_dir.resolve()
         self.extension_dir = extension_dir.resolve()
         self.clinic_api_origin = clinic_api_origin.rstrip("/") if clinic_api_origin else None
         self.wasm_file = wasm_file.resolve() if wasm_file is not None else None
+        self.clinic_wasm = clinic_wasm.resolve() if clinic_wasm is not None else None
+        self.mobile_wasm = mobile_wasm.resolve() if mobile_wasm is not None else None
         self._wasm_bytes = (
             self.wasm_file.read_bytes() if self.wasm_file is not None else MINIMAL_VALID_WASM_BYTES
+        )
+        self._clinic_wasm_bytes = (
+            self.clinic_wasm.read_bytes() if self.clinic_wasm is not None else None
+        )
+        self._mobile_wasm_bytes = (
+            self.mobile_wasm.read_bytes() if self.mobile_wasm is not None else None
         )
         self._httpd: _ReusableTcpServer | None = None
         self._thread: threading.Thread | None = None
@@ -276,11 +297,27 @@ class StrictStaticPreviewServer:
     def wasm_bytes(self) -> bytes:
         return self._wasm_bytes
 
+    @property
+    def clinic_wasm_bytes(self) -> bytes | None:
+        return self._clinic_wasm_bytes
+
+    @property
+    def mobile_wasm_bytes(self) -> bytes | None:
+        return self._mobile_wasm_bytes
+
     def start(self) -> None:
         web_dir = self.web_dir
         extension_dir = self.extension_dir
         clinic_api_origin = self.clinic_api_origin
         wasm_bytes = self._wasm_bytes
+        clinic_wasm_bytes = self._clinic_wasm_bytes
+        mobile_wasm_bytes = self._mobile_wasm_bytes
+        wasm_manifest_bytes = json.dumps(
+            {
+                "clinicWasm": clinic_wasm_bytes is not None,
+                "mobileWasm": mobile_wasm_bytes is not None,
+            }
+        ).encode("utf-8")
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
@@ -381,6 +418,46 @@ class StrictStaticPreviewServer:
 
                 if path_only == "/elysianfields/wasm-probe.wasm":
                     self._send_bytes(200, "application/wasm", wasm_bytes, CLINIC_STRICT_CSP)
+                    return
+
+                if path_only in (
+                    "/elysianfields/wasm-manifest.json",
+                    "/elysianfields/mobile/wasm-manifest.json",
+                ):
+                    self._send_bytes(
+                        200,
+                        "application/json; charset=utf-8",
+                        wasm_manifest_bytes,
+                        CLINIC_STRICT_CSP,
+                    )
+                    return
+
+                if path_only == "/elysianfields/ef_clinic_client.wasm":
+                    if clinic_wasm_bytes is not None:
+                        self._send_bytes(
+                            200, "application/wasm", clinic_wasm_bytes, CLINIC_STRICT_CSP
+                        )
+                    else:
+                        self._send_bytes(
+                            404,
+                            "text/plain; charset=utf-8",
+                            b"Clinic Wasm Not Configured",
+                            CLINIC_STRICT_CSP,
+                        )
+                    return
+
+                if path_only == "/elysianfields/mobile/ef_mobile_client.wasm":
+                    if mobile_wasm_bytes is not None:
+                        self._send_bytes(
+                            200, "application/wasm", mobile_wasm_bytes, CLINIC_STRICT_CSP
+                        )
+                    else:
+                        self._send_bytes(
+                            404,
+                            "text/plain; charset=utf-8",
+                            b"Mobile Wasm Not Configured",
+                            CLINIC_STRICT_CSP,
+                        )
                     return
 
                 if path_only.startswith("/elysianfields/"):
@@ -522,8 +599,14 @@ def _probe_clinic_serves_shell(origin: str) -> bool:
         return False
 
 
-def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
-    """Exercises `/elysianfields/` on an open Playwright page."""
+def check_clinic_shell_page(
+    page: Any,
+    clinic_shell_url: str,
+    expect_bevy_wasm: bool = False,
+    clinic_wasm_raw_bytes: int | None = None,
+    clinic_wasm_brotli11_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Exercises `/elysianfields/` on an open Playwright page (and `?lang=ar` RTL when Wasm is loaded)."""
     console_errors: list[str] = []
     page_errors: list[str] = []
 
@@ -538,7 +621,7 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
     http_status = response.status if response is not None else 0
     page.wait_for_function(
         "() => document.documentElement.dataset.efReady === 'true'",
-        timeout=10_000,
+        timeout=20_000,
     )
     load_ms = (time.perf_counter() - t0) * 1000.0
 
@@ -556,6 +639,10 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
                 cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
                 subpathValid: document.documentElement.dataset.efSubpathValid === "true",
                 backend: document.documentElement.dataset.efBackend || "unknown",
+                wasmRuntime: document.documentElement.dataset.efWasmRuntime || "static-shell",
+                a11yOwner: document.documentElement.dataset.efA11yOwner || "shell",
+                dir: document.documentElement.dir || "ltr",
+                lang: document.documentElement.lang || "en",
                 overlayPresent: overlay !== null,
                 overlaySubpath: overlay ? overlay.dataset.efSubpath : null,
                 bridgeNodes,
@@ -578,6 +665,59 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
         }"""
     )
 
+    rtl_check: dict[str, Any] | None = None
+    rtl_ok = True
+    wasm_runtime_ok = True
+    wasm_within_budget: bool | None = None
+
+    if expect_bevy_wasm:
+        rtl_url = f"{clinic_shell_url}?lang=ar"
+        rtl_resp = page.goto(rtl_url, wait_until="networkidle")
+        rtl_status = rtl_resp.status if rtl_resp is not None else 0
+        page.wait_for_function(
+            "() => document.documentElement.dataset.efReady === 'true'",
+            timeout=20_000,
+        )
+        rtl_metrics = page.evaluate(
+            """() => {
+                const overlay = document.getElementById("ef-a11y-overlay");
+                const bridgeNodes = overlay ? overlay.querySelectorAll("[data-ef-node-id]").length : 0;
+                return {
+                    dir: document.documentElement.dir || "ltr",
+                    lang: document.documentElement.lang || "en",
+                    wasmRuntime: document.documentElement.dataset.efWasmRuntime || "static-shell",
+                    a11yOwner: document.documentElement.dataset.efA11yOwner || "shell",
+                    cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
+                    bridgeNodes,
+                };
+            }"""
+        )
+        rtl_ok = (
+            rtl_status == 200
+            and rtl_metrics["dir"] == "rtl"
+            and rtl_metrics["lang"] == "ar"
+            and rtl_metrics["wasmRuntime"] == BEVY_RUST_WASM_RUNTIME_ID
+            and rtl_metrics["a11yOwner"] == "rust-accesskit"
+            and rtl_metrics["bridgeNodes"] >= 5
+            and rtl_metrics["cspViolations"] == 0
+        )
+        rtl_check = {
+            "url": rtl_url,
+            "http_status": rtl_status,
+            "passed": rtl_ok,
+            **rtl_metrics,
+        }
+        wasm_within_budget = evaluate_wasm_brotli11_budget(
+            clinic_wasm_brotli11_bytes,
+            DESKTOP_WASM_BROTLI11_BUDGET_BYTES,
+        )
+        wasm_runtime_ok = (
+            dom_metrics.get("wasmRuntime") == BEVY_RUST_WASM_RUNTIME_ID
+            and dom_metrics.get("a11yOwner") == "rust-accesskit"
+            and rtl_ok
+            and wasm_within_budget
+        )
+
     passed = (
         http_status == 200
         and len(console_errors) == 0
@@ -592,9 +732,10 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
         and dom_metrics["hasMain"]
         and dom_metrics["hasTextbox"]
         and focused_info["movedOffBody"]
+        and wasm_runtime_ok
     )
 
-    return {
+    result: dict[str, Any] = {
         "passed": passed,
         "url": clinic_shell_url,
         "http_status": http_status,
@@ -604,9 +745,18 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
         "csp_violations": dom_metrics["cspViolations"],
         "non_blank": dom_metrics["nonBlank"],
         "backend": dom_metrics["backend"],
+        "wasm_runtime": dom_metrics.get("wasmRuntime", "static-shell"),
+        "a11y_owner": dom_metrics.get("a11yOwner", "shell"),
         "a11y_bridge_nodes": dom_metrics["bridgeNodes"],
         "keyboard_focus": focused_info,
     }
+    if expect_bevy_wasm:
+        result["wasm_raw_bytes"] = clinic_wasm_raw_bytes
+        result["wasm_brotli11_bytes"] = clinic_wasm_brotli11_bytes
+        result["wasm_budget_bytes"] = DESKTOP_WASM_BROTLI11_BUDGET_BYTES
+        result["wasm_within_budget"] = wasm_within_budget
+        result["rtl"] = rtl_check
+    return result
 
 
 def check_wasm_csp_compile(
@@ -796,6 +946,9 @@ def check_mobile_pwa_profile(
     profile_key: str,
     profile_spec: dict[str, Any],
     mobile_shell_url: str,
+    expect_bevy_wasm: bool = False,
+    mobile_wasm_raw_bytes: int | None = None,
+    mobile_wasm_brotli11_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Exercises `/elysianfields/mobile/` under touch mobile emulation (LTR, Arabic RTL, and offline reload)."""
     context = browser.new_context(
@@ -820,7 +973,7 @@ def check_mobile_pwa_profile(
         http_status = resp.status if resp is not None else 0
         page.wait_for_function(
             "() => document.documentElement.dataset.efMobileReady === 'true'",
-            timeout=10_000,
+            timeout=20_000,
         )
 
         ltr_metrics = page.evaluate(
@@ -835,6 +988,8 @@ def check_mobile_pwa_profile(
                     cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
                     dir: document.documentElement.dir,
                     lang: document.documentElement.lang,
+                    wasmRuntime: document.documentElement.dataset.efWasmRuntime || "static-shell",
+                    a11yOwner: document.documentElement.dataset.efA11yOwner || "shell",
                     overlayPresent: overlay !== null,
                     bridgeNodes: nodes,
                     hasNav: document.querySelector("nav") !== null,
@@ -852,12 +1007,14 @@ def check_mobile_pwa_profile(
         rtl_status = rtl_resp.status if rtl_resp is not None else 0
         page.wait_for_function(
             "() => document.documentElement.dataset.efMobileReady === 'true'",
-            timeout=10_000,
+            timeout=20_000,
         )
         rtl_metrics = page.evaluate(
             """() => ({
                 dir: document.documentElement.dir,
                 lang: document.documentElement.lang,
+                wasmRuntime: document.documentElement.dataset.efWasmRuntime || "static-shell",
+                a11yOwner: document.documentElement.dataset.efA11yOwner || "shell",
                 scrollWidth: document.documentElement.scrollWidth,
                 innerWidth: window.innerWidth,
                 zeroOverflow: document.documentElement.scrollWidth <= window.innerWidth,
@@ -870,7 +1027,7 @@ def check_mobile_pwa_profile(
         page.goto(mobile_shell_url, wait_until="networkidle")
         page.wait_for_function(
             "() => document.documentElement.dataset.efMobileReady === 'true'",
-            timeout=10_000,
+            timeout=20_000,
         )
         sw_controlling = page.evaluate(
             """async () => {
@@ -889,7 +1046,7 @@ def check_mobile_pwa_profile(
             page.reload(wait_until="networkidle")
             page.wait_for_function(
                 "() => document.documentElement.dataset.efMobileReady === 'true'",
-                timeout=10_000,
+                timeout=20_000,
             )
 
         page_errors_before_offline = len(page_errors)
@@ -921,6 +1078,21 @@ def check_mobile_pwa_profile(
 
         offline_page_errors = page_errors[page_errors_before_offline:]
 
+        wasm_within_budget: bool | None = None
+        wasm_ok = True
+        if expect_bevy_wasm:
+            wasm_within_budget = evaluate_wasm_brotli11_budget(
+                mobile_wasm_brotli11_bytes,
+                MOBILE_WASM_BROTLI11_BUDGET_BYTES,
+            )
+            wasm_ok = (
+                ltr_metrics.get("wasmRuntime") == BEVY_RUST_WASM_RUNTIME_ID
+                and ltr_metrics.get("a11yOwner") == "rust-accesskit"
+                and rtl_metrics.get("wasmRuntime") == BEVY_RUST_WASM_RUNTIME_ID
+                and rtl_metrics.get("a11yOwner") == "rust-accesskit"
+                and wasm_within_budget
+            )
+
         passed = (
             http_status == 200
             and rtl_status == 200
@@ -939,9 +1111,10 @@ def check_mobile_pwa_profile(
             and rtl_metrics["cspViolations"] == 0
             and offline_reload_ok
             and len(offline_page_errors) == 0
+            and wasm_ok
         )
 
-        return {
+        profile_report: dict[str, Any] = {
             "profile": profile_key,
             "name": profile_spec["name"],
             "browser": profile_spec["browser"],
@@ -950,6 +1123,8 @@ def check_mobile_pwa_profile(
             "http_status": http_status,
             "console_errors": console_errors,
             "page_errors": page_errors,
+            "wasm_runtime": ltr_metrics.get("wasmRuntime", "static-shell"),
+            "a11y_owner": ltr_metrics.get("a11yOwner", "shell"),
             "ltr": ltr_metrics,
             "rtl": rtl_metrics,
             "offline": {
@@ -959,6 +1134,12 @@ def check_mobile_pwa_profile(
                 "error": offline_error,
             },
         }
+        if expect_bevy_wasm:
+            profile_report["wasm_raw_bytes"] = mobile_wasm_raw_bytes
+            profile_report["wasm_brotli11_bytes"] = mobile_wasm_brotli11_bytes
+            profile_report["wasm_budget_bytes"] = MOBILE_WASM_BROTLI11_BUDGET_BYTES
+            profile_report["wasm_within_budget"] = wasm_within_budget
+        return profile_report
     finally:
         context.close()
 
@@ -1035,6 +1216,12 @@ def run_browser_qualification(
     wasm_brotli11_bytes: int | None = None,
     mobile_emulation: bool = False,
     mobile_shell_url: str | None = None,
+    expect_clinic_bevy_wasm: bool = False,
+    clinic_wasm_raw_bytes: int | None = None,
+    clinic_wasm_brotli11_bytes: int | None = None,
+    expect_mobile_bevy_wasm: bool = False,
+    mobile_wasm_raw_bytes: int | None = None,
+    mobile_wasm_brotli11_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Executes all browser checks for each requested engine and returns a structured report."""
     results: dict[str, Any] = {}
@@ -1049,7 +1236,13 @@ def run_browser_qualification(
             clinic_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
             try:
                 clinic_page = clinic_ctx.new_page()
-                clinic_check = check_clinic_shell_page(clinic_page, clinic_shell_url)
+                clinic_check = check_clinic_shell_page(
+                    clinic_page,
+                    clinic_shell_url,
+                    expect_bevy_wasm=expect_clinic_bevy_wasm,
+                    clinic_wasm_raw_bytes=clinic_wasm_raw_bytes,
+                    clinic_wasm_brotli11_bytes=clinic_wasm_brotli11_bytes,
+                )
             finally:
                 clinic_ctx.close()
 
@@ -1100,6 +1293,9 @@ def run_browser_qualification(
                             profile_key=profile_key,
                             profile_spec=profile_spec,
                             mobile_shell_url=mobile_shell_url,
+                            expect_bevy_wasm=expect_mobile_bevy_wasm,
+                            mobile_wasm_raw_bytes=mobile_wasm_raw_bytes,
+                            mobile_wasm_brotli11_bytes=mobile_wasm_brotli11_bytes,
                         )
 
             engine_passed = (
@@ -1122,8 +1318,37 @@ def run_browser_qualification(
         finally:
             browser.close()
 
+    wasm_bundles: dict[str, Any] = {}
+    wasm_budgets_ok = True
+    if expect_clinic_bevy_wasm:
+        clinic_budget_ok = evaluate_wasm_brotli11_budget(
+            clinic_wasm_brotli11_bytes, DESKTOP_WASM_BROTLI11_BUDGET_BYTES
+        )
+        wasm_bundles["clinic"] = {
+            "runtime": BEVY_RUST_WASM_RUNTIME_ID,
+            "raw_bytes": clinic_wasm_raw_bytes,
+            "brotli11_bytes": clinic_wasm_brotli11_bytes,
+            "budget_bytes": DESKTOP_WASM_BROTLI11_BUDGET_BYTES,
+            "within_budget": clinic_budget_ok,
+        }
+        wasm_budgets_ok = wasm_budgets_ok and clinic_budget_ok
+    if expect_mobile_bevy_wasm:
+        mobile_budget_ok = evaluate_wasm_brotli11_budget(
+            mobile_wasm_brotli11_bytes, MOBILE_WASM_BROTLI11_BUDGET_BYTES
+        )
+        wasm_bundles["mobile"] = {
+            "runtime": BEVY_RUST_WASM_RUNTIME_ID,
+            "raw_bytes": mobile_wasm_raw_bytes,
+            "brotli11_bytes": mobile_wasm_brotli11_bytes,
+            "budget_bytes": MOBILE_WASM_BROTLI11_BUDGET_BYTES,
+            "within_budget": mobile_budget_ok,
+        }
+        wasm_budgets_ok = wasm_budgets_ok and mobile_budget_ok
+
     mobile_passed = all(entry["passed"] for entry in mobile_results.values())
-    overall_passed = all(entry["passed"] for entry in results.values()) and mobile_passed
+    overall_passed = (
+        all(entry["passed"] for entry in results.values()) and mobile_passed and wasm_budgets_ok
+    )
 
     report: dict[str, Any] = {
         "schema_version": 1,
@@ -1131,6 +1356,8 @@ def run_browser_qualification(
         "browsers_requested": browsers,
         "results": results,
     }
+    if wasm_bundles:
+        report["wasm_bundles"] = wasm_bundles
     if mobile_emulation:
         report["mobile_emulation"] = {
             "enabled": True,
@@ -1181,6 +1408,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional path to a compiled `.wasm` binary to compile under strict CSP (`'wasm-unsafe-eval'`).",
     )
     parser.add_argument(
+        "--clinic-wasm",
+        type=Path,
+        default=None,
+        help="Optional path to compiled `ef_clinic_client.wasm` served under `/elysianfields/ef_clinic_client.wasm`.",
+    )
+    parser.add_argument(
+        "--mobile-wasm",
+        type=Path,
+        default=None,
+        help="Optional path to compiled `ef_mobile_client.wasm` served under `/elysianfields/mobile/ef_mobile_client.wasm`.",
+    )
+    parser.add_argument(
         "--mobile-emulation",
         action="store_true",
         help="Run Mobile WebKit (iPhone 14) and Mobile Chromium (Pixel 7) PWA, RTL, and offline reload checks.",
@@ -1207,6 +1446,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.wasm_file is not None and not args.wasm_file.is_file():
         print(f"ERROR: --wasm-file not found: {args.wasm_file}", file=sys.stderr)
+        return 2
+    if args.clinic_wasm is not None and not args.clinic_wasm.is_file():
+        print(f"ERROR: --clinic-wasm not found: {args.clinic_wasm}", file=sys.stderr)
+        return 2
+    if args.mobile_wasm is not None and not args.mobile_wasm.is_file():
+        print(f"ERROR: --mobile-wasm not found: {args.mobile_wasm}", file=sys.stderr)
         return 2
 
     try:
@@ -1258,8 +1503,10 @@ def main(argv: list[str] | None = None) -> int:
             extension_dir=args.extension_dir,
             clinic_api_origin=clinic_api_origin,
             wasm_file=args.wasm_file,
+            clinic_wasm=args.clinic_wasm,
+            mobile_wasm=args.mobile_wasm,
         ) as preview:
-            if clinic_shell_url is None:
+            if args.clinic_wasm is not None or clinic_shell_url is None:
                 clinic_shell_url = f"{preview.origin}/elysianfields/"
             mv3_popup_url = f"{preview.origin}/mv3-popup/popup.html"
             wasm_host_url = f"{preview.origin}/elysianfields/"
@@ -1267,6 +1514,22 @@ def main(argv: list[str] | None = None) -> int:
             mobile_shell_url = f"{preview.origin}/elysianfields/mobile/"
             wasm_raw_bytes = len(preview.wasm_bytes)
             wasm_brotli11_bytes = measure_brotli11_bytes(preview.wasm_bytes)
+            clinic_wasm_raw_bytes = (
+                len(preview.clinic_wasm_bytes) if preview.clinic_wasm_bytes is not None else None
+            )
+            clinic_wasm_brotli11_bytes = (
+                measure_brotli11_bytes(preview.clinic_wasm_bytes)
+                if preview.clinic_wasm_bytes is not None
+                else None
+            )
+            mobile_wasm_raw_bytes = (
+                len(preview.mobile_wasm_bytes) if preview.mobile_wasm_bytes is not None else None
+            )
+            mobile_wasm_brotli11_bytes = (
+                measure_brotli11_bytes(preview.mobile_wasm_bytes)
+                if preview.mobile_wasm_bytes is not None
+                else None
+            )
 
             with sync_playwright() as pw:
                 report = run_browser_qualification(
@@ -1283,6 +1546,12 @@ def main(argv: list[str] | None = None) -> int:
                     wasm_brotli11_bytes=wasm_brotli11_bytes,
                     mobile_emulation=args.mobile_emulation,
                     mobile_shell_url=mobile_shell_url,
+                    expect_clinic_bevy_wasm=args.clinic_wasm is not None,
+                    clinic_wasm_raw_bytes=clinic_wasm_raw_bytes,
+                    clinic_wasm_brotli11_bytes=clinic_wasm_brotli11_bytes,
+                    expect_mobile_bevy_wasm=args.mobile_wasm is not None,
+                    mobile_wasm_raw_bytes=mobile_wasm_raw_bytes,
+                    mobile_wasm_brotli11_bytes=mobile_wasm_brotli11_bytes,
                 )
 
         if args.report is not None:

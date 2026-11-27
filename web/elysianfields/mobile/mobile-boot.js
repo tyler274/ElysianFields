@@ -11,6 +11,11 @@
  */
 
 import { ElysianNarrowA11yBridge } from "../a11y-bridge.js";
+import {
+  isWasmModuleAdvertised,
+  loadBevyWasmClient,
+  syncRustA11yNodes,
+} from "../wasm-bridge.js";
 
 const MOBILE_MOUNT_PREFIX = "/elysianfields/mobile";
 const MOBILE_API_PREFIX = "/elysianfields/mobile-api";
@@ -144,10 +149,16 @@ export class MobileApiClient {
   }
 }
 
-function applyLocaleAndDirection(lang) {
-  const isArabic = String(lang).toLowerCase().startsWith("ar");
-  const normalizedLang = isArabic ? "ar" : "en";
-  const dir = isArabic ? "rtl" : "ltr";
+function applyLocaleAndDirection(lang, explicitDirection = null) {
+  const raw = String(lang || "en").trim();
+  const isArabic = raw.toLowerCase().startsWith("ar");
+  const normalizedLang = raw || "en";
+  const dir =
+    explicitDirection === "rtl" || explicitDirection === "ltr"
+      ? explicitDirection
+      : isArabic
+        ? "rtl"
+        : "ltr";
 
   document.documentElement.lang = normalizedLang;
   document.documentElement.dir = dir;
@@ -258,6 +269,9 @@ async function bootMobile() {
     lang: "en",
     dir: "ltr",
     lastAction: null,
+    wasmRuntime: "static-shell",
+    wasmAbiVersion: null,
+    lastWasmSnapshot: null,
   };
 
   document.addEventListener("securitypolicyviolation", () => {
@@ -281,35 +295,105 @@ async function bootMobile() {
 
   const appRoot = document.getElementById("mobile-app") ?? document.body;
   const noteEl = document.getElementById("doctor-note");
+  let wasmClient = null;
+  let a11yOwner = "shell";
   const bridge = new ElysianNarrowA11yBridge(
     appRoot,
     (action) => {
       state.lastAction = action;
       if (action.type === "set_value" && noteEl && typeof action.value === "string") {
         noteEl.value = action.value;
+        if (wasmClient) {
+          const updated = wasmClient.dispatch({ cmd: "edit_draft", text: action.value });
+          state.lastWasmSnapshot = updated;
+          syncRustA11yNodes(bridge, updated);
+          setText("mobile-metric-a11y", bridge.projectedNodeCount());
+        }
       }
     },
     { mountSubpath: MOBILE_MOUNT_PREFIX },
   );
-  bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? ""));
+
+  const shouldLoadMobileWasm =
+    params.get("wasm") !== "0" &&
+    (params.get("wasm") === "1" ||
+      (await isWasmModuleAdvertised("./wasm-manifest.json", "mobileWasm")));
+
+  if (shouldLoadMobileWasm) {
+    try {
+      wasmClient = await loadBevyWasmClient({
+        wasmUrl: "./ef_mobile_client.wasm",
+        initFn: "ef_mobile_wasm_init",
+        versionFn: "ef_mobile_wasm_version",
+        dispatchFn: "ef_mobile_wasm_dispatch_json",
+      });
+      let snapshot = wasmClient.initialSnapshot;
+      if (initialLang && initialLang.toLowerCase() !== "en") {
+        const localized = wasmClient.dispatch({ cmd: "set_locale", lang: initialLang });
+        if (localized && localized.ok) {
+          snapshot = localized;
+        }
+      }
+      state.wasmRuntime = snapshot.runtime || "bevy-rust-wasm";
+      state.wasmAbiVersion = wasmClient.abiVersion;
+      state.lastWasmSnapshot = snapshot;
+      a11yOwner = "rust-accesskit";
+      const syncedLocale = applyLocaleAndDirection(snapshot.locale, snapshot.direction);
+      state.lang = syncedLocale.lang;
+      state.dir = syncedLocale.dir;
+      syncRustA11yNodes(
+        bridge,
+        snapshot,
+        "Curie Mobile Rust AccessKit tree mounted under /elysianfields/mobile/.",
+      );
+    } catch (_err) {
+      wasmClient = null;
+      bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? ""));
+    }
+  } else {
+    bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? ""));
+  }
+
   const nodeCount = bridge.projectedNodeCount();
   setText("mobile-metric-a11y", nodeCount);
 
   const apiClient = new MobileApiClient();
 
+  const applyMobileLocale = (nextLang) => {
+    if (wasmClient) {
+      const snap = wasmClient.dispatch({ cmd: "set_locale", lang: nextLang });
+      if (snap && snap.ok) {
+        state.lastWasmSnapshot = snap;
+        const updated = applyLocaleAndDirection(snap.locale, snap.direction);
+        state.lang = updated.lang;
+        state.dir = updated.dir;
+        const count = syncRustA11yNodes(
+          bridge,
+          snap,
+          updated.dir === "rtl" ? "Switched to Arabic RTL layout." : "Switched to English LTR layout.",
+        );
+        setText("mobile-metric-a11y", count);
+        document.documentElement.dataset.efA11yNodes = String(count);
+        return updated;
+      }
+    }
+    const updated = applyLocaleAndDirection(nextLang);
+    state.lang = updated.lang;
+    state.dir = updated.dir;
+    bridge.applyPatches([
+      {
+        kind: "SetPoliteLive",
+        text: updated.dir === "rtl" ? "Switched to Arabic RTL layout." : "Switched to English LTR layout.",
+      },
+    ]);
+    return updated;
+  };
+
   const toggleBtn = document.getElementById("btn-toggle-lang");
   if (toggleBtn) {
     toggleBtn.addEventListener("click", () => {
       const nextLang = state.lang === "ar" ? "en" : "ar";
-      const updated = applyLocaleAndDirection(nextLang);
-      state.lang = updated.lang;
-      state.dir = updated.dir;
-      bridge.applyPatches([
-        {
-          kind: "SetPoliteLive",
-          text: updated.dir === "rtl" ? "Switched to Arabic RTL layout." : "Switched to English LTR layout.",
-        },
-      ]);
+      applyMobileLocale(nextLang);
     });
   }
 
@@ -317,6 +401,11 @@ async function bootMobile() {
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
       if (noteEl) noteEl.value = "";
+      if (wasmClient) {
+        const snap = wasmClient.dispatch({ cmd: "edit_draft", text: "" });
+        state.lastWasmSnapshot = snap;
+        syncRustA11yNodes(bridge, snap);
+      }
       await apiClient.signOutOrQueueOwed();
       setText("mobile-metric-owed", apiClient.owedSignOuts.length);
       setText(
@@ -329,6 +418,9 @@ async function bootMobile() {
   }
 
   window.addEventListener("online", async () => {
+    if (wasmClient) {
+      state.lastWasmSnapshot = wasmClient.dispatch({ cmd: "set_connectivity", online: true });
+    }
     const remaining = await apiClient.flushOwedSignOuts();
     setText("mobile-metric-owed", remaining);
   });
@@ -377,6 +469,11 @@ async function bootMobile() {
   document.documentElement.dataset.efReady = "true";
   document.documentElement.dataset.efSubpathValid = String(withinMount);
   document.documentElement.dataset.efA11yNodes = String(nodeCount);
+  document.documentElement.dataset.efA11yOwner = a11yOwner;
+  document.documentElement.dataset.efWasmRuntime = state.wasmRuntime;
+  if (state.wasmAbiVersion !== null) {
+    document.documentElement.dataset.efWasmAbiVersion = String(state.wasmAbiVersion);
+  }
   document.documentElement.dataset.efCspViolations = String(state.cspViolations);
   document.documentElement.dataset.efColdStartMs = coldStartMs.toFixed(2);
   document.documentElement.dataset.efSwState = "registering";
@@ -385,12 +482,21 @@ async function bootMobile() {
     mountPrefix: MOBILE_MOUNT_PREFIX,
     apiClient,
     bridge,
-    setLocale: (lang) => {
-      const updated = applyLocaleAndDirection(lang);
-      state.lang = updated.lang;
-      state.dir = updated.dir;
-      return updated;
+    dispatchWasm: (cmd) => {
+      if (!wasmClient) return null;
+      const snap = wasmClient.dispatch(cmd);
+      state.lastWasmSnapshot = snap;
+      if (snap && snap.ok) {
+        const updated = applyLocaleAndDirection(snap.locale, snap.direction);
+        state.lang = updated.lang;
+        state.dir = updated.dir;
+        const count = syncRustA11yNodes(bridge, snap);
+        setText("mobile-metric-a11y", count);
+        document.documentElement.dataset.efA11yNodes = String(count);
+      }
+      return snap;
     },
+    setLocale: (lang) => applyMobileLocale(lang),
     getState: () => ({ ...state, a11yNodeCount: bridge.projectedNodeCount() }),
   });
 

@@ -10,6 +10,11 @@
  */
 
 import { ElysianNarrowA11yBridge } from "./a11y-bridge.js";
+import {
+  isWasmModuleAdvertised,
+  loadBevyWasmClient,
+  syncRustA11yNodes,
+} from "./wasm-bridge.js";
 
 const MOUNT_PREFIX = "/elysianfields";
 
@@ -316,6 +321,22 @@ function appendListItem(listId, text) {
   list.appendChild(li);
 }
 
+function applyClinicDocumentLocale(lang, explicitDirection = null) {
+  const raw = String(lang || "en").trim();
+  const isArabic = raw.toLowerCase().startsWith("ar");
+  const normalizedLang = raw || "en";
+  const dir = explicitDirection === "rtl" || explicitDirection === "ltr"
+    ? explicitDirection
+    : isArabic
+      ? "rtl"
+      : "ltr";
+  document.documentElement.lang = normalizedLang;
+  document.documentElement.dir = dir;
+  document.documentElement.dataset.efLang = normalizedLang;
+  document.documentElement.dataset.efDir = dir;
+  return { lang: normalizedLang, dir };
+}
+
 async function boot() {
   const navStartMs = performance.now();
   const state = {
@@ -325,6 +346,9 @@ async function boot() {
     preservedDraft: "",
     activeWorkspaceId: "ws-demo-1",
     lastAction: null,
+    wasmRuntime: "static-shell",
+    wasmAbiVersion: null,
+    lastWasmSnapshot: null,
   };
 
   document.addEventListener("securitypolicyviolation", () => {
@@ -338,20 +362,88 @@ async function boot() {
   const withinMount = isWithinMount(pathname);
   setText("metric-subpath", withinMount ? `${pathname} (valid)` : `${pathname} (invalid-mount)`);
 
+  const searchParams = new URLSearchParams(window.location.search);
+  const requestedLang = searchParams.get("lang");
+  applyClinicDocumentLocale(requestedLang || "en");
+
   const appRoot = document.getElementById("elysian-app") ?? document.body;
   const composerEl = document.getElementById("composer-draft");
+  let wasmClient = null;
   const bridge = new ElysianNarrowA11yBridge(
     appRoot,
     (action) => {
       state.lastAction = action;
       if (action.type === "set_value" && composerEl && typeof action.value === "string") {
         composerEl.value = action.value;
+        if (wasmClient) {
+          const updated = wasmClient.dispatch({
+            cmd: "set_composer_text",
+            text: action.value,
+          });
+          state.lastWasmSnapshot = updated;
+          syncRustA11yNodes(bridge, updated);
+          setText("metric-a11y-nodes", bridge.projectedNodeCount());
+        }
       }
     },
     { mountSubpath: MOUNT_PREFIX },
   );
 
-  bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? ""));
+  let probeCode = "standby";
+  let wasmInitMs = null;
+  let a11yOwner = "shell";
+
+  const explicitLegacyBundle = searchParams.get("bundle");
+  const shouldLoadClinicWasm =
+    !explicitLegacyBundle &&
+    searchParams.get("wasm") !== "0" &&
+    (searchParams.get("wasm") === "1" ||
+      (await isWasmModuleAdvertised(resolveMountUrl("wasm-manifest.json"), "clinicWasm")));
+
+  if (shouldLoadClinicWasm) {
+    try {
+      wasmClient = await loadBevyWasmClient({
+        wasmUrl: resolveMountUrl("ef_clinic_client.wasm"),
+        initFn: "ef_clinic_wasm_init",
+        versionFn: "ef_clinic_wasm_version",
+        dispatchFn: "ef_clinic_wasm_dispatch_json",
+      });
+      let snapshot = wasmClient.initialSnapshot;
+      if (requestedLang) {
+        const localized = wasmClient.dispatch({ cmd: "set_locale", lang: requestedLang });
+        if (localized && localized.ok) {
+          snapshot = localized;
+        }
+      }
+      if (composerEl && composerEl.value) {
+        const synced = wasmClient.dispatch({
+          cmd: "set_composer_text",
+          text: composerEl.value,
+        });
+        if (synced && synced.ok) {
+          snapshot = synced;
+        }
+      }
+      state.wasmRuntime = snapshot.runtime || "bevy-rust-wasm";
+      state.wasmAbiVersion = wasmClient.abiVersion;
+      state.lastWasmSnapshot = snapshot;
+      a11yOwner = "rust-accesskit";
+      probeCode = `${state.wasmRuntime}-v${wasmClient.abiVersion}`;
+      wasmInitMs = wasmClient.loadMs;
+      applyClinicDocumentLocale(snapshot.locale, snapshot.direction);
+      syncRustA11yNodes(
+        bridge,
+        snapshot,
+        "Curie Clinic Rust AccessKit tree mounted under /elysianfields/.",
+      );
+    } catch (_err) {
+      wasmClient = null;
+      bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? ""));
+    }
+  } else {
+    bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? ""));
+  }
+
   const nodeCount = bridge.projectedNodeCount();
   setText("metric-a11y-nodes", nodeCount);
 
@@ -402,12 +494,18 @@ async function boot() {
       const text = composerEl?.value?.trim() ?? "";
       if (!text) return;
       appendListItem("transcript-list", `Clinician: ${text}`);
-      bridge.applyPatches([
-        {
-          kind: "SetPoliteLive",
-          text: `Prompt queued for ${state.activeWorkspaceId}.`,
-        },
-      ]);
+      if (wasmClient) {
+        const updated = wasmClient.dispatch({ cmd: "set_composer_text", text });
+        state.lastWasmSnapshot = updated;
+        syncRustA11yNodes(bridge, updated, `Prompt queued for ${state.activeWorkspaceId}.`);
+      } else {
+        bridge.applyPatches([
+          {
+            kind: "SetPoliteLive",
+            text: `Prompt queued for ${state.activeWorkspaceId}.`,
+          },
+        ]);
+      }
     });
   }
 
@@ -415,8 +513,8 @@ async function boot() {
   if (loadWasmBtn) {
     loadWasmBtn.addEventListener("click", async () => {
       try {
-        const { probeCode, elapsedMs } = await loadOptionalWasmBundle(capabilities);
-        setText("metric-probe-code", probeCode);
+        const { probeCode: loadedCode, elapsedMs } = await loadOptionalWasmBundle(capabilities);
+        setText("metric-probe-code", loadedCode);
         setText("metric-cold-start", `${elapsedMs.toFixed(1)} ms (wasm)`);
       } catch (_err) {
         setText("metric-probe-code", "not-packaged");
@@ -424,15 +522,10 @@ async function boot() {
     });
   }
 
-  // Load compiled Bevy Wasm bundle automatically only when explicitly requested via ?wasm=1
-  // so static-preview and live-API shell runs produce zero spurious 404 console errors.
-  const searchParams = new URLSearchParams(window.location.search);
-  let probeCode = "standby";
-  let wasmInitMs = null;
-  if (searchParams.get("wasm") === "1") {
+  // Optional legacy M1 bundle loader when explicitly requested via ?wasm=1&bundle=...
+  if (searchParams.get("wasm") === "1" && explicitLegacyBundle) {
     try {
-      const bundleName = searchParams.get("bundle") || "m1_web_delivery";
-      const result = await loadOptionalWasmBundle(capabilities, bundleName);
+      const result = await loadOptionalWasmBundle(capabilities, explicitLegacyBundle);
       probeCode = String(result.probeCode);
       wasmInitMs = result.elapsedMs;
     } catch (err) {
@@ -460,6 +553,11 @@ async function boot() {
   document.documentElement.dataset.efSubpathValid = String(withinMount);
   document.documentElement.dataset.efBackend = backendLabel;
   document.documentElement.dataset.efA11yNodes = String(nodeCount);
+  document.documentElement.dataset.efA11yOwner = a11yOwner;
+  document.documentElement.dataset.efWasmRuntime = state.wasmRuntime;
+  if (state.wasmAbiVersion !== null) {
+    document.documentElement.dataset.efWasmAbiVersion = String(state.wasmAbiVersion);
+  }
   document.documentElement.dataset.efCspViolations = String(state.cspViolations);
   document.documentElement.dataset.efColdStartMs = totalColdStartMs.toFixed(2);
 
@@ -477,6 +575,19 @@ async function boot() {
     mountPrefix: MOUNT_PREFIX,
     apiClient,
     bridge,
+    dispatchWasm: (cmd) => {
+      if (!wasmClient) return null;
+      const snap = wasmClient.dispatch(cmd);
+      state.lastWasmSnapshot = snap;
+      if (snap && snap.ok) {
+        applyClinicDocumentLocale(snap.locale, snap.direction);
+        syncRustA11yNodes(bridge, snap);
+        const count = bridge.projectedNodeCount();
+        setText("metric-a11y-nodes", count);
+        document.documentElement.dataset.efA11yNodes = String(count);
+      }
+      return snap;
+    },
     getState: () => ({ ...state, a11yNodeCount: bridge.projectedNodeCount() }),
     loadWasmBundle: (bundleName) => loadOptionalWasmBundle(capabilities, bundleName),
   });

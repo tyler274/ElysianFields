@@ -38,10 +38,24 @@ class ParseBrowsersTests(unittest.TestCase):
         self.assertEqual(default_args.browsers, "chromium,firefox,webkit")
         self.assertFalse(default_args.mobile_emulation)
         self.assertIsNone(default_args.wasm_file)
+        self.assertIsNone(default_args.clinic_wasm)
+        self.assertIsNone(default_args.mobile_wasm)
 
-        extended = parser.parse_args(["--mobile-emulation", "--wasm-file", "/tmp/demo.wasm"])
+        extended = parser.parse_args(
+            [
+                "--mobile-emulation",
+                "--wasm-file",
+                "/tmp/demo.wasm",
+                "--clinic-wasm",
+                "/tmp/ef_clinic_client.wasm",
+                "--mobile-wasm",
+                "/tmp/ef_mobile_client.wasm",
+            ]
+        )
         self.assertTrue(extended.mobile_emulation)
         self.assertEqual(extended.wasm_file, Path("/tmp/demo.wasm"))
+        self.assertEqual(extended.clinic_wasm, Path("/tmp/ef_clinic_client.wasm"))
+        self.assertEqual(extended.mobile_wasm, Path("/tmp/ef_mobile_client.wasm"))
 
 
 class HtmlAndWasmInvariantTests(unittest.TestCase):
@@ -91,6 +105,35 @@ class HtmlAndWasmInvariantTests(unittest.TestCase):
         self.assertTrue(browser_e2e.evaluate_mv3_popup_budget(42.5, 250.0))
         self.assertTrue(browser_e2e.evaluate_mv3_popup_budget(250.0, 250.0))
         self.assertFalse(browser_e2e.evaluate_mv3_popup_budget(250.1, 250.0))
+
+    def test_wasm_brotli11_size_budgets(self) -> None:
+        self.assertTrue(
+            browser_e2e.evaluate_wasm_brotli11_budget(
+                1_600_000, browser_e2e.DESKTOP_WASM_BROTLI11_BUDGET_BYTES
+            )
+        )
+        self.assertFalse(
+            browser_e2e.evaluate_wasm_brotli11_budget(
+                browser_e2e.DESKTOP_WASM_BROTLI11_BUDGET_BYTES + 1,
+                browser_e2e.DESKTOP_WASM_BROTLI11_BUDGET_BYTES,
+            )
+        )
+        self.assertTrue(
+            browser_e2e.evaluate_wasm_brotli11_budget(
+                1_550_000, browser_e2e.MOBILE_WASM_BROTLI11_BUDGET_BYTES
+            )
+        )
+        self.assertFalse(
+            browser_e2e.evaluate_wasm_brotli11_budget(
+                browser_e2e.MOBILE_WASM_BROTLI11_BUDGET_BYTES + 1,
+                browser_e2e.MOBILE_WASM_BROTLI11_BUDGET_BYTES,
+            )
+        )
+        self.assertFalse(
+            browser_e2e.evaluate_wasm_brotli11_budget(
+                None, browser_e2e.DESKTOP_WASM_BROTLI11_BUDGET_BYTES
+            )
+        )
 
 
 class StrictStaticPreviewServerTests(unittest.TestCase):
@@ -156,6 +199,49 @@ class StrictStaticPreviewServerTests(unittest.TestCase):
                     self.assertEqual(exc.code, 404)
                     exc.close()
 
+            # Wasm manifest reports disabled when --clinic-wasm/--mobile-wasm are omitted
+            with urllib.request.urlopen(f"{srv.origin}/elysianfields/wasm-manifest.json") as resp:
+                self.assertEqual(resp.status, 200)
+                manifest = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(manifest, {"clinicWasm": False, "mobileWasm": False})
+
+    def test_serves_clinic_and_mobile_bevy_wasm_binaries_when_configured(self) -> None:
+        root = browser_e2e.repo_root()
+        with tempfile.TemporaryDirectory() as tmp:
+            clinic_wasm = Path(tmp) / "ef_clinic_client.wasm"
+            mobile_wasm = Path(tmp) / "ef_mobile_client.wasm"
+            clinic_wasm.write_bytes(browser_e2e.MINIMAL_VALID_WASM_BYTES)
+            mobile_wasm.write_bytes(browser_e2e.MINIMAL_VALID_WASM_BYTES)
+
+            with browser_e2e.StrictStaticPreviewServer(
+                web_dir=root / "web" / "elysianfields",
+                extension_dir=root / "extension",
+                clinic_wasm=clinic_wasm,
+                mobile_wasm=mobile_wasm,
+            ) as srv:
+                with urllib.request.urlopen(f"{srv.origin}/elysianfields/wasm-manifest.json") as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(
+                        json.loads(resp.read().decode("utf-8")),
+                        {"clinicWasm": True, "mobileWasm": True},
+                    )
+
+                with urllib.request.urlopen(f"{srv.origin}/elysianfields/ef_clinic_client.wasm") as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(resp.headers.get("Content-Type"), "application/wasm")
+                    self.assertEqual(
+                        resp.headers.get("Content-Security-Policy"),
+                        browser_e2e.CLINIC_STRICT_CSP,
+                    )
+                    self.assertEqual(resp.read(), browser_e2e.MINIMAL_VALID_WASM_BYTES)
+
+                with urllib.request.urlopen(
+                    f"{srv.origin}/elysianfields/mobile/ef_mobile_client.wasm"
+                ) as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertEqual(resp.headers.get("Content-Type"), "application/wasm")
+                    self.assertEqual(resp.read(), browser_e2e.MINIMAL_VALID_WASM_BYTES)
+
 
 class _FakeResponse:
     def __init__(self, status: int, headers: dict[str, str] | None = None) -> None:
@@ -212,6 +298,10 @@ class _FakePage:
                     "cspViolations": 0,
                     "subpathValid": True,
                     "backend": "webgl2",
+                    "wasmRuntime": "bevy-rust-wasm",
+                    "a11yOwner": "rust-accesskit",
+                    "dir": "ltr",
+                    "lang": "en",
                     "overlayPresent": True,
                     "overlaySubpath": "/elysianfields",
                     "bridgeNodes": 6,
@@ -219,7 +309,16 @@ class _FakePage:
                     "hasMain": True,
                     "hasTextbox": True,
                 }
-            return {"tag": "input", "id": "signin-email", "movedOffBody": True}
+            if self._eval_calls == 2:
+                return {"tag": "input", "id": "signin-email", "movedOffBody": True}
+            return {
+                "dir": "rtl",
+                "lang": "ar",
+                "wasmRuntime": "bevy-rust-wasm",
+                "a11yOwner": "rust-accesskit",
+                "cspViolations": 0,
+                "bridgeNodes": 6,
+            }
         if self.mode == "wasm":
             return {
                 "fetchStatus": 200,
@@ -240,6 +339,8 @@ class _FakePage:
                     "cspViolations": 0,
                     "dir": "ltr",
                     "lang": "en",
+                    "wasmRuntime": "bevy-rust-wasm",
+                    "a11yOwner": "rust-accesskit",
                     "overlayPresent": True,
                     "bridgeNodes": 6,
                     "hasNav": True,
@@ -252,6 +353,8 @@ class _FakePage:
                 return {
                     "dir": "rtl",
                     "lang": "ar",
+                    "wasmRuntime": "bevy-rust-wasm",
+                    "a11yOwner": "rust-accesskit",
                     "scrollWidth": 390,
                     "innerWidth": 390,
                     "zeroOverflow": True,
@@ -362,6 +465,54 @@ class MockedPlaywrightFlowTests(unittest.TestCase):
             out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
             reloaded = json.loads(out_path.read_text(encoding="utf-8"))
             self.assertTrue(reloaded["overall_passed"])
+
+    def test_run_browser_qualification_enforces_real_bevy_wasm_and_brotli_budgets(self) -> None:
+        report = browser_e2e.run_browser_qualification(
+            _FakePlaywright(),
+            browsers=["chromium", "webkit"],
+            clinic_shell_url="http://127.0.0.1:9999/elysianfields/",
+            mv3_popup_url="http://127.0.0.1:9999/mv3-popup/popup.html",
+            wasm_host_url="http://127.0.0.1:9999/elysianfields/",
+            wasm_probe_url="http://127.0.0.1:9999/elysianfields/wasm-probe.wasm",
+            mobile_emulation=True,
+            mobile_shell_url="http://127.0.0.1:9999/elysianfields/mobile/",
+            expect_clinic_bevy_wasm=True,
+            clinic_wasm_raw_bytes=19_500_000,
+            clinic_wasm_brotli11_bytes=1_600_000,
+            expect_mobile_bevy_wasm=True,
+            mobile_wasm_raw_bytes=19_500_000,
+            mobile_wasm_brotli11_bytes=1_580_000,
+        )
+        self.assertTrue(report["overall_passed"])
+        self.assertTrue(report["wasm_bundles"]["clinic"]["within_budget"])
+        self.assertTrue(report["wasm_bundles"]["mobile"]["within_budget"])
+        for engine in ("chromium", "webkit"):
+            clinic = report["results"][engine]["checks"]["clinic_shell"]
+            self.assertTrue(clinic["passed"])
+            self.assertEqual(clinic["wasm_runtime"], "bevy-rust-wasm")
+            self.assertEqual(clinic["a11y_owner"], "rust-accesskit")
+            self.assertEqual(clinic["rtl"]["dir"], "rtl")
+            self.assertEqual(clinic["rtl"]["lang"], "ar")
+
+        # Over-budget Brotli-11 mobile Wasm must fail the qualification gate.
+        over_budget = browser_e2e.run_browser_qualification(
+            _FakePlaywright(),
+            browsers=["chromium"],
+            clinic_shell_url="http://127.0.0.1:9999/elysianfields/",
+            mv3_popup_url="http://127.0.0.1:9999/mv3-popup/popup.html",
+            wasm_host_url="http://127.0.0.1:9999/elysianfields/",
+            wasm_probe_url="http://127.0.0.1:9999/elysianfields/wasm-probe.wasm",
+            mobile_emulation=True,
+            mobile_shell_url="http://127.0.0.1:9999/elysianfields/mobile/",
+            expect_clinic_bevy_wasm=True,
+            clinic_wasm_raw_bytes=19_500_000,
+            clinic_wasm_brotli11_bytes=1_600_000,
+            expect_mobile_bevy_wasm=True,
+            mobile_wasm_raw_bytes=25_000_000,
+            mobile_wasm_brotli11_bytes=browser_e2e.MOBILE_WASM_BROTLI11_BUDGET_BYTES + 1,
+        )
+        self.assertFalse(over_budget["overall_passed"])
+        self.assertFalse(over_budget["wasm_bundles"]["mobile"]["within_budget"])
 
 
 if __name__ == "__main__":

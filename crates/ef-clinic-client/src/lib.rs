@@ -8,6 +8,7 @@ pub mod http_transport;
 pub mod plugin;
 pub mod state;
 pub mod transport;
+pub mod wasm_abi;
 pub mod wire;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,6 +26,11 @@ pub use state::{
 pub use transport::{
     ClinicTransport, LocalVerticalSliceTransport, TransportError, TransportResponseMeta,
     VerticalSliceBackend, stream_event_id,
+};
+pub use wasm_abi::{
+    BEVY_RUST_WASM_RUNTIME_ID, CLINIC_WASM_ABI_VERSION, ClinicWasmCommand, ClinicWasmRuntime,
+    ClinicWasmSnapshot, WasmA11yNodeDescriptor, WasmIdleRedrawSummary, pack_ptr_len,
+    unpack_ptr_len,
 };
 pub use wire::{
     ChatSnapshotWire, ClientBootConfig, ClinicEndpoint, PatientWorkspaceDetail, PutDraftRequest,

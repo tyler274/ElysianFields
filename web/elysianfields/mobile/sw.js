@@ -9,7 +9,9 @@ const PRECACHE_ASSETS = [
   "./mobile.css",
   "./mobile-boot.js",
   "./manifest.webmanifest",
+  "./wasm-manifest.json",
   "../a11y-bridge.js",
+  "../wasm-bridge.js",
 ];
 
 const OFFLINE_FALLBACK_HTML = `<!DOCTYPE html>
@@ -69,7 +71,8 @@ self.addEventListener("fetch", (event) => {
 
   if (
     !url.pathname.startsWith("/elysianfields/mobile") &&
-    url.pathname !== "/elysianfields/a11y-bridge.js"
+    url.pathname !== "/elysianfields/a11y-bridge.js" &&
+    url.pathname !== "/elysianfields/wasm-bridge.js"
   ) {
     return;
   }
