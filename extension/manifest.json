@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Elysian Fields Read-Only Connector",
+  "version": "0.2.0",
+  "description": "Least-privilege Manifest V3 connector using memory-only session storage, declared named read jobs, and Decision D2 semantic HTML popup.",
+  "permissions": [
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Elysian Fields Connector",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; object-src 'self'"
+  }
+}

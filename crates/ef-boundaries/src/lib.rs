@@ -1,9 +1,11 @@
-//! Workspace architecture boundary verifier.
+//! Workspace architecture boundary verifier (`EF-PLATFORM-0004` / `SCN-M3-0020`).
 //!
 //! Reads workspace `Cargo.toml` manifests and static client assets to enforce:
-//! 1. Zero `bevy` dependencies in headless domain, harness, boundary, or server crates.
+//! 1. Zero `bevy` dependencies in headless domain, harness, boundary, extension, public-site, or server crates.
 //! 2. Zero cross-product imports between `ef-clinic-*` and `ef-mobile-*` crates.
-//! 3. Zero provider or tool secrets bundled in client crates or static web harnesses.
+//! 3. Zero product imports in shared crates (`ef-core`, `ef-harness`, `ef-connected-care`, `ef-clinical-lib`, `ef-encoder`) and zero DB/KV crates in `ef-harness`.
+//! 4. Zero direct native health bridge calls inside mobile UI crates (`ef-mobile-client`).
+//! 5. Zero provider or tool secrets bundled in client crates, `web/`, or `extension/`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +22,22 @@ pub enum BoundaryViolation {
         crate_name: String,
         forbidden_dep: String,
     },
+    #[error("shared crate '{crate_name}' must not depend on product crate '{forbidden_dep}'")]
+    SharedCrateImportsProduct {
+        crate_name: String,
+        forbidden_dep: String,
+    },
+    #[error(
+        "shared harness crate '{crate_name}' must not depend on persistence crate '{forbidden_dep}'"
+    )]
+    HarnessDependsOnPersistence {
+        crate_name: String,
+        forbidden_dep: String,
+    },
+    #[error(
+        "mobile UI source '{path}' must not call native health bridge symbol '{symbol}' directly"
+    )]
+    MobileUiCallsNativeHealthBridge { path: String, symbol: &'static str },
     #[error("client asset '{path}' contains forbidden secret pattern '{pattern}'")]
     ClientSecretDetected { path: String, pattern: &'static str },
     #[error("I/O error reading '{path}': {message}")]
@@ -63,18 +81,12 @@ pub fn load_workspace_manifests(
     Ok(manifests)
 }
 
-/// Verifies all 3 architectural boundary rules across the workspace.
-pub fn audit_workspace_boundaries(workspace_root: &Path) -> Vec<BoundaryViolation> {
+/// Audits parsed workspace crate manifests for dependency-level boundary violations.
+#[must_use]
+pub fn audit_manifest_dependencies(manifests: &[CrateManifestSummary]) -> Vec<BoundaryViolation> {
     let mut violations = Vec::new();
-    let manifests = match load_workspace_manifests(workspace_root) {
-        Ok(m) => m,
-        Err(err) => {
-            violations.push(err);
-            return violations;
-        }
-    };
 
-    for manifest in &manifests {
+    for manifest in manifests {
         if is_headless_crate(&manifest.name)
             && manifest
                 .dependencies
@@ -108,32 +120,127 @@ pub fn audit_workspace_boundaries(workspace_root: &Path) -> Vec<BoundaryViolatio
             }
         }
 
-        if is_client_crate(&manifest.name)
-            && let Some(crate_dir) = manifest.path.parent()
-        {
-            scan_dir_for_secrets(crate_dir, workspace_root, &mut violations);
+        if is_shared_neutral_crate(&manifest.name) {
+            for dep in &manifest.dependencies {
+                if dep.starts_with("ef-clinic-") || dep.starts_with("ef-mobile-") {
+                    violations.push(BoundaryViolation::SharedCrateImportsProduct {
+                        crate_name: manifest.name.clone(),
+                        forbidden_dep: dep.clone(),
+                    });
+                }
+            }
         }
-    }
 
-    let web_dir = workspace_root.join("web");
-    if web_dir.is_dir() {
-        scan_dir_for_secrets(&web_dir, workspace_root, &mut violations);
+        if manifest.name == "ef-harness" {
+            for dep in &manifest.dependencies {
+                if dep.starts_with("ef-mobile-") {
+                    violations.push(BoundaryViolation::CrossProductImport {
+                        crate_name: manifest.name.clone(),
+                        forbidden_dep: dep.clone(),
+                    });
+                }
+                if is_forbidden_harness_persistence_crate(dep) {
+                    violations.push(BoundaryViolation::HarnessDependsOnPersistence {
+                        crate_name: manifest.name.clone(),
+                        forbidden_dep: dep.clone(),
+                    });
+                }
+            }
+        }
     }
 
     violations
 }
 
-/// Identifies headless domain, harness, boundary, and backend server crates that MUST NOT depend on `bevy`.
+/// Verifies all architectural boundary rules across workspace manifests, client sources, `web/`, and `extension/`.
+#[must_use]
+pub fn audit_workspace_boundaries(workspace_root: &Path) -> Vec<BoundaryViolation> {
+    let manifests = match load_workspace_manifests(workspace_root) {
+        Ok(m) => m,
+        Err(err) => return vec![err],
+    };
+
+    let mut violations = audit_manifest_dependencies(&manifests);
+
+    for manifest in &manifests {
+        let Some(crate_dir) = manifest.path.parent() else {
+            continue;
+        };
+        if is_client_crate(&manifest.name) {
+            scan_dir_for_secrets(crate_dir, workspace_root, &mut violations);
+        }
+        if manifest.name == "ef-mobile-client" {
+            scan_dir_for_mobile_ui_health_bridges(crate_dir, workspace_root, &mut violations);
+        }
+    }
+
+    for static_dir_name in ["web", "extension"] {
+        let static_dir = workspace_root.join(static_dir_name);
+        if static_dir.is_dir() {
+            scan_dir_for_secrets(&static_dir, workspace_root, &mut violations);
+        }
+    }
+
+    violations
+}
+
+/// Identifies headless domain, harness, boundary, extension, public-site, and backend crates
+/// that MUST NOT depend on `bevy`.
 #[must_use]
 pub fn is_headless_crate(name: &str) -> bool {
     matches!(
         name,
-        "ef-core" | "ef-clinic-domain" | "ef-harness" | "ef-boundaries" | "elysian-smoke"
+        "ef-core"
+            | "ef-clinic-domain"
+            | "ef-harness"
+            | "ef-boundaries"
+            | "elysian-smoke"
+            | "ef-connected-care"
+            | "ef-clinical-lib"
+            | "ef-encoder"
+            | "ef-patient-bank"
+            | "ef-extension"
+            | "ef-public-site"
     ) || name.ends_with("-domain")
         || name.ends_with("-server")
         || name.ends_with("-worker")
         || name.ends_with("-harness")
         || name.ends_with("-core")
+        || name.ends_with("-workflows")
+        || name.ends_with("-lib")
+}
+
+/// Identifies shared neutral crates that must never import product-specific crates.
+#[must_use]
+pub fn is_shared_neutral_crate(name: &str) -> bool {
+    matches!(
+        name,
+        "ef-core"
+            | "ef-connected-care"
+            | "ef-clinical-lib"
+            | "ef-encoder"
+            | "ef-patient-bank"
+            | "ef-extension"
+            | "ef-public-site"
+    )
+}
+
+/// Identifies database/KV persistence crates forbidden inside the shared execution harness.
+#[must_use]
+pub fn is_forbidden_harness_persistence_crate(dep: &str) -> bool {
+    matches!(
+        dep,
+        "sqlx"
+            | "postgres"
+            | "tokio-postgres"
+            | "deadpool-postgres"
+            | "diesel"
+            | "sea-orm"
+            | "rusqlite"
+            | "redis"
+            | "fred"
+            | "valkey"
+    )
 }
 
 /// Identifies client/browser crates where provider and tool secrets must never be bundled.
@@ -141,6 +248,7 @@ pub fn is_headless_crate(name: &str) -> bool {
 pub fn is_client_crate(name: &str) -> bool {
     name.starts_with("m1-")
         || name.starts_with("ef-ui-")
+        || name == "ef-extension"
         || name.ends_with("-client")
         || name.ends_with("-web")
 }
@@ -153,6 +261,13 @@ const FORBIDDEN_CLIENT_SECRET_PATTERNS: &[&str] = &[
     "DATABASE_URL",
     "BEGIN PRIVATE KEY",
     "BEGIN RSA PRIVATE KEY",
+];
+
+const FORBIDDEN_MOBILE_UI_HEALTH_SYMBOLS: &[&str] = &[
+    "HKHealthStore",
+    "HealthConnectClient",
+    "androidx.health.connect",
+    "HealthKitAdapter",
 ];
 
 fn scan_dir_for_secrets(dir: &Path, root: &Path, violations: &mut Vec<BoundaryViolation>) {
@@ -180,6 +295,46 @@ fn scan_dir_for_secrets(dir: &Path, root: &Path, violations: &mut Vec<BoundaryVi
                         .display()
                         .to_string();
                     violations.push(BoundaryViolation::ClientSecretDetected { path: rel, pattern });
+                }
+            }
+        }
+    }
+}
+
+/// Scans a mobile client source directory to ensure UI code never calls native health bridges directly.
+pub fn scan_dir_for_mobile_ui_health_bridges(
+    dir: &Path,
+    root: &Path,
+    violations: &mut Vec<BoundaryViolation>,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path
+                .file_name()
+                .is_some_and(|n| n == "target" || n == "pkg" || n == "tests")
+            {
+                continue;
+            }
+            scan_dir_for_mobile_ui_health_bridges(&path, root, violations);
+        } else if path.is_file()
+            && path.extension().is_some_and(|ext| ext == "rs")
+            && let Ok(content) = fs::read_to_string(&path)
+        {
+            for symbol in FORBIDDEN_MOBILE_UI_HEALTH_SYMBOLS {
+                if content.contains(symbol) {
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string();
+                    violations.push(BoundaryViolation::MobileUiCallsNativeHealthBridge {
+                        path: rel,
+                        symbol,
+                    });
                 }
             }
         }

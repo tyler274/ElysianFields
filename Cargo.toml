@@ -23,6 +23,8 @@ members = [
     "crates/ef-mobile-domain",
     "crates/ef-mobile-server",
     "crates/ef-mobile-client",
+    "crates/ef-extension",
+    "crates/ef-public-site",
 ]
 
 [workspace.package]
