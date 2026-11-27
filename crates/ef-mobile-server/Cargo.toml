@@ -7,6 +7,7 @@ publish.workspace = true
 description = "Headless Curie Mobile M3 HTTP/1.1 + WAL service under /elysianfields/mobile-api/ with independent privacy receipt journal and restore replay gate."
 
 [dependencies]
+ef-connected-care = { workspace = true }
 ef-core = { workspace = true }
 ef-mobile-domain = { workspace = true }
 serde = { workspace = true }
