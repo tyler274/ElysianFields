@@ -184,4 +184,27 @@ mod tests {
             2
         );
     }
+
+    #[test]
+    fn headless_probe_transitions_to_settled_without_dropping_transcript() {
+        let mut app = build_headless_probe_app(BuildTarget::NativeLinux);
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<TranscriptModel>()
+            .push_chunk("Final assessment ready.");
+        app.world_mut()
+            .resource_mut::<NextState<ProbeState>>()
+            .set(ProbeState::Settled);
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<ProbeState>>().get(),
+            ProbeState::Settled
+        );
+        assert_eq!(
+            app.world().resource::<TranscriptModel>().latest_line(),
+            "Final assessment ready."
+        );
+    }
 }
