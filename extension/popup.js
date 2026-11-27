@@ -4,6 +4,11 @@ const outboxEl = document.getElementById("detail-outbox");
 const refreshBtn = document.getElementById("btn-refresh");
 const disconnectBtn = document.getElementById("btn-disconnect");
 
+const queryTheme = new URLSearchParams(window.location.search).get("theme");
+if (queryTheme === "light" || queryTheme === "dark") {
+  document.documentElement.dataset.theme = queryTheme;
+}
+
 function renderState(snapshot) {
   if (!snapshot || !snapshot.paired) {
     if (statusEl) statusEl.textContent = "Not paired. Request optional host permission from clinic workspace.";
