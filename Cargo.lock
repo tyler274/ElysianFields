@@ -1734,6 +1734,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-mobile-client"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "bevy",
+ "ef-core",
+ "ef-mobile-domain",
+ "ef-ui-catalog",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ef-mobile-domain"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ef-mobile-server"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "ef-mobile-domain",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-patient-bank"
 version = "0.1.0"
 dependencies = [

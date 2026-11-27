@@ -1,0 +1,16 @@
+[package]
+name = "ef-mobile-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless Curie Mobile patient-owned domain state machines, 6 sign-in invariants, 13 For-my-doctor invariants, HealthKit/Health Connect transactional outbox, and independent privacy receipt journal."
+
+[dependencies]
+ef-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
