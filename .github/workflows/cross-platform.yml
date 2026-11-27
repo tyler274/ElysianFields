@@ -1,0 +1,864 @@
+name: Cross-Platform Qualification
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly Monday 06:17 UTC full cross-platform qualification run.
+    - cron: '17 6 * * 1'
+  pull_request:
+    paths:
+      - '.github/workflows/cross-platform.yml'
+      - 'scripts/browser_e2e.py'
+      - 'scripts/verify_postgres_migrations.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-platform-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ELYMALLOC_REPO: https://github.com/tyler274/ElyMalloc.git
+  ELYMALLOC_REV: cce11466569646e4e1f7afe9b44c6c80dd613b9f
+
+jobs:
+  desktop-macos:
+    name: Desktop macOS ARM64 & ElyMalloc probe
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+
+      - name: Cache macOS Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-macos-arm64
+          shared-key: cross-macos-arm64
+          cache-on-failure: true
+
+      - name: Run full workspace tests on macOS ARM64
+        run: |
+          mkdir -p cross-platform-evidence
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          cargo test --locked --workspace
+          end_ts=$(python3 -c 'import time; print(time.time())')
+          python3 - "$start_ts" "$end_ts" <<'PY'
+          import json, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          Path("cross-platform-evidence/macos-workspace-tests.json").write_text(
+              json.dumps({"status": "passed", "duration_secs": elapsed}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build native release binaries on macOS ARM64
+        run: |
+          native_bins="$(python3 scripts/ci_scope.py native-release-crates)"
+          echo "Selected native release crates: ${native_bins}"
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          # shellcheck disable=SC2086
+          cargo build --locked --release ${native_bins}
+          end_ts=$(python3 -c 'import time; print(time.time())')
+          python3 - "$start_ts" "$end_ts" "$native_bins" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          release_dir = Path("target/release")
+          binaries = sorted(
+              (
+                  {"name": p.name, "bytes": p.stat().st_size}
+                  for p in release_dir.iterdir()
+                  if p.is_file() and os.access(p, os.X_OK) and not p.name.endswith(".d")
+              ),
+              key=lambda item: item["name"],
+          )
+          Path("cross-platform-evidence/macos-native-release.json").write_text(
+              json.dumps(
+                  {
+                      "status": "passed",
+                      "crates_args": sys.argv[3],
+                      "duration_secs": elapsed,
+                      "binaries": binaries,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Probe pinned ElyMalloc (cce11466) on macOS ARM64
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p cross-platform-evidence
+          probe_dir="${RUNNER_TEMP}/elymalloc-macos"
+          rm -rf "$probe_dir"
+          log_file="cross-platform-evidence/elymalloc-macos.log"
+          start_ts=$(python3 -c 'import time; print(time.time())')
+
+          {
+            git init -q "$probe_dir" &&
+            git -C "$probe_dir" fetch --depth 1 "$ELYMALLOC_REPO" "$ELYMALLOC_REV" &&
+            git -C "$probe_dir" checkout -q FETCH_HEAD &&
+            (
+              cd "$probe_dir/rust" &&
+              RUSTUP_TOOLCHAIN=1.99.1 cargo build --release &&
+              RUSTUP_TOOLCHAIN=1.99.1 cargo test -p elymalloc-core
+            )
+          } >"$log_file" 2>&1
+          probe_rc=$?
+          end_ts=$(python3 -c 'import time; print(time.time())')
+
+          tail -n 60 "$log_file" || true
+          python3 - "$probe_rc" "$start_ts" "$end_ts" "$log_file" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          rc = int(sys.argv[1])
+          elapsed = round(float(sys.argv[3]) - float(sys.argv[2]), 2)
+          log_lines = Path(sys.argv[4]).read_text(encoding="utf-8", errors="replace").splitlines()
+          Path("cross-platform-evidence/macos-elymalloc-probe.json").write_text(
+              json.dumps(
+                  {
+                      "repo": os.environ["ELYMALLOC_REPO"],
+                      "rev": os.environ["ELYMALLOC_REV"],
+                      "status": "passed" if rc == 0 else "failed",
+                      "exit_code": rc,
+                      "duration_secs": elapsed,
+                      "log_tail": log_lines[-30:],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          exit "$probe_rc"
+
+      - name: Assemble macOS qualification JSON report
+        if: always()
+        run: |
+          mkdir -p cross-platform-evidence
+          python3 - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+
+          def load_opt(path: str) -> dict:
+              p = Path(path)
+              return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {"status": "not-run"}
+
+          rustc_ver = subprocess.check_output(["rustc", "--version"], text=True).strip()
+          report = {
+              "job": "desktop-macos",
+              "runner_os": os.environ.get("RUNNER_OS", platform.system()),
+              "runner_arch": os.environ.get("RUNNER_ARCH", platform.machine()),
+              "platform": platform.platform(),
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "rustc": rustc_ver,
+              "workspace_tests": load_opt("cross-platform-evidence/macos-workspace-tests.json"),
+              "native_release": load_opt("cross-platform-evidence/macos-native-release.json"),
+              "elymalloc_probe": load_opt("cross-platform-evidence/macos-elymalloc-probe.json"),
+          }
+          out = Path("cross-platform-evidence/desktop-macos.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload macOS qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-desktop-macos-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/desktop-macos.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  desktop-windows:
+    name: Desktop Windows MSVC & ElyMalloc probe
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+
+      - name: Cache Windows Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-windows-msvc
+          shared-key: cross-windows-msvc
+          cache-on-failure: true
+
+      - name: Run full workspace tests on Windows x86_64 MSVC
+        run: |
+          mkdir -p cross-platform-evidence
+          PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          start_ts=$($PY -c 'import time; print(time.time())')
+          cargo test --locked --workspace
+          end_ts=$($PY -c 'import time; print(time.time())')
+          $PY - "$start_ts" "$end_ts" <<'PY'
+          import json, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          Path("cross-platform-evidence/windows-workspace-tests.json").write_text(
+              json.dumps({"status": "passed", "duration_secs": elapsed}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build native release binaries on Windows x86_64 MSVC
+        run: |
+          PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          native_bins="$($PY scripts/ci_scope.py native-release-crates)"
+          echo "Selected native release crates: ${native_bins}"
+          start_ts=$($PY -c 'import time; print(time.time())')
+          # shellcheck disable=SC2086
+          cargo build --locked --release ${native_bins}
+          end_ts=$($PY -c 'import time; print(time.time())')
+          $PY - "$start_ts" "$end_ts" "$native_bins" <<'PY'
+          import json, sys
+          from pathlib import Path
+          elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          release_dir = Path("target/release")
+          binaries = sorted(
+              (
+                  {"name": p.name, "bytes": p.stat().st_size}
+                  for p in release_dir.iterdir()
+                  if p.is_file() and p.suffix.lower() == ".exe"
+              ),
+              key=lambda item: item["name"],
+          )
+          Path("cross-platform-evidence/windows-native-release.json").write_text(
+              json.dumps(
+                  {
+                      "status": "passed",
+                      "crates_args": sys.argv[3],
+                      "duration_secs": elapsed,
+                      "binaries": binaries,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Probe pinned ElyMalloc (cce11466) on Windows x86_64 MSVC
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p cross-platform-evidence
+          PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          probe_dir="${RUNNER_TEMP}/elymalloc-windows"
+          rm -rf "$probe_dir"
+          log_file="cross-platform-evidence/elymalloc-windows.log"
+          start_ts=$($PY -c 'import time; print(time.time())')
+
+          {
+            git init -q "$probe_dir" &&
+            git -C "$probe_dir" fetch --depth 1 "$ELYMALLOC_REPO" "$ELYMALLOC_REV" &&
+            git -C "$probe_dir" checkout -q FETCH_HEAD &&
+            (
+              cd "$probe_dir/rust" &&
+              RUSTUP_TOOLCHAIN=1.99.1 cargo build --release &&
+              RUSTUP_TOOLCHAIN=1.99.1 cargo test -p elymalloc-core
+            )
+          } >"$log_file" 2>&1
+          probe_rc=$?
+          end_ts=$($PY -c 'import time; print(time.time())')
+
+          tail -n 60 "$log_file" || true
+          $PY - "$probe_rc" "$start_ts" "$end_ts" "$log_file" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          rc = int(sys.argv[1])
+          elapsed = round(float(sys.argv[3]) - float(sys.argv[2]), 2)
+          log_lines = Path(sys.argv[4]).read_text(encoding="utf-8", errors="replace").splitlines()
+          Path("cross-platform-evidence/windows-elymalloc-probe.json").write_text(
+              json.dumps(
+                  {
+                      "repo": os.environ["ELYMALLOC_REPO"],
+                      "rev": os.environ["ELYMALLOC_REV"],
+                      "status": "passed" if rc == 0 else "failed",
+                      "exit_code": rc,
+                      "duration_secs": elapsed,
+                      "log_tail": log_lines[-30:],
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          exit "$probe_rc"
+
+      - name: Assemble Windows qualification JSON report
+        if: always()
+        run: |
+          mkdir -p cross-platform-evidence
+          PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          $PY - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+
+          def load_opt(path: str) -> dict:
+              p = Path(path)
+              return json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {"status": "not-run"}
+
+          rustc_ver = subprocess.check_output(["rustc", "--version"], text=True).strip()
+          report = {
+              "job": "desktop-windows",
+              "runner_os": os.environ.get("RUNNER_OS", platform.system()),
+              "runner_arch": os.environ.get("RUNNER_ARCH", platform.machine()),
+              "platform": platform.platform(),
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "rustc": rustc_ver,
+              "workspace_tests": load_opt("cross-platform-evidence/windows-workspace-tests.json"),
+              "native_release": load_opt("cross-platform-evidence/windows-native-release.json"),
+              "elymalloc_probe": load_opt("cross-platform-evidence/windows-elymalloc-probe.json"),
+          }
+          out = Path("cross-platform-evidence/desktop-windows.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload Windows qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-desktop-windows-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/desktop-windows.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  postgres-18:
+    name: PostgreSQL 18 migrations & constraints
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: elysian
+          POSTGRES_PASSWORD: elysian_ci_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U elysian -d postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: elysian
+      PGPASSWORD: elysian_ci_password
+      DATABASE_URL: postgresql://elysian:elysian_ci_password@127.0.0.1:5432/postgres
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Verify PostgreSQL 18 migrations and constraints
+        run: |
+          mkdir -p cross-platform-evidence
+          pg_version=$(psql -d postgres -tAc 'SELECT version();')
+          echo "Connected to: ${pg_version}"
+          echo "$pg_version" | grep -q 'PostgreSQL 18\.'
+
+          if [ -f scripts/verify_postgres_migrations.sh ]; then
+            echo "Running repository scripts/verify_postgres_migrations.sh"
+            bash scripts/verify_postgres_migrations.sh
+            verifier_mode="scripts/verify_postgres_migrations.sh"
+          else
+            verifier_mode="inline-sql-and-constraint-checks"
+          fi
+
+          # Always verify isolated Clinic and Mobile schemas, idempotency, and constraints on Postgres 18.
+          psql -d postgres -v ON_ERROR_STOP=1 <<'SQL'
+          DROP DATABASE IF EXISTS ef_clinic_ci;
+          DROP DATABASE IF EXISTS ef_mobile_ci;
+          CREATE DATABASE ef_clinic_ci;
+          CREATE DATABASE ef_mobile_ci;
+          SQL
+
+          clinic_files=()
+          for sql_file in crates/ef-clinic-server/migrations/*.sql; do
+            clinic_files+=("$sql_file")
+            psql -d ef_clinic_ci -v ON_ERROR_STOP=1 -f "$sql_file"
+            # Re-apply to verify idempotency.
+            psql -d ef_clinic_ci -v ON_ERROR_STOP=1 -f "$sql_file"
+          done
+
+          mobile_files=()
+          for sql_file in crates/ef-mobile-server/migrations/*.sql; do
+            mobile_files+=("$sql_file")
+            psql -d ef_mobile_ci -v ON_ERROR_STOP=1 -f "$sql_file"
+            # Re-apply to verify idempotency.
+            psql -d ef_mobile_ci -v ON_ERROR_STOP=1 -f "$sql_file"
+          done
+
+          # Clinic schema constraint & cascade checks.
+          psql -d ef_clinic_ci -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO practices (practice_id, display_name, created_at_secs)
+          VALUES ('prac-1', 'Curie Clinic CI', 1760000000);
+          INSERT INTO physician_accounts (physician_id, practice_id, email, display_name, role, standing)
+          VALUES ('phys-1', 'prac-1', 'dr@clinic.example', 'Dr. Curie', 'standard', 'active');
+          INSERT INTO patient_workspaces (workspace_id, practice_id, display_name)
+          VALUES ('ws-1', 'prac-1', 'Patient A');
+          INSERT INTO composer_drafts (workspace_id, chat_id, draft_text, revision)
+          VALUES ('ws-1', 'chat-1', 'Follow up CBC', 0);
+
+          DO $$
+          BEGIN
+            BEGIN
+              INSERT INTO physician_accounts (physician_id, practice_id, email, display_name, role, standing)
+              VALUES ('phys-bad', 'prac-1', 'bad@clinic.example', 'Bad', 'superuser', 'active');
+              RAISE EXCEPTION 'expected CHECK constraint failure on role';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+
+            BEGIN
+              INSERT INTO composer_drafts (workspace_id, chat_id, draft_text, revision)
+              VALUES ('ws-1', 'chat-neg', 'Invalid', -1);
+              RAISE EXCEPTION 'expected CHECK constraint failure on revision';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END $$;
+
+          DELETE FROM practices WHERE practice_id = 'prac-1';
+          DO $$
+          DECLARE remaining integer;
+          BEGIN
+            SELECT count(*) INTO remaining FROM composer_drafts;
+            IF remaining <> 0 THEN
+              RAISE EXCEPTION 'expected CASCADE delete to remove dependent drafts, found %', remaining;
+            END IF;
+          END $$;
+          SQL
+
+          # Mobile schema constraint, version, and DDL-less runtime role checks.
+          psql -d ef_mobile_ci -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE v integer;
+          BEGIN
+            SELECT max(version) INTO v FROM schema_migrations;
+            IF v IS DISTINCT FROM 1 THEN
+              RAISE EXCEPTION 'expected schema_migrations version 1, got %', v;
+            END IF;
+          END $$;
+
+          INSERT INTO mobile_accounts (account_id, incarnation, email)
+          VALUES ('acct-1', 1, 'patient@mobile.example');
+
+          DO $$
+          BEGIN
+            BEGIN
+              INSERT INTO mobile_accounts (account_id, incarnation, email)
+              VALUES ('acct-bad', 0, 'bad@mobile.example');
+              RAISE EXCEPTION 'expected CHECK constraint failure on incarnation';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+
+            BEGIN
+              INSERT INTO patient_records (
+                account_id, record_id, incarnation, version, source_kind_json,
+                bucket, confidentiality, original_date, title, summary, native_bytes
+              )
+              VALUES (
+                'acct-1', 'rec-bad', 1, 1, '{}'::jsonb,
+                'labs', 'InvalidClass', '2026-10-01', 'Bad', 'Bad', '\x00'::bytea
+              );
+              RAISE EXCEPTION 'expected CHECK constraint failure on confidentiality';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+
+            BEGIN
+              INSERT INTO push_device_tokens (device_id, account_id, platform, token)
+              VALUES ('dev-bad', 'acct-1', 'unknown_os', 'tok');
+              RAISE EXCEPTION 'expected CHECK constraint failure on platform';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END $$;
+          SQL
+
+          clinic_tables=$(psql -d ef_clinic_ci -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+          mobile_tables=$(psql -d ef_mobile_ci -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
+
+          python3 - "$pg_version" "$verifier_mode" "$clinic_tables" "$mobile_tables" "${clinic_files[*]}" "${mobile_files[*]}" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          report = {
+              "job": "postgres-18",
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "postgres_version": sys.argv[1],
+              "verifier_mode": sys.argv[2],
+              "clinic_db": {
+                  "migrations": sys.argv[5].split(),
+                  "public_table_count": int(sys.argv[3]),
+                  "idempotent_reapply": True,
+                  "constraints_and_cascade_verified": True,
+              },
+              "mobile_db": {
+                  "migrations": sys.argv[6].split(),
+                  "public_table_count": int(sys.argv[4]),
+                  "idempotent_reapply": True,
+                  "constraints_and_version_verified": True,
+              },
+              "status": "passed",
+          }
+          out = Path("cross-platform-evidence/postgres-18.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload PostgreSQL 18 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-postgres-18-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/postgres-18.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  browsers-e2e:
+    name: Multi-Browser E2E (Chromium, Firefox, WebKit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install fast Linux linker (lld + clang)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends lld clang
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+
+      - name: Cache Linux Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-browsers-linux
+          shared-key: native
+          cache-on-failure: true
+
+      - name: Build server binaries for browser E2E
+        run: |
+          crates="-p ef-clinic-server -p ef-mobile-server"
+          if [ -f crates/ef-public-site/src/main.rs ]; then
+            crates="${crates} -p ef-public-site"
+          fi
+          echo "Building browser E2E server binaries: ${crates}"
+          # shellcheck disable=SC2086
+          cargo build --locked ${crates}
+
+      - name: Install Playwright (Chromium, Firefox, WebKit)
+        run: |
+          python3 -m venv .venv-pw
+          .venv-pw/bin/pip install --quiet --upgrade pip playwright
+          .venv-pw/bin/playwright install --with-deps chromium firefox webkit
+
+      - name: Run 3-browser E2E qualification suite
+        run: |
+          mkdir -p cross-platform-evidence
+          report_path="cross-platform-evidence/cross-platform-browser-report.json"
+
+          if [ -f scripts/browser_e2e.py ]; then
+            help_text="$(.venv-pw/bin/python scripts/browser_e2e.py --help 2>&1 || true)"
+            extra_args=()
+            if echo "$help_text" | grep -q -- '--clinic-bin'; then
+              extra_args+=(--clinic-bin target/debug/ef-clinic-server)
+            fi
+            if echo "$help_text" | grep -q -- '--mobile-bin'; then
+              extra_args+=(--mobile-bin target/debug/ef-mobile-server)
+            fi
+            if [ -x target/debug/ef-public-site ] && echo "$help_text" | grep -q -- '--public-bin'; then
+              extra_args+=(--public-bin target/debug/ef-public-site)
+            fi
+            .venv-pw/bin/python scripts/browser_e2e.py \
+              --browsers chromium,firefox,webkit \
+              --report "$report_path" \
+              "${extra_args[@]}"
+          else
+            .venv-pw/bin/python - "$report_path" <<'PY'
+          import functools
+          import http.server
+          import json
+          import os
+          import socket
+          import subprocess
+          import sys
+          import tempfile
+          import threading
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          STRICT_CSP = (
+              "default-src 'self'; "
+              "script-src 'self' 'wasm-unsafe-eval'; "
+              "style-src 'self'; "
+              "connect-src 'self'; "
+              "object-src 'none'; "
+              "frame-ancestors 'none'"
+          )
+
+          STUB_WASM_GLUE = (
+              "export default async function init() {\n"
+              "  return { elysian_m1_delivery_probe: (webgpu, webgl2) => (webgpu || webgl2 ? 0 : 2) };\n"
+              "}\n"
+          )
+
+          def free_port() -> int:
+              with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                  s.bind(("127.0.0.1", 0))
+                  return int(s.getsockname()[1])
+
+          def wait_http(url: str, timeout: float = 15.0) -> int:
+              deadline = time.monotonic() + timeout
+              last_err = None
+              while time.monotonic() < deadline:
+                  try:
+                      with urllib.request.urlopen(url, timeout=2.0) as resp:
+                          return resp.status
+                  except urllib.error.HTTPError as exc:
+                      return exc.code
+                  except Exception as exc:
+                      last_err = exc
+                      time.sleep(0.15)
+              raise RuntimeError(f"server at {url} did not become ready: {last_err}")
+
+          class QualifyingStaticHandler(http.server.SimpleHTTPRequestHandler):
+              def __init__(self, *args, repo_root: Path, **kwargs):
+                  self._repo_root = repo_root
+                  super().__init__(*args, directory=str(repo_root), **kwargs)
+
+              def log_message(self, format: str, *args) -> None:
+                  return
+
+              def end_headers(self) -> None:
+                  self.send_header("Content-Security-Policy", STRICT_CSP)
+                  self.send_header("Cache-Control", "no-store")
+                  super().end_headers()
+
+              def do_GET(self) -> None:
+                  if self.path == "/elysianfields" or self.path == "/elysianfields/":
+                      self.path = "/web/elysianfields/index.html"
+                  elif self.path == "/elysianfields/pkg/m1_web_delivery.js":
+                      real = self._repo_root / "web/elysianfields/pkg/m1_web_delivery.js"
+                      if not real.is_file():
+                          payload = STUB_WASM_GLUE.encode("utf-8")
+                          self.send_response(200)
+                          self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                          self.send_header("Content-Length", str(len(payload)))
+                          self.end_headers()
+                          self.wfile.write(payload)
+                          return
+                      self.path = "/web/elysianfields/pkg/m1_web_delivery.js"
+                  elif self.path.startswith("/elysianfields/"):
+                      self.path = "/web" + self.path
+                  super().do_GET()
+
+          repo_root = Path.cwd()
+          report_path = Path(sys.argv[1])
+          has_compiled_wasm = (repo_root / "web/elysianfields/pkg/m1_web_delivery.js").is_file()
+
+          with tempfile.TemporaryDirectory() as tmp:
+              tmp_dir = Path(tmp)
+              clinic_port = free_port()
+              mobile_port = free_port()
+
+              clinic_env = os.environ.copy()
+              clinic_env["EF_CLINIC_BIND"] = f"127.0.0.1:{clinic_port}"
+              clinic_env["EF_CLINIC_DATA_DIR"] = str(tmp_dir / "clinic-wal")
+              clinic_proc = subprocess.Popen(
+                  [str(repo_root / "target/debug/ef-clinic-server")],
+                  env=clinic_env,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              )
+
+              mobile_env = os.environ.copy()
+              mobile_env["EF_MOBILE_BIND"] = f"127.0.0.1:{mobile_port}"
+              mobile_env["EF_MOBILE_DATA_DIR"] = str(tmp_dir / "mobile-wal")
+              mobile_env["EF_MOBILE_JOURNAL_DIR"] = str(tmp_dir / "mobile-journal")
+              mobile_proc = subprocess.Popen(
+                  [str(repo_root / "target/debug/ef-mobile-server")],
+                  env=mobile_env,
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+              )
+
+              static_port = free_port()
+              handler = functools.partial(QualifyingStaticHandler, repo_root=repo_root)
+              httpd = http.server.ThreadingHTTPServer(("127.0.0.1", static_port), handler)
+              server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+              server_thread.start()
+
+              try:
+                  clinic_status = wait_http(f"http://127.0.0.1:{clinic_port}/elysianfields/api/health")
+                  mobile_status = wait_http(f"http://127.0.0.1:{mobile_port}/elysianfields/mobile-api/readyz")
+                  assert mobile_status == 200, f"expected mobile /readyz 200, got {mobile_status}"
+
+                  browser_results = {}
+                  with sync_playwright() as pw:
+                      for engine_name in ("chromium", "firefox", "webkit"):
+                          browser = getattr(pw, engine_name).launch(headless=True)
+                          try:
+                              ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+                              page = ctx.new_page()
+
+                              # 1. /elysianfields/ surface
+                              console_errors = []
+                              page_errors = []
+                              page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+                              page.on("pageerror", lambda err: page_errors.append(str(err)))
+                              page.add_init_script(
+                                  "window.__efCspViolations = 0; "
+                                  "document.addEventListener('securitypolicyviolation', () => { window.__efCspViolations += 1; });"
+                              )
+
+                              resp = page.goto(f"http://127.0.0.1:{static_port}/elysianfields/", wait_until="networkidle")
+                              assert resp is not None and resp.status == 200, f"{engine_name} /elysianfields/ HTTP {resp.status if resp else None}"
+                              page.wait_for_function("() => Boolean(document.documentElement.dataset.m1Ready)", timeout=10000)
+
+                              web_metrics = page.evaluate(
+                                  """() => {
+                                    const main = document.querySelector('main#elysian-app');
+                                    const rect = main ? main.getBoundingClientRect() : null;
+                                    const nav = performance.getEntriesByType('navigation')[0];
+                                    return {
+                                      ready: document.documentElement.dataset.m1Ready || '',
+                                      mountPrefix: main ? main.getAttribute('data-mount-prefix') : '',
+                                      textLen: (document.body.innerText || '').trim().length,
+                                      width: rect ? rect.width : 0,
+                                      height: rect ? rect.height : 0,
+                                      cspViolations: window.__efCspViolations || 0,
+                                      domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd * 100) / 100 : 0,
+                                    };
+                                  }"""
+                              )
+                              page.focus("#composer-draft")
+                              active_id = page.evaluate("() => document.activeElement ? document.activeElement.id : ''")
+                              assert active_id == "composer-draft", f"{engine_name} focus failed: {active_id}"
+                              assert web_metrics["mountPrefix"] == "/elysianfields"
+                              assert web_metrics["textLen"] > 20 and web_metrics["width"] > 0 and web_metrics["height"] > 0
+                              assert web_metrics["cspViolations"] == 0, f"{engine_name} CSP violations: {web_metrics}"
+                              assert not console_errors, f"{engine_name} /elysianfields/ console errors: {console_errors}"
+                              assert not page_errors, f"{engine_name} /elysianfields/ page errors: {page_errors}"
+
+                              # 2. Chrome MV3 extension/popup.html surface
+                              popup_page = ctx.new_page()
+                              popup_console_errors = []
+                              popup_page_errors = []
+                              popup_page.on("console", lambda msg: popup_console_errors.append(msg.text) if msg.type == "error" else None)
+                              popup_page.on("pageerror", lambda err: popup_page_errors.append(str(err)))
+                              popup_page.add_init_script(
+                                  "window.__efCspViolations = 0; "
+                                  "document.addEventListener('securitypolicyviolation', () => { window.__efCspViolations += 1; });"
+                              )
+                              popup_resp = popup_page.goto(f"http://127.0.0.1:{static_port}/extension/popup.html", wait_until="load")
+                              assert popup_resp is not None and popup_resp.status == 200
+                              popup_metrics = popup_page.evaluate(
+                                  """() => {
+                                    const nav = performance.getEntriesByType('navigation')[0];
+                                    return {
+                                      hasMain: Boolean(document.querySelector('main.popup-shell')),
+                                      hasHeader: Boolean(document.querySelector('header.popup-header')),
+                                      sections: document.querySelectorAll('section').length,
+                                      statusText: (document.getElementById('connector-status')?.textContent || '').trim(),
+                                      cspViolations: window.__efCspViolations || 0,
+                                      domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd * 100) / 100 : 0,
+                                    };
+                                  }"""
+                              )
+                              assert popup_metrics["hasMain"] and popup_metrics["hasHeader"] and popup_metrics["sections"] >= 2
+                              assert popup_metrics["cspViolations"] == 0
+                              assert popup_metrics["domContentLoadedMs"] <= 250.0, f"{engine_name} popup DCL > 250ms: {popup_metrics}"
+                              assert not popup_console_errors, f"{engine_name} popup console errors: {popup_console_errors}"
+                              assert not popup_page_errors, f"{engine_name} popup page errors: {popup_page_errors}"
+
+                              browser_results[engine_name] = {
+                                  "version": browser.version,
+                                  "status": "passed",
+                                  "elysianfields": web_metrics,
+                                  "extension_popup": popup_metrics,
+                              }
+                              ctx.close()
+                          finally:
+                              browser.close()
+
+                  report = {
+                      "job": "browsers-e2e",
+                      "runner_mode": "fallback-inline-playwright",
+                      "wasm_bundle_mode": "compiled" if has_compiled_wasm else "stub-probe",
+                      "revision": os.environ.get("GITHUB_SHA", ""),
+                      "servers": {
+                          "ef_clinic_server_http_status": clinic_status,
+                          "ef_mobile_server_readyz_status": mobile_status,
+                      },
+                      "browsers": browser_results,
+                      "status": "passed",
+                  }
+                  report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+                  print(report_path.read_text(encoding="utf-8"))
+              finally:
+                  httpd.shutdown()
+                  for proc in (clinic_proc, mobile_proc):
+                      proc.terminate()
+                      try:
+                          proc.wait(timeout=5)
+                      except subprocess.TimeoutExpired:
+                          proc.kill()
+          PY
+          fi
+
+      - name: Upload 3-browser E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-browsers-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/cross-platform-browser-report.json
+          if-no-files-found: warn
+          retention-days: 30
