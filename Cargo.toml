@@ -21,6 +21,10 @@ publish = false
 accesskit = "0.24.1"
 bevy = { version = "0.20.1", default-features = false }
 elysian-smoke = { path = "crates/elysian-smoke" }
+# Shared serialization and typed-error crates for M2/M3 headless services and clients.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
 
 [workspace.lints.clippy]
 disallowed_methods = "warn"
@@ -37,3 +41,10 @@ opt-level = 0
 
 [profile.dev.package."*"]
 opt-level = 1
+
+# Strip release symbols and use ThinLTO so Wasm post-processing (`wasm-opt`)
+# avoids parsing tens of megabytes of debug sections and stays well within the
+# 240 s `rust-wasm` and `client_only_merge_secs` CI budgets on `main`.
+[profile.release]
+strip = "symbols"
+lto = "thin"

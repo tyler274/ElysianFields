@@ -173,7 +173,7 @@ jobs:
           if [ "${#wasm_files[@]}" -gt 0 ]; then
             if command -v wasm-opt >/dev/null 2>&1; then
               for f in "${wasm_files[@]}"; do
-                wasm-opt -Oz -o "dist/wasm/$(basename "$f")" "$f"
+                wasm-opt -O2 --strip-debug -o "dist/wasm/$(basename "$f")" "$f"
               done
             else
               cp "${wasm_files[@]}" dist/wasm/
