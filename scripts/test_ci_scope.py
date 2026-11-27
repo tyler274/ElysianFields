@@ -395,5 +395,10 @@ class VerifyResultTests(unittest.TestCase):
         )
 
 
+    def test_native_release_crates_selects_headless_server_binaries_only(self) -> None:
+        crates = ci_scope.native_release_crates()
+        self.assertEqual(crates, ["ef-clinic-server", "ef-mobile-server"])
+
+
 if __name__ == "__main__":
     unittest.main()

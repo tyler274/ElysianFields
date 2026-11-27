@@ -359,6 +359,37 @@ def wasm_build_crates(workspace_root: Path | None = None) -> list[str]:
     return selected
 
 
+def native_release_crates(workspace_root: Path | None = None) -> list[str]:
+    """Return workspace package names that ship native server binaries.
+
+    Limits `main`-branch native release builds to headless binary crates rather
+    than ThinLTO-compiling Bevy client/prototype libraries that are shipped via
+    `rust-wasm` or desktop/mobile client packaging.
+    """
+    root = workspace_root or Path(__file__).resolve().parent.parent
+    manifest = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    members = manifest.get("workspace", {}).get("members", [])
+
+    selected: list[str] = []
+    for member in members:
+        probe_path = member.rstrip("/") + "/Cargo.toml"
+        if not is_server_path(probe_path):
+            continue
+        crate_dir = root / member
+        crate_toml = crate_dir / "Cargo.toml"
+        if not crate_toml.is_file():
+            continue
+        parsed = tomllib.loads(crate_toml.read_text(encoding="utf-8"))
+        has_bin = (crate_dir / "src" / "main.rs").is_file() or bool(parsed.get("bin"))
+        if not has_bin:
+            continue
+        pkg = parsed.get("package", {})
+        name = pkg.get("name")
+        if isinstance(name, str) and name:
+            selected.append(name)
+    return selected
+
+
 def parse_name_status_z(raw: bytes) -> list[str]:
     """Parse `git diff --name-status -z -M`, preserving old and new paths on renames."""
     if not raw:
@@ -681,6 +712,15 @@ def cmd_wasm_crates(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_native_release_crates(_args: argparse.Namespace) -> int:
+    crates = native_release_crates()
+    if not crates:
+        print("No native release binary crates found.", file=sys.stderr)
+        return 1
+    print(" ".join(f"-p {name}" for name in crates))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ci_scope.py",
@@ -692,6 +732,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "wasm-crates",
         help="Emit Cargo `-p <crate>` arguments for Wasm-targeted workspace crates.",
+    )
+    sub.add_parser(
+        "native-release-crates",
+        help="Emit Cargo `-p <crate>` arguments for headless native release binaries.",
     )
     return parser
 
@@ -705,6 +749,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_result(args)
     if args.command == "wasm-crates":
         return cmd_wasm_crates(args)
+    if args.command == "native-release-crates":
+        return cmd_native_release_crates(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 
