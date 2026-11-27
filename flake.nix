@@ -6,10 +6,36 @@
     rust-overlay.url = "github:oxalica/rust-overlay";
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
     crane.url = "github:ipetkov/crane";
+
+    # Optional M6 Stars upstream toolchain pins (never forked in-repo;
+    # default devShells, packages, and CI remain on platform defaults).
+    elymalloc = {
+      url = "github:tyler274/ElyMalloc/cce11466569646e4e1f7afe9b44c6c80dd613b9f";
+      flake = false;
+    };
+    elyld = {
+      url = "github:tyler274/ElyLD/1b1e263ff40d5eea10966f6d2651f50ce43831ab";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, crane }:
+  outputs = { self, nixpkgs, rust-overlay, crane, elymalloc, elyld }:
     let
+      m6Pins = {
+        elymalloc = {
+          repo = "tyler274/ElyMalloc";
+          branch = "main3";
+          rev = "cce11466569646e4e1f7afe9b44c6c80dd613b9f";
+          src = elymalloc;
+        };
+        elyld = {
+          repo = "tyler274/ElyLD";
+          branch = "main";
+          rev = "1b1e263ff40d5eea10966f6d2651f50ce43831ab";
+          src = elyld;
+        };
+      };
+
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -85,20 +111,33 @@
             git
           ];
 
-          mkShellWithProfile = profile:
-            pkgs.mkShell {
+          mkShellWithProfile = profile: extraPackages: extraEnv:
+            pkgs.mkShell ({
               name = "elysian-realm-${profile}";
-              packages = basePackages;
+              packages = basePackages ++ extraPackages;
               ELYSIAN_DEV_SHELL = "1";
               ELYSIAN_SHELL_PROFILE = profile;
-            };
+            } // extraEnv);
         in
         {
-          default = mkShellWithProfile "default";
-          agent = mkShellWithProfile "agent";
+          default = mkShellWithProfile "default" [ ] { };
+          agent = mkShellWithProfile "agent" [ ] { };
+          # Optional M6 Stars evaluation shell exposing the pinned upstream
+          # ElyMalloc and ElyLD source trees without altering default builds.
+          m6 = mkShellWithProfile "m6"
+            (pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.bubblewrap ])
+            {
+              ELYSIAN_ELYMALLOC_REV = m6Pins.elymalloc.rev;
+              ELYSIAN_ELYMALLOC_SRC = "${elymalloc}";
+              ELYSIAN_ELYLD_REV = m6Pins.elyld.rev;
+              ELYSIAN_ELYLD_SRC = "${elyld}";
+            };
         };
     in
     {
+      lib = {
+        inherit m6Pins;
+      };
       packages = forAllSystems mkPackages;
       devShells = forAllSystems mkDevShells;
     };
