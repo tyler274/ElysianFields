@@ -1673,6 +1673,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-clinic-workflows"
+version = "0.1.0"
+dependencies = [
+ "ef-clinic-domain",
+ "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-connected-care"
 version = "0.1.0"
 dependencies = [

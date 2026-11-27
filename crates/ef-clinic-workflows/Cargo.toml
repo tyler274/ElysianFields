@@ -1,0 +1,17 @@
+[package]
+name = "ef-clinic-workflows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless Curie Clinic M3 Increment 1 workflows: Today queue & channel banners, 14-invariant message matching, 12-invariant reply drafting/withholding, patient memory & rounds, and multi-format EHR/channel ingestion."
+
+[dependencies]
+ef-core = { workspace = true }
+ef-clinic-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
