@@ -17,6 +17,9 @@ members = [
     "crates/ef-clinic-client",
     "crates/ef-connected-care",
     "crates/ef-clinic-workflows",
+    "crates/ef-clinical-lib",
+    "crates/ef-encoder",
+    "crates/ef-patient-bank",
 ]
 
 [workspace.package]
@@ -37,6 +40,9 @@ ef-clinic-workflows = { path = "crates/ef-clinic-workflows" }
 ef-harness = { path = "crates/ef-harness" }
 ef-ui-catalog = { path = "crates/ef-ui-catalog" }
 ef-connected-care = { path = "crates/ef-connected-care" }
+ef-clinical-lib = { path = "crates/ef-clinical-lib" }
+ef-encoder = { path = "crates/ef-encoder" }
+ef-patient-bank = { path = "crates/ef-patient-bank" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

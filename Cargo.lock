@@ -1684,6 +1684,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-clinical-lib"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-connected-care"
 version = "0.1.0"
 dependencies = [
@@ -1703,11 +1713,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-encoder"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-harness"
 version = "0.1.0"
 dependencies = [
  "ef-clinic-domain",
  "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ef-patient-bank"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "ef-encoder",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
