@@ -5,9 +5,17 @@ Validates across Chromium, Firefox, and WebKit:
 1. `/elysianfields/` clinic browser shell (HTTP 200, 0 console/page errors, 0 CSP
    violations under strict CSP, non-blank viewport, real single-owner ARIA tree via
    `a11y-bridge.js`, and keyboard `Tab` navigation).
-2. Chrome MV3 `extension/popup.html` (Decision D2 semantic-HTML popup: 0 console/page
+2. Real WebAssembly compilation (`WebAssembly.compile` / `WebAssembly.instantiate`) under
+   strict CSP (`script-src 'self' 'wasm-unsafe-eval'`) with 0 CSP violations (using an
+   optional `--wasm-file` or a built-in minimal valid 41-byte Wasm module).
+3. Chrome MV3 `extension/popup.html` (Decision D2 semantic-HTML popup: 0 console/page
    errors, 0 CSP violations, semantic landmarks, and cold start <= 250 ms).
-3. Optional live `ef-public-site` binary with JavaScript disabled (`java_script_enabled=False`):
+4. Optional `--mobile-emulation` running Playwright Mobile WebKit (`iPhone 14`: 390x844,
+   `has_touch=True`, `is_mobile=True`) and Mobile Chromium (`Pixel 7`: 412x915,
+   `has_touch=True`, `is_mobile=True`) against `/elysianfields/mobile/` verifying zero
+   horizontal overflow, touch ARIA landmarks, Arabic RTL (`?lang=ar`), and offline reload
+   resilience retaining crisis lines (`988`, `911`, `SAMHSA`).
+5. Optional live `ef-public-site` binary with JavaScript disabled (`java_script_enabled=False`):
    `/`, `/privacy`, `/terms`, `/invite` (`noindex, nofollow`), and `/dei` (or `/recovery/wa`)
    with crisis lines (`988`, `911`, `SAMHSA`) strictly before facility listings.
 """
@@ -20,6 +28,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import socket
 import socketserver
 import subprocess
@@ -51,6 +60,36 @@ MV3_STRICT_CSP = (
 
 DEFAULT_MV3_COLD_START_BUDGET_MS = 250.0
 
+# Minimal valid WebAssembly v1 binary module exporting `add(i32, i32) -> i32` (41 bytes).
+MINIMAL_VALID_WASM_BYTES = bytes(
+    [
+        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,  # magic + version 1
+        0x01, 0x07, 0x01, 0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F,  # type: (i32, i32) -> i32
+        0x03, 0x02, 0x01, 0x00,  # function section: func 0 -> type 0
+        0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,  # export "add" -> func 0
+        0x0A, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6A, 0x0B,  # code body
+    ]
+)
+
+MOBILE_PROFILES: dict[str, dict[str, Any]] = {
+    "iphone_14_webkit": {
+        "name": "iPhone 14 (Mobile WebKit)",
+        "browser": "webkit",
+        "viewport": {"width": 390, "height": 844},
+        "has_touch": True,
+        "is_mobile": True,
+        "device_scale_factor": 3,
+    },
+    "pixel_7_chromium": {
+        "name": "Pixel 7 (Mobile Chromium)",
+        "browser": "chromium",
+        "viewport": {"width": 412, "height": 915},
+        "has_touch": True,
+        "is_mobile": True,
+        "device_scale_factor": 2.625,
+    },
+}
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -71,6 +110,31 @@ def parse_browsers(raw: str) -> list[str]:
     if not parsed:
         raise ValueError("At least one browser engine must be specified")
     return parsed
+
+
+def measure_brotli11_bytes(payload: bytes) -> int | None:
+    """Computes Brotli quality-11 compressed byte size if brotli module or CLI is available."""
+    try:
+        import brotli  # type: ignore[import-not-found]
+
+        return len(brotli.compress(payload, quality=11))
+    except ImportError:
+        pass
+
+    brotli_cli = shutil.which("brotli")
+    if brotli_cli:
+        try:
+            proc = subprocess.run(
+                [brotli_cli, "-q", "11", "-c"],
+                input=payload,
+                capture_output=True,
+                check=True,
+                timeout=30,
+            )
+            return len(proc.stdout)
+        except (subprocess.SubprocessError, OSError):
+            return None
+    return None
 
 
 def find_free_port() -> int:
@@ -126,6 +190,11 @@ def verify_crisis_lines_before_facilities(html: str) -> tuple[bool, dict[str, An
     }
 
 
+def verify_crisis_lines_present(text_or_html: str) -> bool:
+    """Checks that 988, 911, and SAMHSA are all visibly present in rendered text or HTML."""
+    return "988" in text_or_html and "911" in text_or_html and "SAMHSA" in text_or_html
+
+
 def verify_invite_noindex(html: str, headers: dict[str, str]) -> bool:
     """Checks `/invite` emits `noindex` + `nofollow` via meta robots or X-Robots-Tag."""
     lower_html = html.lower()
@@ -167,6 +236,8 @@ def _safe_resolve_under(base_dir: Path, rel_path: str) -> Path | None:
         candidate.relative_to(base_resolved)
     except ValueError:
         return None
+    if candidate.is_dir():
+        candidate = candidate / "index.html"
     return candidate
 
 
@@ -176,18 +247,23 @@ class _ReusableTcpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 class StrictStaticPreviewServer:
-    """Localhost HTTP server enforcing strict CSP, `/elysianfields/` mount, `/mv3-popup/` mount,
-    and optional reverse-proxying of `/elysianfields/api/*` to a live `ef-clinic-server`."""
+    """Localhost HTTP server enforcing strict CSP, `/elysianfields/` (including `/mobile/`
+    and `/wasm-probe.wasm`), `/mv3-popup/`, and optional reverse-proxying of `/elysianfields/api/*`."""
 
     def __init__(
         self,
         web_dir: Path,
         extension_dir: Path,
         clinic_api_origin: str | None = None,
+        wasm_file: Path | None = None,
     ) -> None:
         self.web_dir = web_dir.resolve()
         self.extension_dir = extension_dir.resolve()
         self.clinic_api_origin = clinic_api_origin.rstrip("/") if clinic_api_origin else None
+        self.wasm_file = wasm_file.resolve() if wasm_file is not None else None
+        self._wasm_bytes = (
+            self.wasm_file.read_bytes() if self.wasm_file is not None else MINIMAL_VALID_WASM_BYTES
+        )
         self._httpd: _ReusableTcpServer | None = None
         self._thread: threading.Thread | None = None
         self.port: int = 0
@@ -196,10 +272,15 @@ class StrictStaticPreviewServer:
     def origin(self) -> str:
         return f"http://127.0.0.1:{self.port}"
 
+    @property
+    def wasm_bytes(self) -> bytes:
+        return self._wasm_bytes
+
     def start(self) -> None:
         web_dir = self.web_dir
         extension_dir = self.extension_dir
         clinic_api_origin = self.clinic_api_origin
+        wasm_bytes = self._wasm_bytes
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
@@ -291,6 +372,17 @@ class StrictStaticPreviewServer:
                     self.end_headers()
                     return
 
+                if path_only == "/elysianfields/mobile":
+                    self.send_response(308)
+                    self.send_header("Location", "/elysianfields/mobile/")
+                    self.send_header("Content-Security-Policy", CLINIC_STRICT_CSP)
+                    self.end_headers()
+                    return
+
+                if path_only == "/elysianfields/wasm-probe.wasm":
+                    self._send_bytes(200, "application/wasm", wasm_bytes, CLINIC_STRICT_CSP)
+                    return
+
                 if path_only.startswith("/elysianfields/"):
                     rel = path_only[len("/elysianfields/") :]
                     target = _safe_resolve_under(web_dir, rel or "index.html")
@@ -302,7 +394,10 @@ class StrictStaticPreviewServer:
                             CLINIC_STRICT_CSP,
                         )
                         return
-                    self._serve_file(target, CLINIC_STRICT_CSP)
+                    extra = None
+                    if path_only == "/elysianfields/mobile/sw.js":
+                        extra = {"Service-Worker-Allowed": "/elysianfields/mobile/"}
+                    self._serve_file(target, CLINIC_STRICT_CSP, extra_headers=extra)
                     return
 
                 if path_only.startswith("/mv3-popup/"):
@@ -326,7 +421,12 @@ class StrictStaticPreviewServer:
                     CLINIC_STRICT_CSP,
                 )
 
-            def _serve_file(self, file_path: Path, csp: str) -> None:
+            def _serve_file(
+                self,
+                file_path: Path,
+                csp: str,
+                extra_headers: dict[str, str] | None = None,
+            ) -> None:
                 ext = file_path.suffix.lower()
                 if ext == ".js":
                     ctype = "application/javascript; charset=utf-8"
@@ -338,10 +438,12 @@ class StrictStaticPreviewServer:
                     ctype = "text/html; charset=utf-8"
                 elif ext == ".json":
                     ctype = "application/json; charset=utf-8"
+                elif ext == ".webmanifest":
+                    ctype = "application/manifest+json; charset=utf-8"
                 else:
                     guessed, _ = mimetypes.guess_type(str(file_path))
                     ctype = guessed or "application/octet-stream"
-                self._send_bytes(200, ctype, file_path.read_bytes(), csp)
+                self._send_bytes(200, ctype, file_path.read_bytes(), csp, extra_headers=extra_headers)
 
         self._httpd = _ReusableTcpServer(("127.0.0.1", 0), Handler)
         self.port = int(self._httpd.server_address[1])
@@ -507,6 +609,106 @@ def check_clinic_shell_page(page: Any, clinic_shell_url: str) -> dict[str, Any]:
     }
 
 
+def check_wasm_csp_compile(
+    page: Any,
+    wasm_host_url: str,
+    wasm_probe_url: str,
+    is_minimal_builtin: bool,
+    raw_bytes: int | None = None,
+    brotli11_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Verifies real `WebAssembly.compile` / `WebAssembly.instantiate` succeeds under strict CSP
+    (`'wasm-unsafe-eval'`, zero `'unsafe-eval'`) with 0 CSP violations."""
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+
+    page.on(
+        "console",
+        lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+    )
+    page.on("pageerror", lambda err: page_errors.append(str(err)))
+
+    response = page.goto(wasm_host_url, wait_until="domcontentloaded")
+    http_status = response.status if response is not None else 0
+
+    result = page.evaluate(
+        """async ({ wasmUrl, isMinimal }) => {
+            const start = performance.now();
+            let cspViolations = 0;
+            const listener = () => { cspViolations += 1; };
+            document.addEventListener("securitypolicyviolation", listener);
+            try {
+                const resp = await fetch(wasmUrl);
+                const bytes = await resp.arrayBuffer();
+                const mod = await WebAssembly.compile(bytes);
+                let instantiated = false;
+                let addResult = null;
+                if (isMinimal) {
+                    const inst = await WebAssembly.instantiate(mod);
+                    instantiated = true;
+                    addResult = typeof inst.exports.add === "function" ? inst.exports.add(20, 22) : null;
+                }
+                const elapsedMs = performance.now() - start;
+                return {
+                    fetchStatus: resp.status,
+                    byteLength: bytes.byteLength,
+                    compiled: mod instanceof WebAssembly.Module,
+                    instantiated,
+                    addResult,
+                    cspViolations,
+                    compileMs: elapsedMs,
+                    error: null,
+                };
+            } catch (err) {
+                return {
+                    fetchStatus: 0,
+                    byteLength: 0,
+                    compiled: false,
+                    instantiated: false,
+                    addResult: null,
+                    cspViolations,
+                    compileMs: performance.now() - start,
+                    error: err instanceof Error ? err.message : String(err),
+                };
+            } finally {
+                document.removeEventListener("securitypolicyviolation", listener);
+            }
+        }""",
+        {"wasmUrl": wasm_probe_url, "isMinimal": is_minimal_builtin},
+    )
+
+    minimal_ok = (not is_minimal_builtin) or (
+        result["instantiated"] and result["addResult"] == 42
+    )
+    passed = (
+        http_status == 200
+        and result["fetchStatus"] == 200
+        and result["compiled"]
+        and minimal_ok
+        and result["cspViolations"] == 0
+        and result["error"] is None
+        and len(console_errors) == 0
+        and len(page_errors) == 0
+    )
+
+    return {
+        "passed": passed,
+        "wasm_url": wasm_probe_url,
+        "mode": "minimal-builtin" if is_minimal_builtin else "custom-wasm-file",
+        "compiled": result["compiled"],
+        "instantiated": result["instantiated"],
+        "add_result": result["addResult"],
+        "byte_length": result["byteLength"],
+        "raw_bytes": raw_bytes if raw_bytes is not None else result["byteLength"],
+        "brotli11_bytes": brotli11_bytes,
+        "compile_ms": round(float(result["compileMs"]), 2),
+        "csp_violations": result["cspViolations"],
+        "console_errors": console_errors,
+        "page_errors": page_errors,
+        "error": result["error"],
+    }
+
+
 def check_mv3_popup_page(
     page: Any,
     popup_url: str,
@@ -522,7 +724,6 @@ def check_mv3_popup_page(
     )
     page.on("pageerror", lambda err: page_errors.append(str(err)))
 
-    # Attach CSP listener before document script runs.
     page.add_init_script(
         """() => {
             window.__efPopupCspViolations = 0;
@@ -590,6 +791,178 @@ def check_mv3_popup_page(
     }
 
 
+def check_mobile_pwa_profile(
+    browser: Any,
+    profile_key: str,
+    profile_spec: dict[str, Any],
+    mobile_shell_url: str,
+) -> dict[str, Any]:
+    """Exercises `/elysianfields/mobile/` under touch mobile emulation (LTR, Arabic RTL, and offline reload)."""
+    context = browser.new_context(
+        viewport=profile_spec["viewport"],
+        has_touch=profile_spec["has_touch"],
+        is_mobile=profile_spec["is_mobile"],
+        device_scale_factor=profile_spec["device_scale_factor"],
+    )
+    try:
+        page = context.new_page()
+        console_errors: list[str] = []
+        page_errors: list[str] = []
+
+        page.on(
+            "console",
+            lambda msg: console_errors.append(msg.text) if msg.type == "error" else None,
+        )
+        page.on("pageerror", lambda err: page_errors.append(str(err)))
+
+        # 1. Online LTR boot check
+        resp = page.goto(mobile_shell_url, wait_until="networkidle")
+        http_status = resp.status if resp is not None else 0
+        page.wait_for_function(
+            "() => document.documentElement.dataset.efMobileReady === 'true'",
+            timeout=10_000,
+        )
+
+        ltr_metrics = page.evaluate(
+            """() => {
+                const overlay = document.getElementById("ef-a11y-overlay");
+                const nodes = overlay ? overlay.querySelectorAll("[data-ef-node-id]").length : 0;
+                const text = document.body.innerText || "";
+                return {
+                    scrollWidth: document.documentElement.scrollWidth,
+                    innerWidth: window.innerWidth,
+                    zeroOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+                    cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
+                    dir: document.documentElement.dir,
+                    lang: document.documentElement.lang,
+                    overlayPresent: overlay !== null,
+                    bridgeNodes: nodes,
+                    hasNav: document.querySelector("nav") !== null,
+                    hasMain: document.querySelector("main") !== null,
+                    crisisPresent: text.includes("988") && text.includes("911") && text.includes("SAMHSA"),
+                    swState: document.documentElement.dataset.efSwState || "unknown",
+                    hasController: Boolean(navigator.serviceWorker && navigator.serviceWorker.controller),
+                };
+            }"""
+        )
+
+        # 2. Arabic RTL check (`?lang=ar`)
+        rtl_url = f"{mobile_shell_url}?lang=ar"
+        rtl_resp = page.goto(rtl_url, wait_until="networkidle")
+        rtl_status = rtl_resp.status if rtl_resp is not None else 0
+        page.wait_for_function(
+            "() => document.documentElement.dataset.efMobileReady === 'true'",
+            timeout=10_000,
+        )
+        rtl_metrics = page.evaluate(
+            """() => ({
+                dir: document.documentElement.dir,
+                lang: document.documentElement.lang,
+                scrollWidth: document.documentElement.scrollWidth,
+                innerWidth: window.innerWidth,
+                zeroOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+                cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
+            })"""
+        )
+
+        # 3. Offline reload resilience: return to canonical URL while online so SW claims client,
+        # then go offline and verify crisis lines (988/911/SAMHSA) + non-blank UI survive reload.
+        page.goto(mobile_shell_url, wait_until="networkidle")
+        page.wait_for_function(
+            "() => document.documentElement.dataset.efMobileReady === 'true'",
+            timeout=10_000,
+        )
+        sw_controlling = page.evaluate(
+            """async () => {
+                if (!("serviceWorker" in navigator)) return false;
+                try {
+                    const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 3000));
+                    const reg = await Promise.race([navigator.serviceWorker.ready, timeout]);
+                    if (!reg) return false;
+                    return Boolean(navigator.serviceWorker.controller);
+                } catch (_err) {
+                    return false;
+                }
+            }"""
+        )
+        if not sw_controlling:
+            page.reload(wait_until="networkidle")
+            page.wait_for_function(
+                "() => document.documentElement.dataset.efMobileReady === 'true'",
+                timeout=10_000,
+            )
+
+        page_errors_before_offline = len(page_errors)
+        offline_reload_ok = False
+        offline_non_blank = False
+        offline_crisis_present = False
+        offline_error: str | None = None
+
+        context.set_offline(True)
+        try:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=10_000)
+                offline_metrics = page.evaluate(
+                    """() => {
+                        const text = (document.body && document.body.innerText) ? document.body.innerText : "";
+                        return {
+                            nonBlank: text.trim().length > 0,
+                            crisisPresent: text.includes("988") && text.includes("911") && text.includes("SAMHSA"),
+                        };
+                    }"""
+                )
+                offline_non_blank = bool(offline_metrics["nonBlank"])
+                offline_crisis_present = bool(offline_metrics["crisisPresent"])
+                offline_reload_ok = offline_non_blank and offline_crisis_present
+            except Exception as exc:  # noqa: BLE001
+                offline_error = str(exc)
+        finally:
+            context.set_offline(False)
+
+        offline_page_errors = page_errors[page_errors_before_offline:]
+
+        passed = (
+            http_status == 200
+            and rtl_status == 200
+            and len(console_errors) == 0
+            and len(page_errors) == 0
+            and ltr_metrics["cspViolations"] == 0
+            and ltr_metrics["zeroOverflow"]
+            and ltr_metrics["overlayPresent"]
+            and ltr_metrics["bridgeNodes"] >= 5
+            and ltr_metrics["hasNav"]
+            and ltr_metrics["hasMain"]
+            and ltr_metrics["crisisPresent"]
+            and rtl_metrics["dir"] == "rtl"
+            and rtl_metrics["lang"] == "ar"
+            and rtl_metrics["zeroOverflow"]
+            and rtl_metrics["cspViolations"] == 0
+            and offline_reload_ok
+            and len(offline_page_errors) == 0
+        )
+
+        return {
+            "profile": profile_key,
+            "name": profile_spec["name"],
+            "browser": profile_spec["browser"],
+            "viewport": profile_spec["viewport"],
+            "passed": passed,
+            "http_status": http_status,
+            "console_errors": console_errors,
+            "page_errors": page_errors,
+            "ltr": ltr_metrics,
+            "rtl": rtl_metrics,
+            "offline": {
+                "reloaded": offline_reload_ok,
+                "non_blank": offline_non_blank,
+                "crisis_lines_present": offline_crisis_present,
+                "error": offline_error,
+            },
+        }
+    finally:
+        context.close()
+
+
 def check_public_site_no_js(browser: Any, public_origin: str) -> dict[str, Any]:
     """Verifies live `ef-public-site` with JavaScript disabled (`java_script_enabled=False`)."""
     context = browser.new_context(java_script_enabled=False)
@@ -621,7 +994,7 @@ def check_public_site_no_js(browser: Any, public_origin: str) -> dict[str, Any]:
             "passed": invite_status == 200 and invite_noindex,
         }
 
-        # Check `/dei` first; fall back cleanly to `/recovery/wa` or `/recovery` if `/dei` is 404.
+        # Check `/dei` first; fall back cleanly to `/recovery/wa` if `/dei` is 404.
         dei_route_used = "/dei"
         dei_resp = page.goto(f"{public_origin}/dei", wait_until="domcontentloaded")
         if dei_resp is None or dei_resp.status == 404:
@@ -655,9 +1028,17 @@ def run_browser_qualification(
     mv3_popup_url: str,
     public_origin: str | None = None,
     mv3_budget_ms: float = DEFAULT_MV3_COLD_START_BUDGET_MS,
+    wasm_host_url: str | None = None,
+    wasm_probe_url: str | None = None,
+    wasm_is_minimal_builtin: bool = True,
+    wasm_raw_bytes: int | None = None,
+    wasm_brotli11_bytes: int | None = None,
+    mobile_emulation: bool = False,
+    mobile_shell_url: str | None = None,
 ) -> dict[str, Any]:
     """Executes all browser checks for each requested engine and returns a structured report."""
     results: dict[str, Any] = {}
+    mobile_results: dict[str, Any] = {}
 
     for engine_name in browsers:
         browser_type = getattr(playwright_obj, engine_name)
@@ -671,6 +1052,27 @@ def run_browser_qualification(
                 clinic_check = check_clinic_shell_page(clinic_page, clinic_shell_url)
             finally:
                 clinic_ctx.close()
+
+            if wasm_probe_url is not None:
+                wasm_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+                try:
+                    wasm_page = wasm_ctx.new_page()
+                    wasm_check = check_wasm_csp_compile(
+                        wasm_page,
+                        wasm_host_url=wasm_host_url or clinic_shell_url,
+                        wasm_probe_url=wasm_probe_url,
+                        is_minimal_builtin=wasm_is_minimal_builtin,
+                        raw_bytes=wasm_raw_bytes,
+                        brotli11_bytes=wasm_brotli11_bytes,
+                    )
+                finally:
+                    wasm_ctx.close()
+            else:
+                wasm_check = {
+                    "passed": True,
+                    "skipped": True,
+                    "reason": "wasm_probe_url not configured",
+                }
 
             popup_ctx = browser.new_context(viewport={"width": 360, "height": 520})
             try:
@@ -690,8 +1092,21 @@ def run_browser_qualification(
                     "reason": "--public-bin not provided",
                 }
 
+            if mobile_emulation and mobile_shell_url is not None:
+                for profile_key, profile_spec in MOBILE_PROFILES.items():
+                    if profile_spec["browser"] == engine_name:
+                        mobile_results[profile_key] = check_mobile_pwa_profile(
+                            browser,
+                            profile_key=profile_key,
+                            profile_spec=profile_spec,
+                            mobile_shell_url=mobile_shell_url,
+                        )
+
             engine_passed = (
-                clinic_check["passed"] and popup_check["passed"] and public_check["passed"]
+                clinic_check["passed"]
+                and wasm_check["passed"]
+                and popup_check["passed"]
+                and public_check["passed"]
             )
             results[engine_name] = {
                 "browser": engine_name,
@@ -699,6 +1114,7 @@ def run_browser_qualification(
                 "passed": engine_passed,
                 "checks": {
                     "clinic_shell": clinic_check,
+                    "wasm_csp": wasm_check,
                     "mv3_popup": popup_check,
                     "public_site_no_js": public_check,
                 },
@@ -706,13 +1122,22 @@ def run_browser_qualification(
         finally:
             browser.close()
 
-    overall_passed = all(entry["passed"] for entry in results.values())
-    return {
+    mobile_passed = all(entry["passed"] for entry in mobile_results.values())
+    overall_passed = all(entry["passed"] for entry in results.values()) and mobile_passed
+
+    report: dict[str, Any] = {
         "schema_version": 1,
         "overall_passed": overall_passed,
         "browsers_requested": browsers,
         "results": results,
     }
+    if mobile_emulation:
+        report["mobile_emulation"] = {
+            "enabled": True,
+            "passed": mobile_passed,
+            "profiles": mobile_results,
+        }
+    return report
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -750,6 +1175,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Optional path to compiled `ef-public-site` binary.",
     )
     parser.add_argument(
+        "--wasm-file",
+        type=Path,
+        default=None,
+        help="Optional path to a compiled `.wasm` binary to compile under strict CSP (`'wasm-unsafe-eval'`).",
+    )
+    parser.add_argument(
+        "--mobile-emulation",
+        action="store_true",
+        help="Run Mobile WebKit (iPhone 14) and Mobile Chromium (Pixel 7) PWA, RTL, and offline reload checks.",
+    )
+    parser.add_argument(
         "--report",
         type=Path,
         default=None,
@@ -768,6 +1204,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
     browsers = parse_browsers(args.browsers)
+
+    if args.wasm_file is not None and not args.wasm_file.is_file():
+        print(f"ERROR: --wasm-file not found: {args.wasm_file}", file=sys.stderr)
+        return 2
 
     try:
         from playwright.sync_api import sync_playwright
@@ -817,10 +1257,16 @@ def main(argv: list[str] | None = None) -> int:
             web_dir=args.web_dir,
             extension_dir=args.extension_dir,
             clinic_api_origin=clinic_api_origin,
+            wasm_file=args.wasm_file,
         ) as preview:
             if clinic_shell_url is None:
                 clinic_shell_url = f"{preview.origin}/elysianfields/"
             mv3_popup_url = f"{preview.origin}/mv3-popup/popup.html"
+            wasm_host_url = f"{preview.origin}/elysianfields/"
+            wasm_probe_url = f"{preview.origin}/elysianfields/wasm-probe.wasm"
+            mobile_shell_url = f"{preview.origin}/elysianfields/mobile/"
+            wasm_raw_bytes = len(preview.wasm_bytes)
+            wasm_brotli11_bytes = measure_brotli11_bytes(preview.wasm_bytes)
 
             with sync_playwright() as pw:
                 report = run_browser_qualification(
@@ -830,6 +1276,13 @@ def main(argv: list[str] | None = None) -> int:
                     mv3_popup_url=mv3_popup_url,
                     public_origin=public_origin,
                     mv3_budget_ms=args.mv3_budget_ms,
+                    wasm_host_url=wasm_host_url,
+                    wasm_probe_url=wasm_probe_url,
+                    wasm_is_minimal_builtin=args.wasm_file is None,
+                    wasm_raw_bytes=wasm_raw_bytes,
+                    wasm_brotli11_bytes=wasm_brotli11_bytes,
+                    mobile_emulation=args.mobile_emulation,
+                    mobile_shell_url=mobile_shell_url,
                 )
 
         if args.report is not None:

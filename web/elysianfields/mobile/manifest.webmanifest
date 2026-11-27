@@ -1,0 +1,12 @@
+{
+  "name": "Elysian Fields — Curie Mobile",
+  "short_name": "Curie Mobile",
+  "description": "Patient-owned standalone health records, Connected Care sharing, and offline crisis resources under /elysianfields/mobile/.",
+  "start_url": "/elysianfields/mobile/",
+  "scope": "/elysianfields/mobile/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "en",
+  "dir": "auto"
+}
