@@ -342,3 +342,428 @@ evidence = ""
 state = "unknown"
 revision = ""
 evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0010"
+title = "Today queue urgency ordering, incomplete-source honesty, and channel health banners"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "desktop-linux", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0001"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0011"
+title = "Message matching auto-link safety, 15-minute undecided fallback, and access-scoped suggestions"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0002"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0012"
+title = "Message move with Undo restoration, deferred record update, and channel disconnect/backlog consent"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0003"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0013"
+title = "Message reply drafting, per-physician draft isolation, auto-reply non-answering, and move withholding"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0004"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0014"
+title = "Patient memory rounds watermark, quiet no-op, disagreement preservation, and history-preserving retirement"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0005"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0015"
+title = "Multi-format EHR record mapping (FHIR R4, Kipu/Part 2, C-CDA, HL7 v2) with native byte retention and binding checks"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0006"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-MOBILE-0001"
+title = "Curie Mobile sign-in, offline owed sign-out flush, and device handoff isolation"
+domain = "MOBILE"
+product = "curie-mobile"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0007"
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-MOBILE-0002"
+title = "Curie Mobile portal/SHL ingestion with per-record savepoints and 42 CFR Part 2 boundaries"
+domain = "MOBILE"
+product = "curie-mobile"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0008"
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-MOBILE-0003"
+title = "On-device HealthKit / Health Connect acquisition with account-fenced transactional outbox"
+domain = "MOBILE"
+product = "curie-mobile"
+platforms = ["android-native", "ios-native"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0009"
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-MOBILE-0004"
+title = "For my doctor curated sharing: immutable sends, idempotency, source removal, and Part 2 consent"
+domain = "MOBILE"
+product = "curie-mobile"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0010"
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-MOBILE-0005"
+title = "Curie Mobile account deletion and isolated DB restore privacy receipt journal replay"
+domain = "MOBILE"
+product = "curie-mobile"
+platforms = ["hosted-services", "android-native", "ios-native"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0011"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CONN-0001"
+title = "Practice invitation lifecycle: single open invite, 5-wrong-DOB lockout, resend, cancel, and Share consent"
+domain = "CONN"
+product = "connected-care"
+platforms = ["browser-wasm-desktop", "browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0012"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CONN-0002"
+title = "Multi-practice independence, ending connection during uncertain send, and rejoining"
+domain = "CONN"
+product = "connected-care"
+platforms = ["browser-wasm-mobile", "browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0013"
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-HARNESS-0002"
+title = "Shared harness tool validation, frozen skill_view, budget CutOff, and content-free telemetry"
+domain = "HARNESS"
+product = "shared-platform"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0014"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-HARNESS-0003"
+title = "Clinical library nightly stop rules, lost-slot isolation, single active version, and PubMed pacing"
+domain = "HARNESS"
+product = "shared-platform"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0015"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-HARNESS-0004"
+title = "Synthetic patient bank deterministic build, FHIR R4 validation, and authoring/runtime isolation"
+domain = "HARNESS"
+product = "shared-platform"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0016"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-EXT-0001"
+title = "Chrome MV3 extension pairing, memory-only credentials, declared named reads, and billing redaction"
+domain = "EXT"
+product = "browser-extension"
+platforms = ["chrome-extension-popup"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0017"
+
+[requirements.coverage.chrome-extension-popup]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PUBLIC-0001"
+title = "Public site semantic HTML, verbatim legal archives, and isolated interactive physician demo"
+domain = "PUBLIC"
+product = "public-web"
+platforms = ["static-public-web", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0018"
+
+[requirements.coverage.static-public-web]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PUBLIC-0002"
+title = "Dei recovery finder: crisis lines first, zero-JS fallback, versioned shard cache, and offline reload"
+domain = "PUBLIC"
+product = "public-web"
+platforms = ["static-public-web", "browser-wasm-desktop", "browser-wasm-mobile"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0019"
+
+[requirements.coverage.static-public-web]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-mobile]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PLATFORM-0004"
+title = "Cross-product architectural boundary gate across all replacement crates"
+domain = "PLATFORM"
+product = "shared-platform"
+platforms = ["hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m3-suite"
+scenario_id = "SCN-M3-0020"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""

@@ -1,0 +1,441 @@
+schema_version = 1
+package = "specs/packages/m3-suite"
+authority_note = "Gatekeeper-approved implementation-neutral executable behavioral scenarios covering M3 Increments 1-5. Zero secrets, PHI, or reference internals."
+
+# --- Increment 1: Remaining Curie Clinic Workflows ---
+
+[[scenarios]]
+id = "SCN-M3-0001"
+requirement_id = "EF-CLINIC-0010"
+increment = "M3-Inc1"
+title = "Today queue urgency ordering, incomplete-source honesty, and channel health banners"
+area = "clinic-today"
+platforms = ["browser-wasm-desktop", "desktop-linux", "hosted-services"]
+preconditions = [
+  "Physician signed in to a practice with urgent ('now') and same-day ('today') concerns, scheduled visits, and a connected messaging channel.",
+]
+steps = [
+  "Load Today and verify urgent ('now') items surface ahead of 'today' items and seen/done standing tracks version_id.",
+  "Inject a temporary channel read error and reload Today.",
+  "Inject revoked channel credentials and reload Today.",
+  "Inject a partial producer failure so one panel source cannot be read.",
+]
+expected = [
+  "Temporary channel error displays trouble banner WITHOUT asking to reconnect (TodaySaysSo).",
+  "Revoked credentials display explicit reconnect prompt.",
+  "Partial producer failure sets may_be_missing_someone=true and surfaces the exact failed part rather than showing a quiet day.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0002"
+requirement_id = "EF-CLINIC-0011"
+increment = "M3-Inc1"
+title = "Message matching auto-link safety, 15-minute undecided fallback, and access-scoped suggestions"
+area = "clinic-message-matching"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Two patients A and B exist; Physician D1 has access to A only, Physician D2 has access to B only.",
+]
+steps = [
+  "Ingest a message unambiguously matching Patient A with zero contradictions.",
+  "Ingest an ambiguous message matching both A and B (or with conflicting identifiers).",
+  "Inspect Messages to match as D1 when a suggestion points to Patient B.",
+  "Simulate an undecided message reaching the 15-minute fallback window.",
+]
+expected = [
+  "Unambiguous message auto-links to A (LinksOnItsOwn); ambiguous message lands in to_match.",
+  "D1 never sees Patient B as a suggestion (SuggestionsWithAccess) and never sees conversations linked to B (OnlyWithAccess).",
+  "Undecided message transitions to to_match at fallback so no message stays invisible (NeverInvisible).",
+]
+
+[[scenarios]]
+id = "SCN-M3-0003"
+requirement_id = "EF-CLINIC-0012"
+increment = "M3-Inc1"
+title = "Message move with Undo restoration, deferred record update, and channel disconnect/backlog consent"
+area = "clinic-message-matching"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Conversation linked to Patient A; physician has access to both Patient A and Patient B.",
+]
+steps = [
+  "Move conversation from A to B; while Undo is active, ingest a second message into the conversation, then press Undo.",
+  "Move conversation from A to B again and let Undo expire.",
+  "Inject an unreadable message, then disconnect the channel, then reconnect the channel with pre-connection backlog.",
+]
+expected = [
+  "Pressing Undo restores all kept messages (including the newly arrived one) to Patient A with zero deferred updates executed (UndoPutsBack, ActsAfterUndo).",
+  "After Undo expires on the standing move to B, downstream record updates execute and conversation disappears from A (RightPatient).",
+  "Disconnect clears unlinked and unreadable messages while keeping linked conversations (ClearedOnDisconnect); backlog is never read until explicit consent is accepted (BacklogOnlyWhenAccepted).",
+]
+
+[[scenarios]]
+id = "SCN-M3-0004"
+requirement_id = "EF-CLINIC-0013"
+increment = "M3-Inc1"
+title = "Message reply drafting, per-physician draft isolation, auto-reply non-answering, and move withholding"
+area = "clinic-message-reply"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Linked conversation on Patient A has an open patient message and a ready system reply draft.",
+]
+steps = [
+  "Record an automatic practice auto-responder message on the channel and verify review outcome.",
+  "Physician D1 edits a personal draft; Physician D2 opens the same conversation and copies the reply.",
+  "Close the reply while a clinical concern is flagged, then press Undo.",
+  "Move the conversation from Patient A to Patient B while a stale review for A finishes.",
+]
+expected = [
+  "Automatic practice reply never marks the patient message answered (OnlyTheReviewAnswers).",
+  "D1's draft is isolated to D1; D2 sees the system reply and Copy copies exact visible text without mutating state (YourDraft, CopiesWhatYouSee).",
+  "Closing reply keeps clinical concern visible (ConcernStays); Undo restores exact closed reply (UndoBringsBack).",
+  "Move immediately withholds prior ready reply and discards stale Patient A review output (WithheldAfterMove); patient-facing reply text contains zero internal citation markup.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0005"
+requirement_id = "EF-CLINIC-0014"
+increment = "M3-Inc1"
+title = "Patient memory rounds watermark, quiet no-op, disagreement preservation, and history-preserving retirement"
+area = "clinic-memory-rounds"
+platforms = ["hosted-services"]
+preconditions = [
+  "Patient workspace has existing dated memory entries and a physician instruction conflicting with a newly arrived external chart record.",
+]
+steps = [
+  "Run background rounds with zero new records since watermark.",
+  "Inject an external chart record disagreeing with an existing physician preference and run rounds.",
+  "Abort a rounds run mid-execution before completion and inspect watermark.",
+  "Supersede an active clinical condition with a newer dated resolution.",
+]
+expected = [
+  "No-op run leaves memory entries untouched.",
+  "Disagreement preserves both chart record and physician instruction with distinct dates and authority tags.",
+  "Aborted run does not advance rounds watermark.",
+  "Superseded fact is retired with resolution date/reason while leaving unrelated active entries intact.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0006"
+requirement_id = "EF-CLINIC-0015"
+increment = "M3-Inc1"
+title = "Multi-format EHR record mapping (FHIR R4, Kipu/Part 2, C-CDA, HL7 v2) with native byte retention & binding checks"
+area = "clinic-record-mapping"
+platforms = ["hosted-services"]
+preconditions = [
+  "Synthetic fixtures for SMART on FHIR R4, KipuEMR 42 CFR Part 2 SUD + counseling notes, C-CDA R2.1 XML (with one unreadable nonXMLBody), and HL7 v2.x ORU/ADT messages.",
+]
+steps = [
+  "Ingest each source batch into a target synthetic patient chart.",
+  "Attempt to ingest a record whose patient binding (FHIR subject / Kipu casefile_id / C-CDA recordTarget / HL7 PID-3) belongs to a different patient.",
+  "Inspect stored native bytes, SHA-256 digests, 16-bucket classification, FailedPart records, and 42 CFR Part 2 tags.",
+]
+expected = [
+  "Valid records file into the closed 16 buckets with byte-identical untouched native source payloads and SHA-256 digests.",
+  "Unreadable attachments record explicit FailedPart entries while valid sibling records commit normally.",
+  "Mismatched patient-binding records are rejected before storage.",
+  "Part 2 SUD records and SUD counseling notes carry verbatim 42 CFR § 2.32(a) notices and remain gated from general exports without written consent.",
+]
+
+# --- Increment 2: Curie Mobile ---
+
+[[scenarios]]
+id = "SCN-M3-0007"
+requirement_id = "EF-MOBILE-0001"
+increment = "M3-Inc2"
+title = "Curie Mobile sign-in, offline owed sign-out flush, and device handoff isolation"
+area = "mobile-auth"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native"]
+preconditions = [
+  "Patient Account A is signed in on a mobile device with an unsaved local note draft.",
+]
+steps = [
+  "Put device offline and trigger Sign out.",
+  "Verify the sign-in screen holds zero session credentials and zero Account A drafts (SignInHoldsNothing).",
+  "Restore connectivity and verify the owed sign-out flushes to the server (OwedSessionsEventuallyEnd).",
+  "Sign in as Account B on the same device.",
+]
+expected = [
+  "Server invalidates Account A's session once connectivity returns (ServerEndsSignOut).",
+  "Account B starts completely clean with zero Account A drafts or records visible (DraftMatchesAccount).",
+]
+
+[[scenarios]]
+id = "SCN-M3-0008"
+requirement_id = "EF-MOBILE-0002"
+increment = "M3-Inc2"
+title = "Curie Mobile portal/SHL ingestion with per-record savepoints and 42 CFR Part 2 boundaries"
+area = "mobile-records"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+preconditions = [
+  "Signed-in Curie Mobile patient connecting a synthetic SMART on FHIR R4 portal and importing a valid shlink:/ payload containing one malformed sibling resource and one 42 CFR Part 2 record.",
+]
+steps = [
+  "Complete PKCE S256 portal link and ingest mixed batch.",
+  "Attempt to import an insecure http:// or invalid-key shlink:/ URI.",
+  "Disconnect the portal and inspect previously imported history.",
+]
+expected = [
+  "Valid records commit independently via per-record savepoints while malformed sibling records surface honest error notices.",
+  "Insecure/malformed shlink:/ URI is rejected before fetch.",
+  "Disconnecting the portal preserves previously imported patient records; Part 2 records stay gated from general sharing.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0009"
+requirement_id = "EF-MOBILE-0003"
+increment = "M3-Inc2"
+title = "On-device HealthKit / Health Connect acquisition with account-fenced transactional outbox"
+area = "mobile-health"
+platforms = ["android-native", "ios-native"]
+preconditions = [
+  "Patient Account A grants health read permissions on device; network is temporarily unavailable.",
+]
+steps = [
+  "Acquire synthetic steps, heart-rate, and blood-pressure samples into the local outbox while offline.",
+  "Sign out of Account A and sign in as Account B before restoring network.",
+  "Restore network and verify upload behavior; sign back in as Account A.",
+]
+expected = [
+  "Account A samples are never uploaded under or visible to Account B.",
+  "When Account A uploads idempotently, zero samples are duplicated or silently dropped; UI reads strictly via typed client layer.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0010"
+requirement_id = "EF-MOBILE-0004"
+increment = "M3-Inc2"
+title = "For my doctor curated sharing: immutable sends, idempotency, source removal, and Part 2 consent"
+area = "mobile-for-my-doctor"
+platforms = ["browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+preconditions = [
+  "Patient is connected to Practice 1, has marked Record R1 and written Note N1 linked to R2 in 'To send', and also has a Part 2 record R3.",
+]
+steps = [
+  "Verify nothing reaches Practice 1 before explicit confirmation (NothingReachesWithoutConfirm) and disclosure appears before confirm (DisclosureBeforeSend).",
+  "Confirm send of R1+N1, simulating an uncertain network timeout followed by retry with the same idempotent send key.",
+  "Mutate R1 upstream and verify the already-confirmed send snapshot stays immutable (SendHoldsExactImmutableContent).",
+  "Remove a newly marked record R4 upstream and verify 'To send' clears R4 with a plain notice (SourceRemovalClearsMark).",
+  "Attempt to send Part 2 record R3 without explicit written consent confirmation, then confirm with consent.",
+]
+expected = [
+  "Practice 1 receives the confirmed send at most once (SendReachesAtMostOnce); carried items clear from 'To send' while unchosen items remain.",
+  "Status moves from Sent to Received by the care team only upon server/practice confirmation (SentAndReceivedTruth).",
+  "Part 2 send requires explicit written consent and attaches verbatim 42 CFR § 2.32 notice.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0011"
+requirement_id = "EF-MOBILE-0005"
+increment = "M3-Inc2"
+title = "Curie Mobile account deletion and isolated DB restore privacy receipt journal replay"
+area = "mobile-privacy-recovery"
+platforms = ["hosted-services", "android-native", "ios-native"]
+preconditions = [
+  "Patient account exists with health records, a For my doctor send, and an active connected-care link to Practice 1.",
+  "A PostgreSQL backup snapshot is taken prior to account deletion.",
+]
+steps = [
+  "Patient permanently deletes their account, writing an immutable account_delete receipt to the independent create-only journal.",
+  "Restore the pre-deletion PostgreSQL backup into an isolated database.",
+  "Run the privacy journal replay gate against the restored database and independent journal before opening traffic.",
+]
+expected = [
+  "Receipt journal contains zero patient prose or credentials and fails closed if unreadable.",
+  "Replay enforces account_incarnation fencing so the deleted account and its records do not resurrect.",
+  "Replay idempotently terminates the associated connected-care link and scrubs bridge staging records.",
+]
+
+# --- Increment 3: Connected Care ---
+
+[[scenarios]]
+id = "SCN-M3-0012"
+requirement_id = "EF-CONN-0001"
+increment = "M3-Inc3"
+title = "Practice invitation lifecycle: single open invite, 5-wrong-DOB lockout, resend, cancel, and Share consent"
+area = "connected-care"
+platforms = ["browser-wasm-desktop", "browser-wasm-mobile", "android-native", "ios-native", "hosted-services"]
+preconditions = [
+  "Practice 1 invites Patient P; Patient P has a standalone Curie Mobile account.",
+]
+steps = [
+  "Issue an invitation from Practice 1 and resend it while unlocked (verify no duplicate open invite and old code stays valid).",
+  "Submit 4 wrong DOB guesses as signed-in Patient P (verify zero practice/physician preview disclosed before match).",
+  "Submit a 5th wrong DOB guess and verify invitation locks permanently (LockedAfterFiveWrongDob); verify resend does not unlock it.",
+  "Cancel the locked invitation (verify old links/codes cannot connect) and issue a fresh invitation.",
+  "Enter matching DOB, inspect preview, navigate away without tapping Share (verify zero consent granted), then return and tap Share.",
+]
+expected = [
+  "All 11 formal Invitation invariants hold across Practice 1 and Curie Mobile.",
+  "Both Curie Clinic and Curie Mobile read identical connection state (SameConnectionState) without creating a second patient account.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0013"
+requirement_id = "EF-CONN-0002"
+increment = "M3-Inc3"
+title = "Multi-practice independence, ending connection during uncertain send, and rejoining"
+area = "connected-care"
+platforms = ["browser-wasm-mobile", "browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Patient P is Connected to both Practice 1 and Practice 2.",
+]
+steps = [
+  "End the connection with Practice 1 while an uncertain For my doctor send to Practice 1 is pending.",
+  "Verify Practice 2 connection remains Connected and unaffected (PracticesStayIndependent).",
+  "Verify Patient P's standalone account and prior Sent history remain intact.",
+  "Re-invite Patient P from Practice 1 and complete DOB + Share to rejoin.",
+]
+expected = [
+  "Uncertain send to Practice 1 halts cleanly with Try again removed and marks preserved in To send (ConnectionEndStopsUncertain).",
+  "Practice 2 is untouched; rejoining Practice 1 requires fresh explicit Share consent.",
+]
+
+# --- Increment 4: Shared Execution, Clinical Library & Patient Bank ---
+
+[[scenarios]]
+id = "SCN-M3-0014"
+requirement_id = "EF-HARNESS-0002"
+increment = "M3-Inc4"
+title = "Shared harness tool validation, frozen skill_view, budget cut_off, and content-free telemetry"
+area = "shared-harness"
+platforms = ["hosted-services"]
+preconditions = [
+  "Shared harness running with frozen in-memory skill package, typed tool schemas, deterministic provider stub, and local OTLP collector.",
+]
+steps = [
+  "Invoke skill_view on a valid skill and on a path-traversal / unknown skill name.",
+  "Invoke a tool with malformed JSON arguments and verify structured error propagation.",
+  "Exceed the configured turn/tool budget to trigger CutOff.",
+  "Inspect exported operational telemetry spans and logs in the ops collector pipeline.",
+]
+expected = [
+  "Valid skill_view reads exclusively from frozen memory; malformed paths fail cleanly without touching disk.",
+  "Budget exhaustion settles cleanly to CutOff preserving kept work.",
+  "Operations traces/logs contain zero prompts, completions, or clinical text (strict allowlist enforced).",
+]
+
+[[scenarios]]
+id = "SCN-M3-0015"
+requirement_id = "EF-HARNESS-0003"
+increment = "M3-Inc4"
+title = "Clinical library nightly stop rules, lost-slot isolation, single active version, and PubMed pacing"
+area = "clinical-reference-library"
+platforms = ["hosted-services"]
+preconditions = [
+  "Disposable PostgreSQL cluster with clinical library schema and deterministic local NCBI/PubMed stub.",
+]
+steps = [
+  "Trigger the same failure code across 2 nights and verify automatic retries halt.",
+  "Trigger 3 consecutive failed/idle nights and verify nightly stops until explicit resolution.",
+  "Simulate a lost slot lease mid-run and attempt candidate file write, DB mutation, and version activation.",
+  "Run concurrent PubMed status refreshes and verify request start spacing and verbatim hash checks.",
+]
+expected = [
+  "All 9 clinical library nightly guarantees hold; lost-slot worker writes zero DB rows and zero active versions.",
+  "Concurrent PubMed calls pace starts >= 100 ms apart and fail immediately on auth refusal without retrying.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0016"
+requirement_id = "EF-HARNESS-0004"
+increment = "M3-Inc4"
+title = "Synthetic patient bank deterministic build, FHIR R4 validation, and authoring/runtime isolation"
+area = "synthetic-cohort"
+platforms = ["hosted-services"]
+preconditions = [
+  "Clean-room synthetic cohort generator configured for the 468-patient primary-care panel.",
+]
+steps = [
+  "Build the synthetic FHIR R4 bank twice into separate directories and compare manifests and digests.",
+  "Validate all 11 FHIR R4 resource families, physiological lab invariants, pending post-as_of withholding, and isolated corrupted PDF attachment handling.",
+  "Load the packaged bank into the physician runtime twice idempotently.",
+]
+expected = [
+  "Builds are byte-deterministic with zero real PHI and zero repeated >=40-char narrative lines across charts.",
+  "Authoring ledgers never enter runtime DB or container images; second import reports 0 changed records and preserves panel assignments.",
+]
+
+# --- Increment 5: Extension, Public Site, Demo & Dei Recovery Finder ---
+
+[[scenarios]]
+id = "SCN-M3-0017"
+requirement_id = "EF-EXT-0001"
+increment = "M3-Inc5"
+title = "Chrome MV3 extension pairing, memory-only credentials, declared named reads, and billing redaction"
+area = "chrome-extension"
+platforms = ["chrome-extension-popup"]
+preconditions = [
+  "Replacement MV3 extension loaded in Chromium with local pairing sandbox bridge and synthetic EHR response fixture containing billing/price fields.",
+]
+steps = [
+  "Verify manifest declares optional_host_permissions only, strict CSP (script-src 'self' 'wasm-unsafe-eval'), and zero EHR names in core connector/worker files.",
+  "Pair extension, lease a declared named read job, and reject a job attempting to smuggle a raw URL.",
+  "Inspect chrome.storage.local and chrome.storage.sync after pairing and execution.",
+  "Verify delivered payload carries valid SHA-256 receipt with all billing and medication price fields redacted.",
+]
+expected = [
+  "Zero bearer/refresh tokens or auth headers exist outside chrome.storage.session.",
+  "Raw-URL jobs are rejected; valid named reads deliver redacted payloads with matching SHA-256 receipts; popup opens <= 250 ms and <= 1.0 MiB Brotli-11 (or uses approved D2 narrow HTML adapter).",
+]
+
+[[scenarios]]
+id = "SCN-M3-0018"
+requirement_id = "EF-PUBLIC-0001"
+increment = "M3-Inc5"
+title = "Public site semantic HTML, verbatim legal archives, and isolated interactive physician demo"
+area = "public-web-and-demo"
+platforms = ["static-public-web", "hosted-services"]
+preconditions = [
+  "Replacement public site running without production clinical DB credentials or secrets.",
+]
+steps = [
+  "Fetch /, /mobile, /privacy, /terms, /clinical-transparency, /mobile/privacy, archived dated legal routes, /invite, /robots.txt, and /sitemap.xml with JavaScript disabled.",
+  "Verify /invite emits noindex, nofollow and legal archives match verbatim approved JSON documents.",
+  "Exercise interactive synthetic physician demo up to its per-visitor turn budget.",
+  "Verify /grafana/ is absent (404/403) in production configuration.",
+]
+expected = [
+  "All marketing and legal routes render complete semantic, indexable HTML without JavaScript or Bevy canvas.",
+  "Demo runs strictly on isolated per-visitor synthetic charts with verbatim citations and enforces turn budgets.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0019"
+requirement_id = "EF-PUBLIC-0002"
+increment = "M3-Inc5"
+title = "Dei recovery finder: crisis lines first, zero-JS fallback, versioned shard cache, and offline reload"
+area = "dei-recovery-finder"
+platforms = ["static-public-web", "browser-wasm-desktop", "browser-wasm-mobile"]
+preconditions = [
+  "Exported Dei static site served locally with versioned SAMHSA state shards.",
+]
+steps = [
+  "Load a state page with JavaScript disabled and verify crisis lines (988, 911, SAMHSA Helpline) appear before any facility listing.",
+  "Load with JavaScript enabled from a fresh profile, cache the versioned shard, and filter results.",
+  "Stop the local HTTP server, reload the page offline, and filter again.",
+  "Restart server with a newly versioned shard moving a facility to a new city, reload, and verify cache upgrade and old-version pruning; simulate fetch failure with no cached shard.",
+]
+expected = [
+  "Offline reload renders and filters from Cache Storage + service worker seamlessly.",
+  "New shard version replaces stale entry; fetch failure displays error + Try again over prerendered listing and NEVER reads as zero results.",
+]
+
+[[scenarios]]
+id = "SCN-M3-0020"
+requirement_id = "EF-PLATFORM-0004"
+increment = "M3-Inc5"
+title = "Cross-product architectural boundary gate across all replacement crates"
+area = "workspace-boundaries"
+platforms = ["hosted-services"]
+preconditions = [
+  "Elysian Realm workspace contains replacement Curie Clinic, Curie Mobile, Connected Care bridge, and Shared crates.",
+]
+steps = [
+  "Run automated workspace boundary verifier over all Cargo manifests and sources.",
+  "Verify server crates never depend on Bevy rendering crates.",
+  "Verify Curie Mobile and Curie Clinic clinical crates never import each other, shared execution harness/channels/clinical reference library import no product or forbidden DB crates, and mobile UI never calls native health bridges directly.",
+]
+expected = [
+  "Boundary suite passes with zero violations and fails closed on any injected cross-product or server-Bevy dependency.",
+]
