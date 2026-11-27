@@ -9,8 +9,10 @@ on:
     paths:
       - '.github/workflows/cross-platform.yml'
       - 'scripts/browser_e2e.py'
+      - 'scripts/qa_multilingual_gui.py'
       - 'scripts/verify_postgres_migrations.sh'
       - 'scripts/verify_pgwire_live.sh'
+      - 'web/elysianfields/**'
       - 'deploy/**'
       - 'platform/**'
 
@@ -720,6 +722,16 @@ jobs:
           .venv-pw/bin/pip install --quiet --upgrade pip playwright brotli
           .venv-pw/bin/playwright install --with-deps chromium firefox webkit
 
+      - name: Install Noto multilingual fonts for 7-script GUI/UX rendering
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            fonts-noto-core \
+            fonts-noto-cjk \
+            fonts-noto-extra \
+            fontconfig
+          fc-cache -f
+
       - name: Run 3-browser E2E qualification suite
         run: |
           mkdir -p cross-platform-evidence
@@ -1140,6 +1152,22 @@ jobs:
           print(out_path.read_text(encoding="utf-8"))
           PY
 
+      - name: Run 7-script multilingual GUI/UX QA across Chromium, Firefox, and WebKit
+        run: |
+          mkdir -p cross-platform-evidence
+          if [ -f scripts/qa_multilingual_gui.py ]; then
+            .venv-pw/bin/python scripts/qa_multilingual_gui.py \
+              --browsers chromium,firefox,webkit \
+              --clinic-bin target/debug/ef-clinic-server \
+              --mobile-bin target/debug/ef-mobile-server \
+              --clinic-wasm target/wasm32-unknown-unknown/release/ef_clinic_client.wasm \
+              --mobile-wasm target/wasm32-unknown-unknown/release/ef_mobile_client.wasm \
+              --report cross-platform-evidence/multilingual-gui-qa-report.json \
+              --screenshot-dir cross-platform-evidence/multilingual-screenshots
+          else
+            echo "scripts/qa_multilingual_gui.py not present yet; skipping multilingual GUI QA."
+          fi
+
       - name: Upload 3-browser E2E evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -1148,6 +1176,8 @@ jobs:
           path: |
             cross-platform-evidence/cross-platform-browser-report.json
             cross-platform-evidence/wasm-brotli-report.json
+            cross-platform-evidence/multilingual-gui-qa-report.json
+            cross-platform-evidence/multilingual-screenshots/
           if-no-files-found: warn
           retention-days: 30
 
