@@ -1,0 +1,18 @@
+[package]
+name = "m1-mobile-lifecycle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "M1 Bevy 0.20.1 mobile lifecycle prototype, platform adapter contracts, and headless integration tests for Android and iOS."
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_state",
+    "bevy_window",
+] }
+
+[lints]
+workspace = true
