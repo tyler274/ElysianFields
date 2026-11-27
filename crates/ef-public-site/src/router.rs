@@ -212,12 +212,17 @@ impl PublicSiteRouter {
             } else {
                 "Too Many Requests"
             };
-            return PublicResponse::text(
+            let mut resp = PublicResponse::text(
                 code,
                 "text/plain; charset=utf-8",
                 "no-store",
                 msg.to_owned(),
             );
+            if code == 429 {
+                resp.headers
+                    .insert("Retry-After".to_owned(), "60".to_owned());
+            }
+            return resp;
         }
 
         let (path, raw_query) = match req.path_and_query.split_once('?') {
@@ -305,9 +310,12 @@ impl PublicSiteRouter {
                 ),
             ),
             ("POST", "/demo/turn") => self.handle_demo_turn(&req.body),
-            ("GET", "/recovery") | ("GET", "/recovery/") => {
+            ("GET", "/recovery") | ("GET", "/recovery/") | ("GET", "/dei") | ("GET", "/dei/") => {
                 let shards: Vec<DeiStateShard> = self.dei_shards.values().cloned().collect();
                 PublicResponse::html(200, "public, max-age=300", render_dei_index_html(&shards))
+            }
+            ("GET", "/dei/search") | ("GET", "/recovery/search") => {
+                self.handle_dei_search(raw_query)
             }
             ("GET", "/robots.txt") => PublicResponse::text(
                 200,
@@ -331,7 +339,13 @@ impl PublicSiteRouter {
                 Err(_) => self.render_not_found(p),
             },
             ("GET", p) if p.starts_with("/recovery/data/") => self.handle_dei_shard_json(p),
+            ("GET", p) if p.starts_with("/dei/data/") => {
+                self.handle_dei_shard_json(&p.replacen("/dei/data/", "/recovery/data/", 1))
+            }
             ("GET", p) if p.starts_with("/recovery/") => self.handle_dei_state(p, raw_query),
+            ("GET", p) if p.starts_with("/dei/") => {
+                self.handle_dei_state(&p.replacen("/dei/", "/recovery/", 1), raw_query)
+            }
             _ => self.render_not_found(path),
         }
     }
@@ -363,6 +377,26 @@ impl PublicSiteRouter {
                 format!("{{\"error\":\"{}\"}}", escape_html(&err.to_string())),
             ),
         }
+    }
+
+    fn handle_dei_search(&self, raw_query: Option<&str>) -> PublicResponse {
+        let query = parse_dei_query(raw_query);
+        let mut all_facilities = Vec::new();
+        for shard in self.dei_shards.values() {
+            for fac in shard.filter(&query) {
+                all_facilities.push(fac.clone());
+            }
+        }
+        let aggregate = DeiStateShard {
+            state_code: "ALL".to_owned(),
+            state_name: "All States — Search Results".to_owned(),
+            facilities: all_facilities,
+        };
+        PublicResponse::html(
+            200,
+            "public, max-age=120",
+            render_dei_state_html(&aggregate, &DeiSearchQuery::default()),
+        )
     }
 
     fn handle_dei_state(&self, path: &str, raw_query: Option<&str>) -> PublicResponse {

@@ -1786,6 +1786,7 @@ dependencies = [
 name = "ef-mobile-server"
 version = "0.1.0"
 dependencies = [
+ "ef-connected-care",
  "ef-core",
  "ef-mobile-domain",
  "serde",

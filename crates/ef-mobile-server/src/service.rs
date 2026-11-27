@@ -9,7 +9,12 @@ use std::collections::BTreeMap;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
-use ef_core::Subpath;
+use ef_connected_care::{
+    AccountIncarnation as BridgeAccountIncarnation, BridgeError, ConnectedCareBridge, ConnectionId,
+    DateOfBirth, DisconnectActor, EnvelopeItem, InviteCredential,
+    MobileAccountId as BridgeMobileAccountId, PairKey, Part2WrittenConsent, TransferSubmission,
+};
+use ef_core::{IdempotencyKey, PatientId, PracticeId, Subpath};
 use ef_mobile_domain::{
     AccountFencedHealthBatch, DevicePushRegistration, ForMyDoctorWorkspace, InMemoryReceiptJournal,
     IncomingBatchItem, MobileAccountId, MobileAuthAuthority, MobileAuthError,
@@ -63,6 +68,38 @@ struct DeleteAccountBody {
     occurred_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ConnectedCareLookupBody {
+    credential: InviteCredential,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConnectedCareVerifyDobBody {
+    credential: InviteCredential,
+    year: u16,
+    month: u8,
+    day: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConnectedCareShareBody {
+    credential: InviteCredential,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConnectedCareTransferBody {
+    idempotency_key: IdempotencyKey,
+    connection_id: ConnectionId,
+    items: Vec<EnvelopeItem>,
+    #[serde(default)]
+    part2_consent: Option<Part2WrittenConsent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConnectedCareDisconnectBody {
+    connection_id: ConnectionId,
+}
+
 /// Authoritative headless Curie Mobile service strictly isolated from Curie Clinic.
 pub struct MobileService {
     pub auth: MobileAuthAuthority,
@@ -71,6 +108,7 @@ pub struct MobileService {
     pub push_tokens: PushTokenRegistry,
     pub doctor_workspaces: BTreeMap<MobileAccountId, ForMyDoctorWorkspace>,
     pub bridge_staging: PracticeSendReceiver,
+    pub connected_care: ConnectedCareBridge,
     migration_version: u32,
     restore_replay_verified: bool,
     clock_secs: u64,
@@ -88,6 +126,7 @@ impl MobileService {
             push_tokens: PushTokenRegistry::new(),
             doctor_workspaces: BTreeMap::new(),
             bridge_staging: PracticeSendReceiver::new(),
+            connected_care: ConnectedCareBridge::new(),
             migration_version: EXPECTED_MIGRATION_VERSION,
             restore_replay_verified: true,
             clock_secs: initial_clock_secs,
@@ -111,6 +150,7 @@ impl MobileService {
             push_tokens: PushTokenRegistry::new(),
             doctor_workspaces: BTreeMap::new(),
             bridge_staging: PracticeSendReceiver::new(),
+            connected_care: ConnectedCareBridge::new(),
             migration_version: EXPECTED_MIGRATION_VERSION,
             restore_replay_verified: !require_restore_replay,
             clock_secs: initial_clock_secs,
@@ -192,7 +232,7 @@ impl MobileService {
 
     /// Routes an HTTP/1.1 request strictly under `/elysianfields/mobile-api/...`.
     pub fn handle_request(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
-        let (pathname, _) = req.split_target();
+        let (pathname, query) = req.split_target();
         if !Subpath::is_within_mount(pathname) {
             return MobileHttpResponse::not_found();
         }
@@ -227,6 +267,24 @@ impl MobileService {
             (MobileHttpMethod::Post, ["push", "register"]) => self.handle_push_register(req),
             (MobileHttpMethod::Get, ["export"]) => self.handle_export(req),
             (MobileHttpMethod::Post, ["account", "delete"]) => self.handle_account_delete(req),
+            (MobileHttpMethod::Post, ["connected-care", "lookup"]) => {
+                self.handle_connected_care_lookup(req)
+            }
+            (MobileHttpMethod::Post, ["connected-care", "verify-dob"]) => {
+                self.handle_connected_care_verify_dob(req)
+            }
+            (MobileHttpMethod::Post, ["connected-care", "share"]) => {
+                self.handle_connected_care_share(req)
+            }
+            (MobileHttpMethod::Post, ["connected-care", "transfer"]) => {
+                self.handle_connected_care_transfer(req)
+            }
+            (MobileHttpMethod::Post, ["connected-care", "disconnect"]) => {
+                self.handle_connected_care_disconnect(req)
+            }
+            (MobileHttpMethod::Get, ["connected-care", "status"]) => {
+                self.handle_connected_care_status(req, query)
+            }
             _ => MobileHttpResponse::not_found(),
         }
     }
@@ -521,6 +579,15 @@ impl MobileService {
             bridge_staging: &mut self.bridge_staging,
         };
         let scrubbed = apply_privacy_receipt(&receipt, &mut target);
+        if let Ok(bridge_acct) = BridgeMobileAccountId::new(account_id.as_str())
+            && let Ok(bridge_inc) = BridgeAccountIncarnation::new(acct.incarnation.as_u64())
+        {
+            let _ = self.connected_care.terminate_account_links(
+                &bridge_acct,
+                bridge_inc,
+                receipt.occurred_at.clone(),
+            );
+        }
         if let Err(err) = self.wal.append(&MobileWalEntry::DeleteAccount {
             account_id,
             incarnation: acct.incarnation,
@@ -540,6 +607,201 @@ impl MobileService {
             }),
         )
     }
+
+    fn handle_connected_care_lookup(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        if let Err(resp) = self.authenticate(req) {
+            return resp;
+        }
+        let body: ConnectedCareLookupBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        match self.connected_care.lookup_challenge(&body.credential) {
+            Ok(challenge) => MobileHttpResponse::json(200, &challenge),
+            Err(err) => bridge_err_resp(err),
+        }
+    }
+
+    fn handle_connected_care_verify_dob(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let body: ConnectedCareVerifyDobBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let dob = match DateOfBirth::new(body.year, body.month, body.day) {
+            Ok(d) => d,
+            Err(err) => return bridge_err_resp(err),
+        };
+        let bridge_acct = match BridgeMobileAccountId::new(account_id.as_str()) {
+            Ok(id) => id,
+            Err(err) => return bridge_err_resp(BridgeError::InvalidId(err)),
+        };
+        let now_str = format!("epoch-{}", self.clock_secs);
+        match self
+            .connected_care
+            .verify_dob(&body.credential, &bridge_acct, dob, now_str)
+        {
+            Ok(outcome) => MobileHttpResponse::json(200, &outcome),
+            Err(err) => bridge_err_resp(err),
+        }
+    }
+
+    fn handle_connected_care_share(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let body: ConnectedCareShareBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let bridge_acct = match BridgeMobileAccountId::new(account_id.as_str()) {
+            Ok(id) => id,
+            Err(err) => return bridge_err_resp(BridgeError::InvalidId(err)),
+        };
+        let now_str = format!("epoch-{}", self.clock_secs);
+        match self
+            .connected_care
+            .confirm_share(&body.credential, &bridge_acct, now_str)
+        {
+            Ok(standing) => MobileHttpResponse::json(200, &standing),
+            Err(err) => bridge_err_resp(err),
+        }
+    }
+
+    fn handle_connected_care_transfer(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let body: ConnectedCareTransferBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let bridge_acct = match BridgeMobileAccountId::new(account_id.as_str()) {
+            Ok(id) => id,
+            Err(err) => return bridge_err_resp(BridgeError::InvalidId(err)),
+        };
+        let submission = TransferSubmission {
+            idempotency_key: body.idempotency_key,
+            connection_id: body.connection_id,
+            sender_account: bridge_acct,
+            sent_at: format!("epoch-{}", self.clock_secs),
+            items: body.items,
+            part2_consent: body.part2_consent,
+        };
+        match self.connected_care.submit_transfer(submission) {
+            Ok(envelope) => MobileHttpResponse::json(200, &envelope),
+            Err(err) => bridge_err_resp(err),
+        }
+    }
+
+    fn handle_connected_care_disconnect(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let body: ConnectedCareDisconnectBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let bridge_acct = match BridgeMobileAccountId::new(account_id.as_str()) {
+            Ok(id) => id,
+            Err(err) => return bridge_err_resp(BridgeError::InvalidId(err)),
+        };
+        let now_str = format!("epoch-{}", self.clock_secs);
+        match self.connected_care.end_connection(
+            &body.connection_id,
+            DisconnectActor::Patient {
+                account_id: bridge_acct,
+            },
+            now_str,
+        ) {
+            Ok(standing) => MobileHttpResponse::json(200, &standing),
+            Err(err) => bridge_err_resp(err),
+        }
+    }
+
+    fn handle_connected_care_status(
+        &self,
+        req: &MobileHttpRequest,
+        query: Option<&str>,
+    ) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        if let Some(qs) = query {
+            let mut practice_raw = None;
+            let mut patient_raw = None;
+            for pair in qs.split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    match k {
+                        "practice_id" => practice_raw = Some(v),
+                        "patient_id" => patient_raw = Some(v),
+                        _ => {}
+                    }
+                }
+            }
+            if let (Some(pr), Some(pa)) = (practice_raw, patient_raw) {
+                let practice_id = match PracticeId::new(pr) {
+                    Ok(id) => id,
+                    Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+                };
+                let patient_id = match PatientId::new(pa) {
+                    Ok(id) => id,
+                    Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+                };
+                let standing = self
+                    .connected_care
+                    .mobile_standing(&PairKey::new(practice_id, patient_id));
+                return MobileHttpResponse::json(200, &standing);
+            }
+        }
+        let bridge_acct = match BridgeMobileAccountId::new(account_id.as_str()) {
+            Ok(id) => id,
+            Err(err) => return bridge_err_resp(BridgeError::InvalidId(err)),
+        };
+        let active = self
+            .connected_care
+            .active_connections_for_account(&bridge_acct);
+        MobileHttpResponse::json(200, &serde_json::json!({ "connections": active }))
+    }
+}
+
+fn bridge_err_resp(err: BridgeError) -> MobileHttpResponse {
+    let status = match &err {
+        BridgeError::InvalidId(_)
+        | BridgeError::InvalidDateOfBirth { .. }
+        | BridgeError::InvalidAccountIncarnation(_)
+        | BridgeError::EmptyField { .. }
+        | BridgeError::EmptyTransferEnvelope => 400,
+        BridgeError::UnauthorizedSender { .. }
+        | BridgeError::UnauthorizedPractice { .. }
+        | BridgeError::DobVerificationRequired { .. }
+        | BridgeError::Part2WrittenConsentRequired
+        | BridgeError::Part2ConsentScopeMismatch
+        | BridgeError::Part2VerbatimNoticeMissing { .. }
+        | BridgeError::AccountDeleted { .. } => 403,
+        BridgeError::NoOpenInvitation { .. }
+        | BridgeError::InvalidOrRevokedCredential { .. }
+        | BridgeError::TransferNotFound { .. } => 404,
+        BridgeError::CannotInviteInState { .. }
+        | BridgeError::InvitationLocked { .. }
+        | BridgeError::InvitationCancelled { .. }
+        | BridgeError::ConnectionNotActive { .. }
+        | BridgeError::InvalidTransferTransition { .. } => 409,
+    };
+    MobileHttpResponse::json(
+        status,
+        &serde_json::json!({
+            "error": "connected_care_error",
+            "detail": err.to_string(),
+        }),
+    )
 }
 
 fn auth_err_resp(err: MobileAuthError) -> MobileHttpResponse {

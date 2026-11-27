@@ -6,6 +6,8 @@ pub mod demo;
 pub mod html;
 pub mod legal;
 pub mod router;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod server;
 pub mod sha256;
 
 pub use dei::{
@@ -24,4 +26,6 @@ pub use router::{
     DeploymentMode, PUBLIC_MAX_BODY_BYTES, PublicIngressGuard, PublicRequest, PublicResponse,
     PublicSiteRouter,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use server::TcpPublicSiteServer;
 pub use sha256::sha256_hex;
