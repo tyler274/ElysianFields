@@ -146,6 +146,53 @@ impl PgClient {
         self.server_params.get(name).map(String::as_str)
     }
 
+    /// Executes a lightweight parameterized `SELECT 1` liveness probe against PostgreSQL.
+    pub fn ping(&mut self) -> Result<(), PgError> {
+        let rows = self.query("SELECT 1", &[])?;
+        let ok = rows.first().map(|r| r.get_i64(0)).transpose()?.flatten() == Some(1);
+        if ok {
+            Ok(())
+        } else {
+            Err(PgError::Protocol {
+                detail: "SELECT 1 liveness probe returned unexpected result".to_owned(),
+            })
+        }
+    }
+
+    /// Attempts to acquire a session-scoped PostgreSQL advisory lock without blocking
+    /// (`SELECT pg_try_advisory_lock($1)` via Extended Query — zero SQL string splicing).
+    pub fn try_advisory_lock(&mut self, lock_key: i64) -> Result<bool, PgError> {
+        let rows = self.query(
+            "SELECT pg_try_advisory_lock($1)",
+            &[PgParam::Int64(lock_key)],
+        )?;
+        rows.first()
+            .ok_or_else(|| PgError::Protocol {
+                detail: "pg_try_advisory_lock returned zero rows".to_owned(),
+            })?
+            .get_bool(0)?
+            .ok_or(PgError::UnexpectedNull { column: 0 })
+    }
+
+    /// Acquires a session-scoped exclusive PostgreSQL advisory lock, waiting if held by a peer
+    /// (`SELECT pg_advisory_lock($1)` via Extended Query — zero SQL string splicing).
+    pub fn advisory_lock(&mut self, lock_key: i64) -> Result<(), PgError> {
+        let _rows = self.query("SELECT pg_advisory_lock($1)", &[PgParam::Int64(lock_key)])?;
+        Ok(())
+    }
+
+    /// Releases a previously acquired session-scoped PostgreSQL advisory lock
+    /// (`SELECT pg_advisory_unlock($1)` via Extended Query — zero SQL string splicing).
+    pub fn advisory_unlock(&mut self, lock_key: i64) -> Result<bool, PgError> {
+        let rows = self.query("SELECT pg_advisory_unlock($1)", &[PgParam::Int64(lock_key)])?;
+        rows.first()
+            .ok_or_else(|| PgError::Protocol {
+                detail: "pg_advisory_unlock returned zero rows".to_owned(),
+            })?
+            .get_bool(0)?
+            .ok_or(PgError::UnexpectedNull { column: 0 })
+    }
+
     /// Executes a parameterized Extended Query returning all result rows.
     pub fn query(&mut self, sql: &str, params: &[PgParam<'_>]) -> Result<Vec<PgRow>, PgError> {
         let (rows, _) = self.run_extended(sql, params)?;

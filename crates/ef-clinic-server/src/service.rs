@@ -182,6 +182,24 @@ impl ClinicService {
         }
     }
 
+    /// Creates a clinic service backed by a caller-supplied [`WalSink`] (e.g., for health-failure testing).
+    #[must_use]
+    pub fn new_with_wal(
+        wal: Box<dyn WalSink>,
+        sign_in_mode: SignInMode,
+        retry_mode: RetryBackoffMode,
+        default_cited_source: SourceKey,
+        initial_clock_secs: u64,
+    ) -> Self {
+        Self::from_wal_store(
+            wal,
+            sign_in_mode,
+            retry_mode,
+            default_cited_source,
+            initial_clock_secs,
+        )
+    }
+
     /// Creates an in-memory clinic service backed by [`InMemoryWal`].
     #[must_use]
     pub fn new_in_memory(
@@ -397,14 +415,51 @@ impl ClinicService {
     /// Routes and executes a single HTTP/1.1 request attributed to `client_ip` with
     /// per-IP sliding-window ingress rate limiting and cross-instance WAL synchronization.
     pub fn handle_request_from_ip(&mut self, req: &HttpRequest, client_ip: &str) -> HttpResponse {
+        // Live DB liveness probe bypasses WAL replay so a broken DB immediately reports 503.
+        let (pathname, _) = req.split_target();
+        if pathname == "/elysianfields/api/health" {
+            return self.route_health(req);
+        }
+
         let _lock = match self.wal.acquire_cross_instance_lock() {
             Ok(guard) => guard,
             Err(err) => return wal_failure_response(&err),
         };
-        if let Err(ClinicServiceError::Wal(err)) = self.sync_from_wal() {
-            return wal_failure_response(&err);
+        let pg_locked = match self.wal.acquire_pg_advisory_lock() {
+            Ok(acquired) => acquired,
+            Err(err) => return wal_failure_response(&err),
+        };
+        let resp = match self.sync_from_wal() {
+            Ok(_) => self.handle_request_from_ip_locked(req, client_ip),
+            Err(ClinicServiceError::Wal(err)) => wal_failure_response(&err),
+        };
+        if pg_locked {
+            let _ = self.wal.release_pg_advisory_lock();
         }
-        self.handle_request_from_ip_locked(req, client_ip)
+        resp
+    }
+
+    fn route_health(&mut self, req: &HttpRequest) -> HttpResponse {
+        if !matches!(req.method, HttpMethod::Get | HttpMethod::Head) {
+            return HttpResponse::method_not_allowed();
+        }
+        match self.wal.check_health() {
+            Ok(()) => HttpResponse::json_clinical(
+                200,
+                &serde_json::json!({
+                    "status": "ok",
+                    "db_healthy": true,
+                }),
+            ),
+            Err(detail) => HttpResponse::json_clinical(
+                503,
+                &serde_json::json!({
+                    "status": "unhealthy",
+                    "db_healthy": false,
+                    "detail": detail,
+                }),
+            ),
+        }
     }
 
     fn handle_request_from_ip_locked(
