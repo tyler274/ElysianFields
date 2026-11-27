@@ -1,0 +1,16 @@
+[package]
+name = "ef-clinical-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless clinical reference library nightly pipeline (9 core guarantees), 100 ms shared PubMed rate limiter, frozen skill_view, tool validation, quota CutOff, and content-free telemetry."
+
+[dependencies]
+ef-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
