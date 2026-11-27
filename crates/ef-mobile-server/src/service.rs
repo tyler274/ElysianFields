@@ -1,0 +1,558 @@
+//! Headless Curie Mobile HTTP service mounted strictly under `/elysianfields/mobile-api/...`.
+//!
+//! Enforces migration + restore-replay `/readyz` gating, standalone patient auth,
+//! per-record savepoint ingestion, account-fenced idempotent health uploads,
+//! portable export, and permanent account deletion writing to an independent
+//! create-only [`PrivacyReceiptJournal`].
+
+use std::collections::BTreeMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+
+use ef_core::Subpath;
+use ef_mobile_domain::{
+    AccountFencedHealthBatch, DevicePushRegistration, ForMyDoctorWorkspace, InMemoryReceiptJournal,
+    IncomingBatchItem, MobileAccountId, MobileAuthAuthority, MobileAuthError,
+    MobileHealthIngestStore, MobilePrivacyTarget, MobileSessionId, PatientRecordStore,
+    PortablePatientExport, PracticeSendReceiver, PrivacyReceipt, PrivacyReceiptJournal,
+    PushTokenRegistry, RestrictionJobError, RestrictionJobReport, RestrictionOperation,
+    apply_privacy_receipt, run_restore_replay_gate,
+};
+use serde::Deserialize;
+use thiserror::Error;
+
+use crate::http::{MobileHttpMethod, MobileHttpRequest, MobileHttpResponse};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::persistence::DurableMobileStore;
+use crate::persistence::{InMemoryMobileWal, MobileWalEntry, MobileWalError, MobileWalSink};
+
+pub const MOBILE_API_PREFIX: &str = "/elysianfields/mobile-api/";
+pub const EXPECTED_MIGRATION_VERSION: u32 = 1;
+
+#[derive(Debug, Error)]
+pub enum MobileServiceError {
+    #[error("mobile WAL error: {0}")]
+    Wal(#[from] MobileWalError),
+}
+
+#[derive(Debug, Deserialize)]
+struct RequestLinkBody {
+    email: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifyBody {
+    email: String,
+    token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SignOutBody {
+    #[serde(default)]
+    owed_sessions: Vec<MobileSessionId>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IngestRecordsBody {
+    items: Vec<IncomingBatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeleteAccountBody {
+    event_id: String,
+    occurred_at: String,
+}
+
+/// Authoritative headless Curie Mobile service strictly isolated from Curie Clinic.
+pub struct MobileService {
+    pub auth: MobileAuthAuthority,
+    pub records: PatientRecordStore,
+    pub health: MobileHealthIngestStore,
+    pub push_tokens: PushTokenRegistry,
+    pub doctor_workspaces: BTreeMap<MobileAccountId, ForMyDoctorWorkspace>,
+    pub bridge_staging: PracticeSendReceiver,
+    migration_version: u32,
+    restore_replay_verified: bool,
+    clock_secs: u64,
+    wal: Box<dyn MobileWalSink>,
+    journal: Box<dyn PrivacyReceiptJournal>,
+}
+
+impl MobileService {
+    #[must_use]
+    pub fn new_in_memory(initial_clock_secs: u64) -> Self {
+        Self {
+            auth: MobileAuthAuthority::new(),
+            records: PatientRecordStore::new(),
+            health: MobileHealthIngestStore::new(),
+            push_tokens: PushTokenRegistry::new(),
+            doctor_workspaces: BTreeMap::new(),
+            bridge_staging: PracticeSendReceiver::new(),
+            migration_version: EXPECTED_MIGRATION_VERSION,
+            restore_replay_verified: true,
+            clock_secs: initial_clock_secs,
+            wal: Box::new(InMemoryMobileWal::new()),
+            journal: Box::new(InMemoryReceiptJournal::new()),
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_durable(
+        data_dir: &Path,
+        journal: Box<dyn PrivacyReceiptJournal>,
+        initial_clock_secs: u64,
+        require_restore_replay: bool,
+    ) -> Result<Self, MobileServiceError> {
+        let (store, entries) = DurableMobileStore::open(data_dir)?;
+        let mut svc = Self {
+            auth: MobileAuthAuthority::new(),
+            records: PatientRecordStore::new(),
+            health: MobileHealthIngestStore::new(),
+            push_tokens: PushTokenRegistry::new(),
+            doctor_workspaces: BTreeMap::new(),
+            bridge_staging: PracticeSendReceiver::new(),
+            migration_version: EXPECTED_MIGRATION_VERSION,
+            restore_replay_verified: !require_restore_replay,
+            clock_secs: initial_clock_secs,
+            wal: Box::new(store),
+            journal,
+        };
+        for entry in entries {
+            svc.replay_wal_entry(entry);
+        }
+        Ok(svc)
+    }
+
+    /// Executes the mandatory independent privacy-receipt journal replay gate before opening traffic.
+    pub fn execute_restore_replay_gate(
+        &mut self,
+        max_receipt_budget: usize,
+    ) -> Result<RestrictionJobReport, RestrictionJobError> {
+        let mut target = MobilePrivacyTarget {
+            auth: &mut self.auth,
+            records: &mut self.records,
+            health: &mut self.health,
+            push_tokens: &mut self.push_tokens,
+            doctor_workspaces: &mut self.doctor_workspaces,
+            bridge_staging: &mut self.bridge_staging,
+        };
+        let report =
+            run_restore_replay_gate(self.journal.as_ref(), &mut target, max_receipt_budget)?;
+        self.restore_replay_verified = true;
+        Ok(report)
+    }
+
+    /// Replays a single persisted [`MobileWalEntry`] through live domain owners.
+    pub fn replay_wal_entry(&mut self, entry: MobileWalEntry) {
+        match entry {
+            MobileWalEntry::IssueSignInLink {
+                raw_email,
+                now_secs,
+            } => {
+                let _ = self.auth.issue_sign_in_link(&raw_email, now_secs);
+            }
+            MobileWalEntry::VerifySignIn {
+                raw_email,
+                raw_token,
+                now_secs,
+            } => {
+                let _ = self.auth.verify_sign_in(&raw_email, &raw_token, now_secs);
+            }
+            MobileWalEntry::RevokeSession { session_id } => {
+                self.auth.revoke_session(&session_id);
+            }
+            MobileWalEntry::IngestRecords { items } => {
+                let _ = self.records.ingest_batch_with_savepoints(items);
+            }
+            MobileWalEntry::IngestHealthBatch { account_id, batch } => {
+                let _ = self.health.ingest_batch(&account_id, batch);
+            }
+            MobileWalEntry::RegisterPushToken { registration } => {
+                self.push_tokens.register_or_rotate(registration);
+            }
+            MobileWalEntry::RevokePushDevice { device_id } => {
+                let _ = self.push_tokens.revoke_device(&device_id);
+            }
+            MobileWalEntry::DeleteAccount {
+                account_id,
+                incarnation,
+            } => {
+                self.auth.delete_account(&account_id, incarnation);
+                let _ = self.records.purge_account_records(&account_id, incarnation);
+                let _ = self.health.purge_account_samples(&account_id);
+                let _ = self.push_tokens.revoke_all_for_account(&account_id);
+                if let Some(ws) = self.doctor_workspaces.get_mut(&account_id) {
+                    ws.clear_all_to_send();
+                    ws.terminate_all_connections();
+                }
+                let _ = self.bridge_staging.scrub_account_staging(&account_id);
+            }
+        }
+    }
+
+    /// Routes an HTTP/1.1 request strictly under `/elysianfields/mobile-api/...`.
+    pub fn handle_request(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let (pathname, _) = req.split_target();
+        if !Subpath::is_within_mount(pathname) {
+            return MobileHttpResponse::not_found();
+        }
+        let Some(api_rel) = pathname.strip_prefix(MOBILE_API_PREFIX) else {
+            return MobileHttpResponse::not_found();
+        };
+        let segments: Vec<&str> = api_rel.split('/').filter(|s| !s.is_empty()).collect();
+
+        if segments.as_slice() == ["readyz"] {
+            return self.handle_readyz(req);
+        }
+
+        if !self.restore_replay_verified || self.migration_version != EXPECTED_MIGRATION_VERSION {
+            return MobileHttpResponse::json(
+                503,
+                &serde_json::json!({
+                    "ready": false,
+                    "reason": "restore_replay_or_migration_gate_unverified",
+                }),
+            );
+        }
+
+        match (req.method, segments.as_slice()) {
+            (MobileHttpMethod::Post, ["auth", "request-link"]) => self.handle_request_link(req),
+            (MobileHttpMethod::Post, ["auth", "verify"]) => self.handle_verify(req),
+            (MobileHttpMethod::Post, ["auth", "sign-out"]) => self.handle_sign_out(req),
+            (MobileHttpMethod::Get, ["auth", "session"]) => self.handle_session(req),
+            (MobileHttpMethod::Post, ["records", "ingest"]) => self.handle_ingest_records(req),
+            (MobileHttpMethod::Get, ["records"]) => self.handle_list_records(req),
+            (MobileHttpMethod::Post, ["health", "upload"]) => self.handle_health_upload(req),
+            (MobileHttpMethod::Get, ["health", "trends"]) => self.handle_health_trends(req),
+            (MobileHttpMethod::Post, ["push", "register"]) => self.handle_push_register(req),
+            (MobileHttpMethod::Get, ["export"]) => self.handle_export(req),
+            (MobileHttpMethod::Post, ["account", "delete"]) => self.handle_account_delete(req),
+            _ => MobileHttpResponse::not_found(),
+        }
+    }
+
+    fn handle_readyz(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        if req.method != MobileHttpMethod::Get {
+            return MobileHttpResponse::method_not_allowed();
+        }
+        if self.migration_version == EXPECTED_MIGRATION_VERSION && self.restore_replay_verified {
+            MobileHttpResponse::json(
+                200,
+                &serde_json::json!({
+                    "ready": true,
+                    "migration_version": self.migration_version,
+                    "restore_replay_verified": true,
+                }),
+            )
+        } else {
+            MobileHttpResponse::json(
+                503,
+                &serde_json::json!({
+                    "ready": false,
+                    "migration_version": self.migration_version,
+                    "restore_replay_verified": self.restore_replay_verified,
+                }),
+            )
+        }
+    }
+
+    fn handle_request_link(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let body: RequestLinkBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let now_secs = self.clock_secs;
+        match self.auth.issue_sign_in_link(&body.email, now_secs) {
+            Ok(token) => {
+                if let Err(err) = self.wal.append(&MobileWalEntry::IssueSignInLink {
+                    raw_email: body.email,
+                    now_secs,
+                }) {
+                    return MobileHttpResponse::json(
+                        503,
+                        &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+                    );
+                }
+                MobileHttpResponse::json(200, &serde_json::json!({ "token": token }))
+            }
+            Err(err) => auth_err_resp(err),
+        }
+    }
+
+    fn handle_verify(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let body: VerifyBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let now_secs = self.clock_secs;
+        match self.auth.verify_sign_in(&body.email, &body.token, now_secs) {
+            Ok(verified) => {
+                if let Err(err) = self.wal.append(&MobileWalEntry::VerifySignIn {
+                    raw_email: body.email,
+                    raw_token: body.token,
+                    now_secs,
+                }) {
+                    return MobileHttpResponse::json(
+                        503,
+                        &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+                    );
+                }
+                MobileHttpResponse::json(200, &verified)
+            }
+            Err(err) => auth_err_resp(err),
+        }
+    }
+
+    fn handle_sign_out(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let mut sessions = Vec::new();
+        if let Some(raw) = req.bearer_token()
+            && let Ok(sess) = MobileSessionId::new(raw)
+        {
+            sessions.push(sess);
+        }
+        if !req.body.is_empty()
+            && let Ok(parsed) = serde_json::from_slice::<SignOutBody>(&req.body)
+        {
+            sessions.extend(parsed.owed_sessions);
+        }
+        let revoked_count = sessions.len();
+        for session_id in sessions {
+            self.auth.revoke_session(&session_id);
+            if let Err(err) = self
+                .wal
+                .append(&MobileWalEntry::RevokeSession { session_id })
+            {
+                return MobileHttpResponse::json(
+                    503,
+                    &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+                );
+            }
+        }
+        MobileHttpResponse::json(200, &serde_json::json!({ "revoked": revoked_count }))
+    }
+
+    fn authenticate(&self, req: &MobileHttpRequest) -> Result<MobileAccountId, MobileHttpResponse> {
+        let Some(raw) = req.bearer_token() else {
+            return Err(auth_err_resp(MobileAuthError::SessionEnded));
+        };
+        let session_id = MobileSessionId::new(raw).map_err(auth_err_resp)?;
+        let record = self
+            .auth
+            .validate_session(&session_id, self.clock_secs)
+            .map_err(auth_err_resp)?;
+        Ok(record.account_id)
+    }
+
+    fn handle_session(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        match self.authenticate(req) {
+            Ok(account_id) => {
+                let inc = self
+                    .auth
+                    .account(&account_id)
+                    .map_or(1, |a| a.incarnation.as_u64());
+                MobileHttpResponse::json(
+                    200,
+                    &serde_json::json!({
+                        "account_id": account_id,
+                        "incarnation": inc,
+                    }),
+                )
+            }
+            Err(resp) => resp,
+        }
+    }
+
+    fn handle_ingest_records(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        if let Err(resp) = self.authenticate(req) {
+            return resp;
+        }
+        let body: IngestRecordsBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let report = self
+            .records
+            .ingest_batch_with_savepoints(body.items.clone());
+        if let Err(err) = self
+            .wal
+            .append(&MobileWalEntry::IngestRecords { items: body.items })
+        {
+            return MobileHttpResponse::json(
+                503,
+                &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+            );
+        }
+        MobileHttpResponse::json(200, &report)
+    }
+
+    fn handle_list_records(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let records = self.records.records_for_account(&account_id);
+        MobileHttpResponse::json(200, &serde_json::json!({ "records": records }))
+    }
+
+    fn handle_health_upload(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let batch: AccountFencedHealthBatch = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        match self.health.ingest_batch(&account_id, batch.clone()) {
+            Ok(receipt) => {
+                if !receipt.deduplicated
+                    && let Err(err) = self
+                        .wal
+                        .append(&MobileWalEntry::IngestHealthBatch { account_id, batch })
+                {
+                    return MobileHttpResponse::json(
+                        503,
+                        &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+                    );
+                }
+                MobileHttpResponse::json(200, &receipt)
+            }
+            Err(err) => MobileHttpResponse::json(
+                403,
+                &serde_json::json!({ "error": "health_sync_error", "detail": err.to_string() }),
+            ),
+        }
+    }
+
+    fn handle_health_trends(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let samples = self.health.samples_for_account(&account_id);
+        MobileHttpResponse::json(200, &serde_json::json!({ "samples": samples }))
+    }
+
+    fn handle_push_register(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let mut reg: DevicePushRegistration = match serde_json::from_slice(&req.body) {
+            Ok(r) => r,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        reg.account_id = account_id;
+        self.push_tokens.register_or_rotate(reg.clone());
+        if let Err(err) = self
+            .wal
+            .append(&MobileWalEntry::RegisterPushToken { registration: reg })
+        {
+            return MobileHttpResponse::json(
+                503,
+                &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+            );
+        }
+        MobileHttpResponse::json(200, &serde_json::json!({ "registered": true }))
+    }
+
+    fn handle_export(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let export = PortablePatientExport {
+            account_id: account_id.clone(),
+            exported_at: format!("epoch-{}", self.clock_secs),
+            records: self
+                .records
+                .records_for_account(&account_id)
+                .into_iter()
+                .cloned()
+                .collect(),
+            health_samples: self.health.samples_for_account(&account_id).to_vec(),
+            confirmed_sends: self
+                .doctor_workspaces
+                .get(&account_id)
+                .map(|ws| ws.sends().to_vec())
+                .unwrap_or_default(),
+        };
+        MobileHttpResponse::json(200, &export)
+    }
+
+    fn handle_account_delete(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let account_id = match self.authenticate(req) {
+            Ok(id) => id,
+            Err(resp) => return resp,
+        };
+        let body: DeleteAccountBody = match serde_json::from_slice(&req.body) {
+            Ok(b) => b,
+            Err(err) => return MobileHttpResponse::bad_request(err.to_string()),
+        };
+        let Some(acct) = self.auth.account(&account_id).cloned() else {
+            return auth_err_resp(MobileAuthError::AccountDeleted);
+        };
+
+        // 1. Write metadata-only immutable receipt to independent create-only journal FIRST.
+        let receipt = PrivacyReceipt {
+            schema_version: 1,
+            event_id: body.event_id,
+            account_id: account_id.clone(),
+            account_incarnation: acct.incarnation,
+            operation: RestrictionOperation::AccountDelete,
+            scope_id: String::new(),
+            scope_version: 0,
+            occurred_at: body.occurred_at,
+        };
+        if let Err(err) = self.journal.put_if_absent(&receipt) {
+            return MobileHttpResponse::json(
+                503,
+                &serde_json::json!({ "error": "journal_unavailable", "detail": err.to_string() }),
+            );
+        }
+
+        // 2. Apply receipt to primary DB state and persist WAL.
+        let mut target = MobilePrivacyTarget {
+            auth: &mut self.auth,
+            records: &mut self.records,
+            health: &mut self.health,
+            push_tokens: &mut self.push_tokens,
+            doctor_workspaces: &mut self.doctor_workspaces,
+            bridge_staging: &mut self.bridge_staging,
+        };
+        let scrubbed = apply_privacy_receipt(&receipt, &mut target);
+        if let Err(err) = self.wal.append(&MobileWalEntry::DeleteAccount {
+            account_id,
+            incarnation: acct.incarnation,
+        }) {
+            return MobileHttpResponse::json(
+                503,
+                &serde_json::json!({ "error": "wal_error", "detail": err.to_string() }),
+            );
+        }
+
+        MobileHttpResponse::json(
+            200,
+            &serde_json::json!({
+                "deleted": true,
+                "receipt_event_id": receipt.event_id,
+                "scrubbed_staging_records": scrubbed,
+            }),
+        )
+    }
+}
+
+fn auth_err_resp(err: MobileAuthError) -> MobileHttpResponse {
+    let status = match err {
+        MobileAuthError::AccountDeleted => 403,
+        MobileAuthError::InvalidEmail | MobileAuthError::InvalidIdentifier { .. } => 400,
+        _ => 401,
+    };
+    MobileHttpResponse::json(
+        status,
+        &serde_json::json!({
+            "error": "mobile_auth_error",
+            "detail": err.to_string(),
+        }),
+    )
+}
