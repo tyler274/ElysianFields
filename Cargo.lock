@@ -1723,6 +1723,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-extension"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-harness"
 version = "0.1.0"
 dependencies = [
@@ -1774,6 +1784,16 @@ version = "0.1.0"
 dependencies = [
  "ef-core",
  "ef-encoder",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ef-public-site"
+version = "0.1.0"
+dependencies = [
+ "ef-core",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

@@ -1,0 +1,16 @@
+[package]
+name = "ef-public-site"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless semantic HTML public site, verbatim legal archives, isolated synthetic physician demo, and Dei SAMHSA recovery facility finder."
+
+[dependencies]
+ef-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

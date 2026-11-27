@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elysian Fields Connector</title>
+  <link rel="stylesheet" href="./popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="popup-header">
+      <h1>Elysian Fields Connector</h1>
+      <p id="connector-status" class="status-pill" role="status" aria-live="polite">
+        Checking memory-only session...
+      </p>
+    </header>
+
+    <section class="card" aria-label="Session details">
+      <dl class="detail-grid">
+        <dt>Pairing State</dt>
+        <dd id="detail-pairing">unpaired</dd>
+        <dt>Credential Storage</dt>
+        <dd id="detail-storage">chrome.storage.session (memory-only)</dd>
+        <dt>Queued Outbox Jobs</dt>
+        <dd id="detail-outbox">0</dd>
+      </dl>
+    </section>
+
+    <section class="actions" aria-label="Connector actions">
+      <button id="btn-refresh" type="button" class="btn btn-primary">Refresh status</button>
+      <button id="btn-disconnect" type="button" class="btn btn-secondary">Clear session</button>
+    </section>
+  </main>
+
+  <script type="module" src="./popup.js"></script>
+</body>
+</html>
