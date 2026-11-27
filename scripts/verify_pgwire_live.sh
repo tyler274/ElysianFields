@@ -50,6 +50,7 @@ cleanup() {
     dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_probe_db >/dev/null 2>&1 || true
     dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_clinic_db >/dev/null 2>&1 || true
     dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_mobile_db >/dev/null 2>&1 || true
+    dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_failover_db >/dev/null 2>&1 || true
     psql "${PG_ADMIN_ARGS[@]}" -d postgres -c "DROP ROLE IF EXISTS ${SCRAM_USER};" >/dev/null 2>&1 || true
   else
     if [[ -n "${PGDATA}" && -d "${PGDATA}" ]] && pg_ctl -D "${PGDATA}" status >/dev/null 2>&1; then
@@ -73,6 +74,7 @@ if [[ "${USE_EXTERNAL_PG}" -eq 1 ]]; then
   dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_probe_db >/dev/null 2>&1 || true
   dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_clinic_db >/dev/null 2>&1 || true
   dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_mobile_db >/dev/null 2>&1 || true
+  dropdb "${PG_ADMIN_ARGS[@]}" --if-exists ef_pgwire_failover_db >/dev/null 2>&1 || true
   psql "${PG_ADMIN_ARGS[@]}" -d postgres -v ON_ERROR_STOP=1 <<SQL >/dev/null
 SET password_encryption = 'scram-sha-256';
 DROP ROLE IF EXISTS ${SCRAM_USER};
@@ -81,6 +83,7 @@ SQL
   export EF_PG_TEST_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@${PG_TCP_HOST}:${PG_TCP_PORT}/ef_pgwire_probe_db"
   export EF_PG_CLINIC_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@${PG_TCP_HOST}:${PG_TCP_PORT}/ef_pgwire_clinic_db"
   export EF_PG_MOBILE_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@${PG_TCP_HOST}:${PG_TCP_PORT}/ef_pgwire_mobile_db"
+  export EF_PG_FAILOVER_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@${PG_TCP_HOST}:${PG_TCP_PORT}/ef_pgwire_failover_db"
 else
   if [[ "$(id -u)" -eq 0 ]]; then
     echo "ERROR: run verify_pgwire_live.sh as a non-root user (initdb forbids root)" >&2
@@ -119,6 +122,7 @@ SQL
   export EF_PG_TRUST_URL="postgres://${TRUST_USER}@127.0.0.1:${PG_TCP_PORT}/ef_pgwire_probe_db"
   export EF_PG_CLINIC_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@127.0.0.1:${PG_TCP_PORT}/ef_pgwire_clinic_db"
   export EF_PG_MOBILE_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@127.0.0.1:${PG_TCP_PORT}/ef_pgwire_mobile_db"
+  export EF_PG_FAILOVER_URL="postgres://${SCRAM_USER}:${SCRAM_PASS}@127.0.0.1:${PG_TCP_PORT}/ef_pgwire_failover_db"
 fi
 
 PG_VERSION="$(psql "${PG_ADMIN_ARGS[@]}" -d postgres -v ON_ERROR_STOP=1 -tAc "SELECT version();")"
@@ -127,6 +131,7 @@ echo "==> Live PostgreSQL ready: ${PG_VERSION}"
 createdb "${PG_ADMIN_ARGS[@]}" -O "${SCRAM_USER}" ef_pgwire_probe_db
 createdb "${PG_ADMIN_ARGS[@]}" -O "${SCRAM_USER}" ef_pgwire_clinic_db
 createdb "${PG_ADMIN_ARGS[@]}" -O "${SCRAM_USER}" ef_pgwire_mobile_db
+createdb "${PG_ADMIN_ARGS[@]}" -O "${SCRAM_USER}" ef_pgwire_failover_db
 
 echo "==> Running ef-pgwire live PostgreSQL 18 durability suite"
 (cd "${REPO_ROOT}" && cargo test --locked -p ef-pgwire --test live_postgres18_durability -- --nocapture)

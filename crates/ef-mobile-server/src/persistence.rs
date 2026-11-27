@@ -67,6 +67,16 @@ pub enum MobileWalError {
 
 pub trait MobileWalSink: Send {
     fn append(&mut self, entry: &MobileWalEntry) -> Result<(), MobileWalError>;
+
+    /// Reads any newly appended WAL entries written by peer instances since the last sync.
+    fn sync_new_entries(&mut self) -> Result<Vec<MobileWalEntry>, MobileWalError> {
+        Ok(Vec::new())
+    }
+
+    /// Verifies live backing-store liveness (e.g., `SELECT 1` ping for PostgreSQL).
+    fn check_health(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -214,5 +224,27 @@ impl MobileWalSink for PgMobileStore {
             self.last_synced_seq = self.last_synced_seq.max(seq);
         }
         Ok(())
+    }
+
+    fn sync_new_entries(&mut self) -> Result<Vec<MobileWalEntry>, MobileWalError> {
+        let rows = self.client.query(
+            "SELECT seq, payload_json FROM ef_mobile_wal_events WHERE seq > $1 ORDER BY seq ASC",
+            &[ef_pgwire::PgParam::Int64(self.last_synced_seq)],
+        )?;
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows {
+            let seq = row.get_i64(0)?.unwrap_or(self.last_synced_seq);
+            let raw = row.get_text_required(1)?;
+            let line = usize::try_from(seq).unwrap_or(0);
+            let entry: MobileWalEntry = serde_json::from_str(&raw)
+                .map_err(|source| MobileWalError::Json { line, source })?;
+            self.last_synced_seq = self.last_synced_seq.max(seq);
+            entries.push(entry);
+        }
+        Ok(entries)
+    }
+
+    fn check_health(&mut self) -> Result<(), String> {
+        self.client.ping().map_err(|err| err.to_string())
     }
 }

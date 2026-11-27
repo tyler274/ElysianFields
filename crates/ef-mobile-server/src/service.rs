@@ -117,6 +117,30 @@ pub struct MobileService {
 }
 
 impl MobileService {
+    /// Creates a mobile service backed by a caller-supplied [`MobileWalSink`] (e.g., health-failure testing).
+    #[must_use]
+    pub fn new_with_wal(
+        wal: Box<dyn MobileWalSink>,
+        journal: Box<dyn PrivacyReceiptJournal>,
+        initial_clock_secs: u64,
+        require_restore_replay: bool,
+    ) -> Self {
+        Self {
+            auth: MobileAuthAuthority::new(),
+            records: PatientRecordStore::new(),
+            health: MobileHealthIngestStore::new(),
+            push_tokens: PushTokenRegistry::new(),
+            doctor_workspaces: BTreeMap::new(),
+            bridge_staging: PracticeSendReceiver::new(),
+            connected_care: ConnectedCareBridge::new(),
+            migration_version: EXPECTED_MIGRATION_VERSION,
+            restore_replay_verified: !require_restore_replay,
+            clock_secs: initial_clock_secs,
+            wal,
+            journal,
+        }
+    }
+
     #[must_use]
     pub fn new_in_memory(initial_clock_secs: u64) -> Self {
         Self {
@@ -319,17 +343,22 @@ impl MobileService {
         }
     }
 
-    fn handle_readyz(&self, req: &MobileHttpRequest) -> MobileHttpResponse {
+    fn handle_readyz(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
         if req.method != MobileHttpMethod::Get {
             return MobileHttpResponse::method_not_allowed();
         }
-        if self.migration_version == EXPECTED_MIGRATION_VERSION && self.restore_replay_verified {
+        let db_health = self.wal.check_health();
+        if self.migration_version == EXPECTED_MIGRATION_VERSION
+            && self.restore_replay_verified
+            && db_health.is_ok()
+        {
             MobileHttpResponse::json(
                 200,
                 &serde_json::json!({
                     "ready": true,
                     "migration_version": self.migration_version,
                     "restore_replay_verified": true,
+                    "db_healthy": true,
                 }),
             )
         } else {
@@ -339,6 +368,8 @@ impl MobileService {
                     "ready": false,
                     "migration_version": self.migration_version,
                     "restore_replay_verified": self.restore_replay_verified,
+                    "db_healthy": db_health.is_ok(),
+                    "db_error": db_health.err(),
                 }),
             )
         }

@@ -319,7 +319,7 @@ impl Drop for WalLockGuard {
     }
 }
 
-/// Sink abstraction implemented by [`DurableClinicStore`] on native hosts and [`InMemoryWal`] in unit/wasm tests.
+/// Sink abstraction implemented by [`DurableClinicStore`], [`PgClinicStore`], and [`InMemoryWal`].
 pub trait WalSink: Send {
     fn append(&mut self, entry: &WalEntry) -> Result<(), WalError>;
 
@@ -331,6 +331,21 @@ pub trait WalSink: Send {
     /// Acquires an optional cross-instance directory lock for serializing concurrent multi-instance requests.
     fn acquire_cross_instance_lock(&self) -> Result<Option<WalLockGuard>, WalError> {
         Ok(None)
+    }
+
+    /// Acquires an optional PostgreSQL session advisory lock for cross-instance serialization.
+    fn acquire_pg_advisory_lock(&mut self) -> Result<bool, WalError> {
+        Ok(false)
+    }
+
+    /// Releases a previously acquired PostgreSQL session advisory lock.
+    fn release_pg_advisory_lock(&mut self) -> Result<(), WalError> {
+        Ok(())
+    }
+
+    /// Verifies live backing-store liveness (e.g., `SELECT 1` ping for PostgreSQL).
+    fn check_health(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -571,6 +586,10 @@ impl PgClinicStore {
     }
 }
 
+/// PostgreSQL advisory lock key (`"EFCLINIC"`) serializing multi-instance Clinic WAL sync/writes.
+#[cfg(not(target_arch = "wasm32"))]
+pub const CLINIC_WAL_ADVISORY_LOCK_KEY: i64 = 0x4546_434C_494E_4943;
+
 #[cfg(not(target_arch = "wasm32"))]
 impl WalSink for PgClinicStore {
     fn append(&mut self, entry: &WalEntry) -> Result<(), WalError> {
@@ -590,5 +609,19 @@ impl WalSink for PgClinicStore {
 
     fn sync_new_entries(&mut self) -> Result<Vec<WalEntry>, WalError> {
         self.load_entries_after(self.last_synced_seq)
+    }
+
+    fn acquire_pg_advisory_lock(&mut self) -> Result<bool, WalError> {
+        self.client.advisory_lock(CLINIC_WAL_ADVISORY_LOCK_KEY)?;
+        Ok(true)
+    }
+
+    fn release_pg_advisory_lock(&mut self) -> Result<(), WalError> {
+        let _ = self.client.advisory_unlock(CLINIC_WAL_ADVISORY_LOCK_KEY)?;
+        Ok(())
+    }
+
+    fn check_health(&mut self) -> Result<(), String> {
+        self.client.ping().map_err(|err| err.to_string())
     }
 }

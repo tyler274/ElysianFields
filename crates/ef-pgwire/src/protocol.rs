@@ -407,4 +407,37 @@ mod tests {
         assert_eq!(parse_command_tag_rows("UPDATE 17"), 17);
         assert_eq!(parse_command_tag_rows("CREATE TABLE"), 0);
     }
+
+    #[test]
+    fn ping_and_advisory_lock_extended_query_frames_bind_parameters_without_splicing() {
+        let contains =
+            |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).any(|w| w == needle);
+
+        let ping_frame = encode_extended_query_pipeline("SELECT 1", &[]).expect("ping pipeline");
+        assert_eq!(ping_frame[0], b'P');
+        assert!(contains(&ping_frame, b"SELECT 1"));
+        assert!(ping_frame.ends_with(&[b'S', 0, 0, 0, 4]));
+
+        let lock_key: i64 = 987_654_321_012;
+        let lock_frame = encode_extended_query_pipeline(
+            "SELECT pg_try_advisory_lock($1)",
+            &[PgParam::Int64(lock_key)],
+        )
+        .expect("try_advisory_lock pipeline");
+        assert_eq!(lock_frame[0], b'P');
+        assert!(contains(&lock_frame, b"SELECT pg_try_advisory_lock($1)"));
+        // Key travels strictly in the Bind message, never interpolated into SQL.
+        assert!(contains(&lock_frame, b"987654321012"));
+        assert!(lock_frame.ends_with(&[b'S', 0, 0, 0, 4]));
+
+        let unlock_frame = encode_extended_query_pipeline(
+            "SELECT pg_advisory_unlock($1)",
+            &[PgParam::Int64(lock_key)],
+        )
+        .expect("advisory_unlock pipeline");
+        assert_eq!(unlock_frame[0], b'P');
+        assert!(contains(&unlock_frame, b"SELECT pg_advisory_unlock($1)"));
+        assert!(contains(&unlock_frame, b"987654321012"));
+        assert!(unlock_frame.ends_with(&[b'S', 0, 0, 0, 4]));
+    }
 }
