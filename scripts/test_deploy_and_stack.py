@@ -72,6 +72,14 @@ class DeployAndLocalStackTests(unittest.TestCase):
             "oci-container-build:",
             "deploy/Containerfile.public",
             'container_uid" != "10001"',
+            "scripts/qa_multilingual_gui.py",
+            "web/elysianfields/**",
+            "fonts-noto-core",
+            "fonts-noto-cjk",
+            "fonts-noto-extra",
+            "fc-cache -f",
+            "multilingual-gui-qa-report.json",
+            "multilingual-screenshots/",
         ):
             self.assertIn(needle, wf)
 
