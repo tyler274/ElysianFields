@@ -41,6 +41,7 @@ class ClassifyPathsTests(unittest.TestCase):
             ["web/elysianfields/index.html"],
             ["crates/ef-ui-catalog/src/lib.rs"],
             ["crates/ef-clinic-client/src/lib.rs"],
+            ["crates/ef-mobile-client/src/lib.rs"],
             ["web/index.html", "crates/elysian-web/src/lib.rs"],
             ["crates/m1-web-delivery/src/lib.rs"],
         ):
@@ -57,6 +58,15 @@ class ClassifyPathsTests(unittest.TestCase):
             ["crates/ef-clinic-server/src/main.rs"],
             ["crates/ef-harness/src/lib.rs"],
             ["crates/ef-boundaries/src/lib.rs"],
+            ["crates/ef-clinic-workflows/src/matching.rs"],
+            ["crates/ef-mobile-domain/src/lib.rs"],
+            ["crates/ef-mobile-server/src/main.rs"],
+            ["crates/ef-connected-care/src/lib.rs"],
+            ["crates/ef-clinical-lib/src/lib.rs"],
+            ["crates/ef-encoder/src/lib.rs"],
+            ["crates/ef-patient-bank/src/lib.rs"],
+            ["crates/ef-extension/src/lib.rs"],
+            ["crates/ef-public-site/src/lib.rs"],
             ["crates/elysian-server/src/main.rs"],
             ["infra/gcp/main.tf"],
         ):
@@ -133,9 +143,70 @@ class ClassifyPathsTests(unittest.TestCase):
         self.assertIn("elysian-bevy-probe", crates)
         self.assertIn("m1-web-delivery", crates)
         self.assertIn("ef-ui-catalog", crates)
+        self.assertIn("ef-clinic-client", crates)
+        self.assertNotIn("ef-clinic-server", crates)
         self.assertNotIn("ef-harness", crates)
         self.assertNotIn("ef-boundaries", crates)
         self.assertNotIn("m1-mobile-lifecycle", crates)
+
+
+class TouchedCratesTests(unittest.TestCase):
+    def test_pr_leaf_crate_edit_targets_crate_plus_boundaries(self) -> None:
+        flags = ci_scope.compute_touched_crates(
+            ["crates/ef-clinic-server/src/http.rs", "docs/program-plan.md"],
+            event_name="pull_request",
+            workspace_root=REPO_ROOT,
+        )
+        self.assertEqual(flags, "-p ef-boundaries -p ef-clinic-server")
+
+    def test_pr_multiple_leaf_crates_are_sorted_and_include_boundaries(self) -> None:
+        flags = ci_scope.compute_touched_crates(
+            ["crates/ef-clinic-client/src/lib.rs", "crates/ef-harness/src/lib.rs"],
+            event_name="pull_request",
+            workspace_root=REPO_ROOT,
+        )
+        self.assertEqual(flags, "-p ef-boundaries -p ef-clinic-client -p ef-harness")
+
+    def test_pr_shared_fanout_crate_runs_full_workspace(self) -> None:
+        for shared in (
+            "crates/ef-core/src/lib.rs",
+            "crates/ef-ui-catalog/src/lib.rs",
+            "crates/ef-clinic-domain/src/auth.rs",
+            "crates/ef-mobile-domain/src/lib.rs",
+            "crates/elysian-smoke/src/lib.rs",
+        ):
+            flags = ci_scope.compute_touched_crates(
+                [shared],
+                event_name="pull_request",
+                workspace_root=REPO_ROOT,
+            )
+            self.assertEqual(flags, "", f"expected full workspace for {shared}")
+
+    def test_pr_root_manifest_or_main_push_runs_full_workspace(self) -> None:
+        self.assertEqual(
+            ci_scope.compute_touched_crates(
+                ["Cargo.toml", "crates/ef-clinic-server/src/http.rs"],
+                event_name="pull_request",
+                workspace_root=REPO_ROOT,
+            ),
+            "",
+        )
+        self.assertEqual(
+            ci_scope.compute_touched_crates(
+                ["crates/ef-clinic-server/src/http.rs"],
+                event_name="push",
+                workspace_root=REPO_ROOT,
+            ),
+            "",
+        )
+        self.assertEqual(
+            ci_scope.compute_touched_crates(
+                ["crates/ef-clinic-workflows/src/lib.rs"],
+                event_name="pull_request",
+                workspace_root=None,
+            ),
+            "-p ef-boundaries -p ef-clinic-workflows",
+        )
 
 
 class SelectScopeGitTests(unittest.TestCase):

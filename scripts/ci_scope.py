@@ -120,6 +120,26 @@ HEADLESS_SERVER_CRATES: frozenset[str] = frozenset(
         "ef-mobile-server",
         "ef-harness",
         "ef-boundaries",
+        "ef-clinic-workflows",
+        "ef-mobile-domain",
+        "ef-connected-care",
+        "ef-clinical-lib",
+        "ef-encoder",
+        "ef-patient-bank",
+        "ef-extension",
+        "ef-public-site",
+    }
+)
+
+# Shared foundational crates whose edits must trigger full `--workspace` validation
+# on PRs so every downstream consumer is checked.
+SHARED_FANOUT_CRATES: frozenset[str] = frozenset(
+    {
+        "ef-core",
+        "ef-ui-catalog",
+        "ef-clinic-domain",
+        "ef-mobile-domain",
+        "elysian-smoke",
     }
 )
 
@@ -400,6 +420,104 @@ def _git_merge_base(base: str, head: str, cwd: Path | None = None) -> str | None
     return result or None
 
 
+def _resolve_crate_package_name(
+    crate_dir: str,
+    workspace_root: Path | None,
+) -> str | None:
+    if workspace_root is None:
+        return crate_dir
+    crate_toml = workspace_root / "crates" / crate_dir / "Cargo.toml"
+    if not crate_toml.is_file():
+        return None
+    pkg = tomllib.loads(crate_toml.read_text(encoding="utf-8")).get("package", {})
+    name = pkg.get("name")
+    return name if isinstance(name, str) and name else None
+
+
+def compute_touched_crates(
+    paths: Iterable[str] | None,
+    *,
+    event_name: str,
+    workspace_root: Path | None = None,
+) -> str:
+    """Return Cargo `-p <crate>` flags for PRs touching isolated leaf crates.
+
+    Returns an empty string (signaling full `--workspace` validation) on non-PR
+    events (`main` pushes, `merge_group`, `workflow_dispatch`, `schedule`), root
+    manifest/infra changes, shared-crate fanout changes, or deleted crates.
+    Always includes `-p ef-boundaries` when any crate is targeted.
+    """
+    if event_name != "pull_request" or paths is None:
+        return ""
+
+    touched: set[str] = set()
+    for raw_path in paths:
+        path = raw_path.strip()
+        if not path:
+            continue
+        if is_docs_only_path(path):
+            continue
+        if path.startswith("scripts/test_") and path.endswith(".py"):
+            continue
+        if is_infra_path(path):
+            return ""
+        crate_dir = _crate_dir(path)
+        if crate_dir is None:
+            return ""
+        if crate_dir in SHARED_FANOUT_CRATES:
+            return ""
+        pkg_name = _resolve_crate_package_name(crate_dir, workspace_root)
+        if pkg_name is None:
+            return ""
+        touched.add(pkg_name)
+
+    if not touched:
+        return ""
+
+    if workspace_root is None or (workspace_root / "crates" / "ef-boundaries" / "Cargo.toml").is_file():
+        touched.add("ef-boundaries")
+
+    return " ".join(f"-p {name}" for name in sorted(touched))
+
+
+def _event_diff_paths(
+    event_name: str,
+    event_payload: dict | None,
+    *,
+    github_sha: str = "",
+    cwd: Path | None = None,
+) -> tuple[list[str] | None, str]:
+    payload = event_payload or {}
+    if event_name == "pull_request":
+        pr = payload.get("pull_request") or {}
+        base_sha = ((pr.get("base") or {}).get("sha") or "").strip()
+        head_sha = ((pr.get("head") or {}).get("sha") or github_sha or "").strip()
+        merge_base = _git_merge_base(base_sha, head_sha, cwd=cwd)
+        if merge_base:
+            return (
+                _git_diff_paths(merge_base, head_sha, cwd=cwd),
+                f"pull_request diff {merge_base[:12]}..{head_sha[:12]}",
+            )
+    elif event_name == "merge_group":
+        mg = payload.get("merge_group") or {}
+        base_sha = (mg.get("base_sha") or "").strip()
+        head_sha = (mg.get("head_sha") or github_sha or "").strip()
+        return (
+            _git_diff_paths(base_sha, head_sha, cwd=cwd),
+            f"merge_group diff {base_sha[:12]}..{head_sha[:12]}",
+        )
+    elif event_name == "push":
+        before = (payload.get("before") or "").strip()
+        after = (payload.get("after") or github_sha or "").strip()
+        if before == ZERO_SHA or not before:
+            return None, "push has initial/empty base SHA; failing closed to full validation"
+        return (
+            _git_diff_paths(before, after, cwd=cwd),
+            f"push diff {before[:12]}..{after[:12]}",
+        )
+    return None, f"uncertain comparison for event {event_name!r}; failing closed to full validation"
+
+
 def select_scope(
     event_name: str,
     event_payload: dict | None,
@@ -408,47 +526,20 @@ def select_scope(
     cwd: Path | None = None,
 ) -> tuple[dict[str, bool], str]:
     """Select CI scope flags from GitHub event metadata and Git history."""
-    payload = event_payload or {}
-
     if event_name == "workflow_dispatch":
         return _full_scope(), "manual workflow_dispatch runs full validation"
 
     if event_name == "schedule":
         return _full_scope(), "scheduled run runs full validation"
 
-    paths: list[str] | None = None
-    reason = ""
-
-    if event_name == "pull_request":
-        pr = payload.get("pull_request") or {}
-        base_sha = ((pr.get("base") or {}).get("sha") or "").strip()
-        head_sha = ((pr.get("head") or {}).get("sha") or github_sha or "").strip()
-        merge_base = _git_merge_base(base_sha, head_sha, cwd=cwd)
-        if merge_base:
-            paths = _git_diff_paths(merge_base, head_sha, cwd=cwd)
-            reason = f"pull_request diff {merge_base[:12]}..{head_sha[:12]}"
-    elif event_name == "merge_group":
-        mg = payload.get("merge_group") or {}
-        base_sha = (mg.get("base_sha") or "").strip()
-        head_sha = (mg.get("head_sha") or github_sha or "").strip()
-        paths = _git_diff_paths(base_sha, head_sha, cwd=cwd)
-        reason = f"merge_group diff {base_sha[:12]}..{head_sha[:12]}"
-    elif event_name == "push":
-        before = (payload.get("before") or "").strip()
-        after = (payload.get("after") or github_sha or "").strip()
-        if before == ZERO_SHA or not before:
-            return (
-                _full_scope(),
-                "push has initial/empty base SHA; failing closed to full validation",
-            )
-        paths = _git_diff_paths(before, after, cwd=cwd)
-        reason = f"push diff {before[:12]}..{after[:12]}"
-
+    paths, reason = _event_diff_paths(
+        event_name,
+        event_payload,
+        github_sha=github_sha,
+        cwd=cwd,
+    )
     if paths is None:
-        return (
-            _full_scope(),
-            f"uncertain comparison for event {event_name!r}; failing closed to full validation",
-        )
+        return _full_scope(), reason
 
     scope = classify_paths(paths)
     return scope, f"{reason} ({len(paths)} changed path entries)"
@@ -473,8 +564,16 @@ def cmd_select(_args: argparse.Namespace) -> int:
                 payload = None
 
     scope, reason = select_scope(event_name, payload, github_sha=github_sha)
+    diff_paths, _ = _event_diff_paths(event_name, payload, github_sha=github_sha)
+    repo_root = Path(__file__).resolve().parent.parent
+    touched_crates = compute_touched_crates(
+        diff_paths,
+        event_name=event_name,
+        workspace_root=repo_root,
+    )
 
     lines = [f"{key}={_bool_str(scope[key])}" for key in SCOPE_KEYS]
+    lines.append(f"touched_crates={touched_crates}")
     output_path = os.environ.get("GITHUB_OUTPUT", "").strip()
     if output_path:
         with Path(output_path).open("a", encoding="utf-8") as handle:
@@ -486,6 +585,7 @@ def cmd_select(_args: argparse.Namespace) -> int:
             handle.write(
                 f"## CI scope\n\n- Reason: {reason}\n"
                 + "".join(f"- `{k}`: `{_bool_str(scope[k])}`\n" for k in SCOPE_KEYS)
+                + f"- `touched_crates`: `{touched_crates or '--workspace'}`\n"
             )
 
     for line in lines:

@@ -28,6 +28,7 @@ jobs:
       server: ${{ steps.select.outputs.server }}
       client_only: ${{ steps.select.outputs.client_only }}
       full: ${{ steps.select.outputs.full }}
+      touched_crates: ${{ steps.select.outputs.touched_crates }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -102,16 +103,34 @@ jobs:
           shared-key: native
           cache-on-failure: true
       - name: Check formatting and host Clippy lints
+        env:
+          TOUCHED_CRATES: ${{ needs.scope.outputs.touched_crates }}
         run: |
           set -o pipefail
           cargo fmt --all --check
-          cargo clippy --workspace --all-targets -- -D warnings 2>&1 \
-            | python3 scripts/ci_dep_audit.py --label "rust-native clippy" --workspace-root "$PWD"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ -n "${TOUCHED_CRATES}" ]; then
+            echo "Running targeted native Clippy: ${TOUCHED_CRATES}"
+            # shellcheck disable=SC2086
+            cargo clippy --all-targets ${TOUCHED_CRATES} -- -D warnings 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native clippy" --workspace-root "$PWD"
+          else
+            cargo clippy --workspace --all-targets -- -D warnings 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native clippy" --workspace-root "$PWD"
+          fi
       - name: Run workspace unit tests
+        env:
+          TOUCHED_CRATES: ${{ needs.scope.outputs.touched_crates }}
         run: |
           set -o pipefail
-          cargo test --locked --workspace 2>&1 \
-            | python3 scripts/ci_dep_audit.py --label "rust-native test" --workspace-root "$PWD"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ -n "${TOUCHED_CRATES}" ]; then
+            echo "Running targeted native tests: ${TOUCHED_CRATES}"
+            # shellcheck disable=SC2086
+            cargo test --locked ${TOUCHED_CRATES} 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native test" --workspace-root "$PWD"
+          else
+            cargo test --locked --workspace 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native test" --workspace-root "$PWD"
+          fi
       - name: Build native release artifacts once on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
