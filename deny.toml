@@ -29,6 +29,8 @@ confidence-threshold = 0.93
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace-internal path dependencies are declared without a registry version.
+allow-wildcard-paths = true
 deny = []
 
 [advisories]

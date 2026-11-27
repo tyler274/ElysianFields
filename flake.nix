@@ -73,6 +73,8 @@
 
           basePackages = with pkgs; [
             rustToolchain
+            clang
+            lld
             python3
             mdbook
             lychee

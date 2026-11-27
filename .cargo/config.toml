@@ -1,0 +1,10 @@
+# Portable Cargo build settings for Elysian Realm.
+# Linux CI and Nix devShells enable clang + lld via CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER
+# and RUSTFLAGS="-C link-arg=-fuse-ld=lld" so local hosts without clang on base PATH still build.
+
+[net]
+git-fetch-with-cli = true
+
+[build]
+# Keep incremental compilation enabled for fast local dev loops.
+incremental = true
