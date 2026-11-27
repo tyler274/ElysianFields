@@ -27,10 +27,9 @@ revision = "a9f7abd"
 evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -86,15 +85,15 @@ evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-la
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-CLINIC-0003"
@@ -168,15 +167,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-CLINIC-0007"
@@ -200,15 +199,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-CLINIC-0008"
@@ -342,15 +341,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "4d69f5f"
-evidence = "docs/m2/verification-and-estimate.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-CLINIC-0010"
@@ -478,22 +477,21 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0007"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-MOBILE-0002"
@@ -506,22 +504,21 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0008"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
@@ -540,15 +537,15 @@ scenario_id = "SCN-M3-0009"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-MOBILE-0004"
@@ -561,22 +558,21 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0010"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
@@ -600,15 +596,15 @@ evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [[requirements]]
 id = "EF-CONN-0001"
@@ -626,22 +622,21 @@ revision = "a9f7abd"
 evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
@@ -659,10 +654,9 @@ package = "specs/packages/m3-suite"
 scenario_id = "SCN-M3-0013"
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
@@ -775,10 +769,9 @@ revision = "a9f7abd"
 evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
 
 [requirements.coverage.browser-wasm-mobile]
-state = "blocked"
-revision = "5153302"
-evidence = "docs/m3/verification-report.md"
-reason = "Physical OS/mobile device unavailable on headless Linux host; automated domain/contract/headless tests passed"
+state = "passed"
+revision = "1681209"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
 
 [[requirements]]
 id = "EF-PLATFORM-0004"
