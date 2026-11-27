@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": "a9f7abd",
+  "revision": "1681209",
   "inventory_source": "docs/reference/scope-inventory.json",
   "ledger_source": "specs/ledger.toml",
   "summary": {
@@ -11,8 +11,8 @@
       "out-of-scope": 3
     },
     "by_retirement_status": {
-      "verified-ready-for-staged-cutover": 20,
-      "verified-with-hardware-signoff-gate": 14,
+      "verified-ready-for-staged-cutover": 22,
+      "verified-with-hardware-signoff-gate": 12,
       "retained-as-tooling": 6,
       "out-of-scope": 3
     },
@@ -25,9 +25,13 @@
       "decision": "M1 Decision D2 / Single-Owner Invariant",
       "paths": [
         "crates/m1-accessibility/web/a11y-bridge.js",
-        "web/elysianfields/bootstrap.js"
+        "web/elysianfields/bootstrap.js",
+        "web/elysianfields/a11y-bridge.js",
+        "web/elysianfields/boot.js",
+        "web/elysianfields/mobile",
+        "web/elysianfields/mobile/index.html"
       ],
-      "single_owner_proof": "253 LOC, 0 mirrored CSS rules, 1:1 accesskit::NodeId bijection (6 live ARIA bridge nodes verified in Playwright Chromium/Firefox/WebKit)."
+      "single_owner_proof": "253 LOC, 0 mirrored CSS rules, 1:1 accesskit::NodeId bijection (6 live ARIA bridge nodes verified in desktop & mobile Playwright; 1.55 MiB Brotli-11 compiled Bevy Wasm under strict CSP)."
     },
     {
       "name": "Chrome MV3 Semantic-HTML Extension Popup",
@@ -46,9 +50,18 @@
       "decision": "M1 Decision D2 / Narrow OS Shims",
       "paths": [
         "crates/m1-mobile-lifecycle/platform/android/README.md",
-        "crates/m1-mobile-lifecycle/platform/ios/README.md"
+        "crates/m1-mobile-lifecycle/platform/ios/README.md",
+        "platform/android/src/main/kotlin/fields/elysian/mobile/ElysianMobileActivity.kt",
+        "platform/android/src/main/kotlin/fields/elysian/mobile/HealthConnectBridge.kt",
+        "platform/android/src/main/kotlin/fields/elysian/mobile/KeystoreVault.kt",
+        "platform/android/src/main/kotlin/fields/elysian/mobile/ElysianFcmService.kt",
+        "platform/ios/Sources/ElysianMobileShim/ElysianAppDelegate.swift",
+        "platform/ios/Sources/ElysianMobileShim/HealthKitBridge.swift",
+        "platform/ios/Sources/ElysianMobileShim/KeychainVault.swift",
+        "platform/ios/Sources/ElysianMobileShim/ApnsHandler.swift",
+        "platform/ios/Package.swift"
       ],
-      "single_owner_proof": "Stateless Kotlin/Swift OS touchpoints only; Rust owns lifecycle, EFSS v1 restore, health outbox, and AccessKit tree."
+      "single_owner_proof": "Compilable stateless Kotlin (kotlinc 2.4.21) & Swift (swiftc -typecheck on macos-15) OS shims using EFSS v1 framing; Rust owns lifecycle, restore, outbox, and AccessKit tree."
     },
     {
       "name": "Public Site & Dei Recovery Finder Semantic HTML Surface",
@@ -78,7 +91,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -91,7 +104,7 @@
       "evidence_paths": [
         "docs/reference/scope-inventory.json"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "out-of-scope"
     },
     {
@@ -104,7 +117,7 @@
       "evidence_paths": [
         "docs/reference/scope-inventory.json"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "out-of-scope"
     },
     {
@@ -117,7 +130,7 @@
       "evidence_paths": [
         "docs/reference/scope-inventory.json"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "out-of-scope"
     },
     {
@@ -126,14 +139,15 @@
       "zone": "Tooling",
       "classification": "retain-as-tooling",
       "replacement_targets": [
-        "crates/m1-mobile-lifecycle/platform/android/README.md"
+        "crates/m1-mobile-lifecycle/platform/android/README.md",
+        "platform/android"
       ],
       "requirement_ids": [],
       "evidence_paths": [
         "docs/m1/mobile-lifecycle-report.md",
         "docs/m4/rehearsal-and-rollout.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     },
     {
@@ -148,7 +162,7 @@
       "evidence_paths": [
         "docs/m4/rehearsal-and-rollout.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     },
     {
@@ -166,7 +180,7 @@
         "crates/ef-boundaries/tests/workspace_boundaries.rs",
         "docs/m3/verification-report.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     },
     {
@@ -185,7 +199,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -205,8 +219,8 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
-      "retirement_status": "verified-with-hardware-signoff-gate"
+      "revision": "1681209",
+      "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
       "id": "INV-10",
@@ -224,7 +238,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -247,7 +261,7 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -270,7 +284,7 @@
         "docs/m4/rehearsal-and-rollout.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -293,7 +307,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -314,9 +328,10 @@
         "crates/ef-clinical-lib/tests/m3_inc4_clinical_lib_and_guardrails.rs",
         "docs/m2/verification-and-estimate.md",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-boundaries/tests/workspace_boundaries.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -339,7 +354,7 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -367,9 +382,10 @@
         "docs/m2/verification-and-estimate.md",
         "docs/m3/verification-report.md",
         "scripts/verify_postgres_migrations.sh",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-clinic-server/tests/multi_instance_scale.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -392,9 +408,10 @@
         "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
         "docs/m1/mobile-lifecycle-report.md",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -405,7 +422,8 @@
       "replacement_targets": [
         "crates/ef-mobile-server",
         "crates/ef-mobile-domain",
-        "crates/ef-migration-rehearsal"
+        "crates/ef-migration-rehearsal",
+        "deploy/Containerfile.mobile"
       ],
       "requirement_ids": [
         "EF-MOBILE-0001",
@@ -419,9 +437,10 @@
         "docs/m3/verification-report.md",
         "docs/m4/rehearsal-and-rollout.md",
         "scripts/verify_postgres_migrations.sh",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -432,7 +451,8 @@
       "replacement_targets": [
         "crates/ef-mobile-client",
         "crates/ef-ui-catalog",
-        "web/elysianfields"
+        "web/elysianfields",
+        "web/elysianfields/mobile/index.html"
       ],
       "requirement_ids": [
         "EF-MOBILE-0001",
@@ -443,9 +463,11 @@
       "evidence_paths": [
         "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs",
+        "scripts/browser_e2e.py"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -464,9 +486,10 @@
       "evidence_paths": [
         "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -486,9 +509,10 @@
         "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
         "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -509,9 +533,10 @@
         "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
         "crates/m1-mobile-lifecycle/tests/mobile_lifecycle_integration.rs",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -532,9 +557,10 @@
         "crates/ef-mobile-client/tests/m3_mobile_scenarios.rs",
         "crates/ef-mobile-server/tests/mobile_server_e2e.rs",
         "docs/m3/verification-report.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-mobile-client/tests/live_mobile_fullstack.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -557,7 +583,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -572,7 +598,7 @@
       "evidence_paths": [
         "docs/m4/rehearsal-and-rollout.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     },
     {
@@ -594,7 +620,7 @@
         "docs/m4/rehearsal-and-rollout.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -622,7 +648,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -657,7 +683,7 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -681,9 +707,10 @@
         "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
         "docs/m2/verification-and-estimate.md",
         "scripts/verify_postgres_migrations.sh",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-clinic-server/tests/multi_instance_scale.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -702,9 +729,10 @@
       "evidence_paths": [
         "crates/ef-clinic-server/tests/vertical_slice_e2e.rs",
         "docs/m2/verification-and-estimate.md",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-clinic-server/tests/multi_instance_scale.rs"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -726,7 +754,7 @@
         "docs/m2/verification-and-estimate.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -746,7 +774,7 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -767,7 +795,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -778,7 +806,8 @@
       "replacement_targets": [
         "crates/ef-clinic-server",
         "crates/ef-clinic-workflows",
-        "crates/ef-migration-rehearsal"
+        "crates/ef-migration-rehearsal",
+        "deploy/Containerfile.clinic"
       ],
       "requirement_ids": [
         "EF-CLINIC-0002",
@@ -796,9 +825,11 @@
         "docs/m2/verification-and-estimate.md",
         "docs/m4/rehearsal-and-rollout.md",
         "scripts/verify_postgres_migrations.sh",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "crates/ef-clinic-server/tests/multi_instance_scale.rs",
+        "deploy/docker-compose.yml"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -821,7 +852,7 @@
         "docs/m2/verification-and-estimate.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -830,7 +861,8 @@
       "zone": "Tooling",
       "classification": "replace",
       "replacement_targets": [
-        "crates/ef-public-site"
+        "crates/ef-public-site",
+        "deploy/Containerfile.public"
       ],
       "requirement_ids": [
         "EF-PUBLIC-0001",
@@ -840,9 +872,10 @@
         "crates/ef-public-site/tests/scn_m3_0018_0019_public_and_dei.rs",
         "docs/m3/verification-report.md",
         "scripts/browser_e2e.py",
-        "docs/m5/disposition-and-retirement.md"
+        "docs/m5/disposition-and-retirement.md",
+        "deploy/Containerfile.public"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -862,8 +895,8 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
-      "retirement_status": "verified-with-hardware-signoff-gate"
+      "revision": "1681209",
+      "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
       "id": "INV-38",
@@ -882,7 +915,7 @@
         "docs/m3/verification-report.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -906,7 +939,7 @@
         "docs/m4/rehearsal-and-rollout.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-ready-for-staged-cutover"
     },
     {
@@ -931,7 +964,7 @@
         "scripts/browser_e2e.py",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -954,7 +987,7 @@
         "docs/m2/verification-and-estimate.md",
         "docs/m5/disposition-and-retirement.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "verified-with-hardware-signoff-gate"
     },
     {
@@ -965,13 +998,14 @@
       "replacement_targets": [
         "scripts/dev-check.sh",
         "scripts/ci_scope.py",
-        "scripts/ci_timings.py"
+        "scripts/ci_timings.py",
+        "scripts/run_local_stack.sh"
       ],
       "requirement_ids": [],
       "evidence_paths": [
         "docs/ci/budgets.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     },
     {
@@ -988,7 +1022,7 @@
         "docs/wall/isolation-and-canary.md",
         "book/src/clean-room-protocol.md"
       ],
-      "revision": "a9f7abd",
+      "revision": "1681209",
       "retirement_status": "retained-as-tooling"
     }
   ]
