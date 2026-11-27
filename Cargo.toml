@@ -9,6 +9,10 @@ members = [
     "crates/m1-mobile-lifecycle",
     "crates/m1-web-delivery",
     "crates/ef-ui-catalog",
+    "crates/ef-core",
+    "crates/ef-clinic-domain",
+    "crates/ef-harness",
+    "crates/ef-boundaries",
 ]
 
 [workspace.package]
@@ -23,6 +27,9 @@ accesskit = "0.24.1"
 bevy = { version = "0.20.1", default-features = false }
 elysian-smoke = { path = "crates/elysian-smoke" }
 # Shared serialization and typed-error crates for M2/M3 headless services and clients.
+ef-core = { path = "crates/ef-core" }
+ef-clinic-domain = { path = "crates/ef-clinic-domain" }
+ef-harness = { path = "crates/ef-harness" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
