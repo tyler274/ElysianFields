@@ -133,12 +133,6 @@ pub fn audit_manifest_dependencies(manifests: &[CrateManifestSummary]) -> Vec<Bo
 
         if manifest.name == "ef-harness" {
             for dep in &manifest.dependencies {
-                if dep.starts_with("ef-mobile-") {
-                    violations.push(BoundaryViolation::CrossProductImport {
-                        crate_name: manifest.name.clone(),
-                        forbidden_dep: dep.clone(),
-                    });
-                }
                 if is_forbidden_harness_persistence_crate(dep) {
                     violations.push(BoundaryViolation::HarnessDependsOnPersistence {
                         crate_name: manifest.name.clone(),
@@ -217,6 +211,7 @@ pub fn is_shared_neutral_crate(name: &str) -> bool {
     matches!(
         name,
         "ef-core"
+            | "ef-harness"
             | "ef-connected-care"
             | "ef-clinical-lib"
             | "ef-encoder"

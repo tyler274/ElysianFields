@@ -1,330 +1,335 @@
-//! Integration tests verifying `ef-harness` deterministic provider fixture,
-//! two-round evidence reads, mid-stream cancel/resume, 5-failure retry exhaustion + Try again,
-//! cross-patient tool isolation, JSONL transcript capture, and content-free telemetry.
+//! Product-neutral integration tests for `ef-harness` proving multi-round tool calls,
+//! incremental delta streaming, mid-stream cancellation, bounded 5-failure retry exhaustion,
+//! fail-closed tool access rejection, JSONL transcript capture, and content-free telemetry
+//! with zero product-specific crate dependencies.
 
-use ef_clinic_domain::chat::{
-    AnswerState, ChatEngine, CommandEnvelope, CommandPayload, DeliveryMode, ExchangeSteps,
-    MAX_FAILURE_ATTEMPTS, ResumeWorkPayload, RetryBackoffMode, StopWorkPayload,
-    SubmitMessagePayload,
-};
-use ef_clinic_domain::workspace::{
-    WorkspaceAccessError, WorkspaceEvidenceStore, synthetic_5000_row_lab_source,
-};
-use ef_core::{ChatId, IdempotencyKey, PhysicianId, PracticeId, SourceKey, WorkspaceId};
+use std::collections::BTreeMap;
+
+use ef_core::{AttemptId, ChatId, SourceKey, WorkItemId, WorkspaceId};
 use ef_harness::{
-    AgentLoop, CancellationToken, ClinicalTool, HarnessError, ReadRecordsTool, SearchChartTool,
-    StubProvider, ToolError, TurnExecutionOutcome,
+    AgentLoop, AgentTool, CancellationToken, DEFAULT_MAX_FAILURE_ATTEMPTS, FinalAnswerDraft,
+    HarnessError, StubProvider, ToolCall, ToolError, ToolOutput, TurnContext, TurnExecutionOutcome,
+    TurnStateAdapter,
 };
 
-fn build_fixture_store() -> (
-    PracticeId,
-    PhysicianId,
-    WorkspaceId,
-    WorkspaceId,
-    SourceKey,
-    SourceKey,
-    WorkspaceEvidenceStore,
-) {
-    let prac_a = PracticeId::new("prac-a").expect("prac a");
-    let prac_b = PracticeId::new("prac-b").expect("prac b");
-    let phys_1 = PhysicianId::new("phys-1").expect("phys 1");
-    let phys_2 = PhysicianId::new("phys-2").expect("phys 2");
-    let ws_a1 = WorkspaceId::new("pw-flagship-1").expect("ws a1");
-    let ws_b1 = WorkspaceId::new("pw-other-b1").expect("ws b1");
-    let src_a1 = SourceKey::new("src-lab-12").expect("src a1");
-    let src_b1 = SourceKey::new("src-b1-secret").expect("src b1");
+struct NeutralTurnRecord {
+    context: TurnContext,
+    deltas: String,
+    recorded_steps: Vec<serde_json::Value>,
+    completed_answer: Option<FinalAnswerDraft>,
+}
 
-    let mut store = WorkspaceEvidenceStore::new();
-    store.register_workspace(
-        ws_a1.clone(),
-        prac_a.clone(),
-        "Synthetic A1",
-        vec![phys_1.clone()],
-    );
-    store.register_workspace(ws_b1.clone(), prac_b, "Synthetic B1", vec![phys_2]);
-    store.insert_source(synthetic_5000_row_lab_source(ws_a1.clone(), src_a1.clone()));
-    store.insert_source(synthetic_5000_row_lab_source(ws_b1.clone(), src_b1.clone()));
-    (prac_a, phys_1, ws_a1, ws_b1, src_a1, src_b1, store)
+#[derive(Default)]
+struct InMemoryTurnAdapter {
+    turns: BTreeMap<WorkItemId, NeutralTurnRecord>,
+}
+
+impl InMemoryTurnAdapter {
+    fn insert_turn(
+        &mut self,
+        workspace_id: WorkspaceId,
+        chat_id: ChatId,
+        work_item_id: WorkItemId,
+        prompt_text: impl Into<String>,
+    ) {
+        self.turns.insert(
+            work_item_id.clone(),
+            NeutralTurnRecord {
+                context: TurnContext {
+                    workspace_id,
+                    chat_id,
+                    work_item_id,
+                    prompt_text: prompt_text.into(),
+                    failed_attempts: 0,
+                },
+                deltas: String::new(),
+                recorded_steps: Vec::new(),
+                completed_answer: None,
+            },
+        );
+    }
+}
+
+impl TurnStateAdapter for InMemoryTurnAdapter {
+    fn load_turn_context(&self, work_item_id: &WorkItemId) -> Result<TurnContext, HarnessError> {
+        self.turns
+            .get(work_item_id)
+            .map(|r| r.context.clone())
+            .ok_or_else(|| HarnessError::StateTransition {
+                message: format!("work item '{}' not found", work_item_id.as_str()),
+            })
+    }
+
+    fn append_delta(
+        &mut self,
+        work_item_id: &WorkItemId,
+        text_delta: &str,
+        _now_secs: u64,
+    ) -> Result<(), HarnessError> {
+        let rec =
+            self.turns
+                .get_mut(work_item_id)
+                .ok_or_else(|| HarnessError::StateTransition {
+                    message: "missing turn".to_owned(),
+                })?;
+        rec.deltas.push_str(text_delta);
+        Ok(())
+    }
+
+    fn record_tool_output(
+        &mut self,
+        work_item_id: &WorkItemId,
+        output: &ToolOutput,
+        _now_secs: u64,
+    ) -> Result<(), HarnessError> {
+        let rec =
+            self.turns
+                .get_mut(work_item_id)
+                .ok_or_else(|| HarnessError::StateTransition {
+                    message: "missing turn".to_owned(),
+                })?;
+        rec.recorded_steps.push(output.step_payload.clone());
+        Ok(())
+    }
+
+    fn complete_turn(
+        &mut self,
+        work_item_id: &WorkItemId,
+        answer: FinalAnswerDraft,
+        _attempt_id: AttemptId,
+        _now_secs: u64,
+    ) -> Result<(), HarnessError> {
+        let rec =
+            self.turns
+                .get_mut(work_item_id)
+                .ok_or_else(|| HarnessError::StateTransition {
+                    message: "missing turn".to_owned(),
+                })?;
+        rec.completed_answer = Some(answer);
+        Ok(())
+    }
+
+    fn record_attempt_failure(
+        &mut self,
+        work_item_id: &WorkItemId,
+        _now_secs: u64,
+    ) -> Result<u32, HarnessError> {
+        let rec =
+            self.turns
+                .get_mut(work_item_id)
+                .ok_or_else(|| HarnessError::StateTransition {
+                    message: "missing turn".to_owned(),
+                })?;
+        rec.context.failed_attempts = rec.context.failed_attempts.saturating_add(1);
+        Ok(rec.context.failed_attempts)
+    }
+}
+
+struct StubSearchTool;
+
+impl AgentTool for StubSearchTool {
+    fn name(&self) -> &'static str {
+        "search_chart"
+    }
+
+    fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+        Ok(ToolOutput {
+            call_id: call.call_id.clone(),
+            tool_name: self.name().to_owned(),
+            step_payload: serde_json::json!({ "kind": "search", "args": call.arguments }),
+            cited_sources: Vec::new(),
+            summary: "search completed".to_owned(),
+        })
+    }
+}
+
+struct StubScopedReadTool {
+    allowed_source: SourceKey,
+}
+
+impl AgentTool for StubScopedReadTool {
+    fn name(&self) -> &'static str {
+        "read_records"
+    }
+
+    fn execute(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+        let keys = call
+            .arguments
+            .get("source_keys")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| ToolError::InvalidArguments {
+                message: "missing source_keys".to_owned(),
+            })?;
+        let mut verified = Vec::new();
+        for item in keys {
+            let raw = item.as_str().ok_or_else(|| ToolError::InvalidArguments {
+                message: "non-string source_key".to_owned(),
+            })?;
+            let key = SourceKey::new(raw).map_err(|e| ToolError::InvalidArguments {
+                message: e.to_string(),
+            })?;
+            if key != self.allowed_source {
+                return Err(ToolError::AccessDenied {
+                    message: format!("source '{}' outside workspace scope", key.as_str()),
+                });
+            }
+            verified.push(key);
+        }
+        Ok(ToolOutput {
+            call_id: call.call_id.clone(),
+            tool_name: self.name().to_owned(),
+            step_payload: serde_json::json!({ "kind": "read", "sources": verified }),
+            cited_sources: verified,
+            summary: "records read".to_owned(),
+        })
+    }
 }
 
 #[test]
-fn stub_provider_executes_two_tool_rounds_streams_answer_and_emits_content_free_telemetry() {
-    let (prac_a, phys_1, ws_a1, _, src_a1, _, store) = build_fixture_store();
+fn neutral_harness_runs_two_rounds_streams_answer_and_emits_content_free_telemetry() {
+    let ws = WorkspaceId::new("ws-neutral-1").expect("ws");
     let chat = ChatId::new("chat-1").expect("chat");
-    let mut engine = ChatEngine::new(RetryBackoffMode::DeterministicTest);
-    let acc = engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-h1").expect("idem"),
-                command: CommandPayload::MessageSubmit(SubmitMessagePayload {
-                    patient_workspace_id: ws_a1,
-                    chat_id: chat,
-                    text: "Check renal stability".to_owned(),
-                    physician_time_zone: "UTC".to_owned(),
-                    delivery: Some(DeliveryMode::SendNow),
-                }),
-            },
-            100,
-        )
-        .expect("submit");
+    let wi = WorkItemId::new("wi-1").expect("wi");
+    let src = SourceKey::new("src-1").expect("src");
 
-    let search = SearchChartTool {
-        practice_id: prac_a.clone(),
-        physician_id: phys_1.clone(),
-        store: &store,
-    };
-    let read = ReadRecordsTool {
-        practice_id: prac_a,
-        physician_id: phys_1,
-        store: &store,
-    };
-    let tools: [&dyn ClinicalTool; 2] = [&search, &read];
+    let mut adapter = InMemoryTurnAdapter::default();
+    adapter.insert_turn(ws, chat, wi.clone(), "Confidential prompt prose");
 
-    let mut stub = StubProvider::clinical_two_round_fixture(src_a1);
+    let search = StubSearchTool;
+    let read = StubScopedReadTool {
+        allowed_source: src.clone(),
+    };
+    let tools: [&dyn AgentTool; 2] = [&search, &read];
+
+    let mut stub = StubProvider::clinical_two_round_fixture(src);
     let mut agent = AgentLoop::new();
     let cancel = CancellationToken::new();
 
     let outcome = agent
-        .run_turn_attempt(
-            &mut engine,
-            &acc.work_item_id,
-            &mut stub,
-            &tools,
-            &cancel,
-            105,
-        )
-        .expect("attempt succeeds");
+        .run_turn_attempt(&mut adapter, &wi, &mut stub, &tools, &cancel, 100)
+        .expect("turn succeeds");
     assert!(matches!(outcome, TurnExecutionOutcome::Finished { .. }));
-
-    // Verify 2 tool rounds + 1 answer round captured in JSONL transcript.
     assert_eq!(stub.recorded_requests_jsonl().len(), 3);
-    let exchange = engine.exchange(&acc.work_item_id).expect("exchange");
-    assert!(matches!(
-        exchange.steps,
-        ExchangeSteps::Read { ref steps } if steps.len() == 2
-    ));
-    assert!(matches!(exchange.answer, AnswerState::Finished { .. }));
 
-    // Verify telemetry spans contain ZERO clinical prompt or answer prose!
-    assert_eq!(agent.telemetry_spans().len(), 3);
+    let rec = adapter.turns.get(&wi).expect("record");
+    assert_eq!(rec.recorded_steps.len(), 2);
+    assert!(rec.completed_answer.is_some());
+    assert!(rec.deltas.contains("Synthetic renal clearance"));
+
+    // Telemetry spans must NEVER carry prompt or answer text!
     let telemetry_json = serde_json::to_string(agent.telemetry_spans()).expect("serialize spans");
-    assert!(!telemetry_json.contains("Check renal stability"));
+    assert_eq!(agent.telemetry_spans().len(), 3);
+    assert!(!telemetry_json.contains("Confidential prompt prose"));
     assert!(!telemetry_json.contains("Synthetic renal clearance"));
 }
 
 #[test]
-fn stub_provider_supports_mid_stream_cancel_and_5_failure_exhaustion_with_try_again() {
-    let (prac_a, phys_1, ws_a1, _, src_a1, _, store) = build_fixture_store();
+fn neutral_harness_handles_cancel_5_failure_exhaustion_and_access_denial() {
+    let ws = WorkspaceId::new("ws-neutral-2").expect("ws");
     let chat = ChatId::new("chat-2").expect("chat");
-    let search = SearchChartTool {
-        practice_id: prac_a.clone(),
-        physician_id: phys_1.clone(),
-        store: &store,
-    };
-    let read = ReadRecordsTool {
-        practice_id: prac_a,
-        physician_id: phys_1,
-        store: &store,
-    };
-    let tools: [&dyn ClinicalTool; 2] = [&search, &read];
+    let allowed = SourceKey::new("src-allowed").expect("allowed");
+    let forbidden = SourceKey::new("src-forbidden").expect("forbidden");
 
-    // 1. Mid-stream cancel after 2 chunks keeps partial text & steps.
-    let mut engine = ChatEngine::new(RetryBackoffMode::DeterministicTest);
-    let acc = engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-cancel").expect("idem"),
-                command: CommandPayload::MessageSubmit(SubmitMessagePayload {
-                    patient_workspace_id: ws_a1.clone(),
-                    chat_id: chat.clone(),
-                    text: "Slow stream test".to_owned(),
-                    physician_time_zone: "UTC".to_owned(),
-                    delivery: None,
-                }),
-            },
+    let search = StubSearchTool;
+    let read = StubScopedReadTool {
+        allowed_source: allowed.clone(),
+    };
+    let tools: [&dyn AgentTool; 2] = [&search, &read];
+    let mut adapter = InMemoryTurnAdapter::default();
+    let mut agent = AgentLoop::new();
+
+    // 1. Mid-stream cancellation keeps partial deltas.
+    let wi_cancel = WorkItemId::new("wi-cancel").expect("wi");
+    adapter.insert_turn(ws.clone(), chat.clone(), wi_cancel.clone(), "Cancel me");
+    let mut cancel_stub = StubProvider::clinical_two_round_fixture(allowed.clone());
+    cancel_stub.cancel_after_chunks = Some(2);
+    let cancel_tok = CancellationToken::new();
+    let res = agent
+        .run_turn_attempt(
+            &mut adapter,
+            &wi_cancel,
+            &mut cancel_stub,
+            &tools,
+            &cancel_tok,
             200,
         )
-        .expect("submit");
-
-    let mut stub = StubProvider::clinical_two_round_fixture(src_a1.clone());
-    stub.cancel_after_chunks = Some(2);
-    let mut agent = AgentLoop::new();
-    let cancel = CancellationToken::new();
-    let outcome = agent
-        .run_turn_attempt(
-            &mut engine,
-            &acc.work_item_id,
-            &mut stub,
-            &tools,
-            &cancel,
-            201,
-        )
-        .expect("mid-stream cancel");
-    assert_eq!(outcome, TurnExecutionOutcome::StoppedMidStream);
+        .expect("cancel outcome");
+    assert_eq!(res, TurnExecutionOutcome::StoppedMidStream);
     assert!(
-        engine
-            .exchange(&acc.work_item_id)
-            .expect("ex")
-            .kept_partial_text
+        adapter.turns[&wi_cancel]
+            .deltas
             .contains("Synthetic renal clearance remains stable")
     );
 
-    // Explicitly commit Stop -> Resume -> Complete.
-    engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-stop-harness").expect("idem"),
-                command: CommandPayload::WorkStop(StopWorkPayload {
-                    patient_workspace_id: ws_a1.clone(),
-                    chat_id: chat.clone(),
-                    work_item_id: acc.work_item_id.clone(),
-                }),
-            },
-            202,
-        )
-        .expect("stop");
-
-    // 2. Five consecutive failures -> CouldntFinish -> attempt 6 Try again -> Finished!
-    let acc_fail = engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-fail-5").expect("idem"),
-                command: CommandPayload::MessageSubmit(SubmitMessagePayload {
-                    patient_workspace_id: ws_a1.clone(),
-                    chat_id: chat.clone(),
-                    text: "Fault injection test".to_owned(),
-                    physician_time_zone: "UTC".to_owned(),
-                    delivery: None,
-                }),
-            },
-            300,
-        )
-        .expect("submit");
-
-    let mut faulty_stub = StubProvider::clinical_two_round_fixture(src_a1);
-    faulty_stub.remaining_failures = MAX_FAILURE_ATTEMPTS;
+    // 2. Five transient failures exhaust retry budget; 6th attempt succeeds.
+    let wi_retry = WorkItemId::new("wi-retry").expect("wi");
+    adapter.insert_turn(ws.clone(), chat.clone(), wi_retry.clone(), "Retry me");
+    let mut fail_stub = StubProvider::clinical_two_round_fixture(allowed);
+    fail_stub.remaining_failures = DEFAULT_MAX_FAILURE_ATTEMPTS;
     let fresh_cancel = CancellationToken::new();
 
-    for expected_fail in 1..MAX_FAILURE_ATTEMPTS {
-        let res = agent
+    for expected in 1..DEFAULT_MAX_FAILURE_ATTEMPTS {
+        let out = agent
             .run_turn_attempt(
-                &mut engine,
-                &acc_fail.work_item_id,
-                &mut faulty_stub,
+                &mut adapter,
+                &wi_retry,
+                &mut fail_stub,
                 &tools,
                 &fresh_cancel,
-                300 + u64::from(expected_fail),
+                300,
             )
-            .expect("retryable failure");
+            .expect("retryable");
         assert_eq!(
-            res,
+            out,
             TurnExecutionOutcome::ScheduledRetry {
-                failed_attempts: expected_fail
+                failed_attempts: expected
             }
         );
     }
-
     let fifth = agent
         .run_turn_attempt(
-            &mut engine,
-            &acc_fail.work_item_id,
-            &mut faulty_stub,
+            &mut adapter,
+            &wi_retry,
+            &mut fail_stub,
+            &tools,
+            &fresh_cancel,
+            305,
+        )
+        .expect("exhausted");
+    assert_eq!(
+        fifth,
+        TurnExecutionOutcome::ExhaustedCouldntFinish {
+            failed_attempts: DEFAULT_MAX_FAILURE_ATTEMPTS
+        }
+    );
+    let sixth = agent
+        .run_turn_attempt(
+            &mut adapter,
+            &wi_retry,
+            &mut fail_stub,
             &tools,
             &fresh_cancel,
             310,
         )
-        .expect("5th failure");
-    assert_eq!(
-        fifth,
-        TurnExecutionOutcome::ExhaustedCouldntFinish {
-            failed_attempts: MAX_FAILURE_ATTEMPTS
-        }
-    );
-
-    let expected_run_id = match &engine.exchange(&acc_fail.work_item_id).expect("ex").answer {
-        AnswerState::CouldntFinish { try_again: Some(h) } => h.expected_run_id.clone(),
-        other => panic!("expected CouldntFinish handle, got {other:?}"),
-    };
-
-    // Click Try again -> attempt 6 succeeds!
-    engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-try-again-6").expect("idem"),
-                command: CommandPayload::WorkResume(ResumeWorkPayload {
-                    patient_workspace_id: ws_a1,
-                    chat_id: chat,
-                    work_item_id: acc_fail.work_item_id.clone(),
-                    expected_run_id,
-                }),
-            },
-            320,
-        )
-        .expect("try again accepted");
-
-    let sixth = agent
-        .run_turn_attempt(
-            &mut engine,
-            &acc_fail.work_item_id,
-            &mut faulty_stub,
-            &tools,
-            &fresh_cancel,
-            321,
-        )
-        .expect("attempt 6 succeeds");
+        .expect("recovers on 6th");
     assert!(matches!(sixth, TurnExecutionOutcome::Finished { .. }));
-}
 
-#[test]
-fn clinical_tool_enforces_cross_patient_isolation_fail_closed() {
-    let (prac_a, phys_1, ws_a1, _, _, src_b1, store) = build_fixture_store();
-    let chat = ChatId::new("chat-iso").expect("chat");
-    let mut engine = ChatEngine::new(RetryBackoffMode::DeterministicTest);
-    let acc = engine
-        .execute_command(
-            CommandEnvelope {
-                idempotency_key: IdempotencyKey::new("idem-iso").expect("idem"),
-                command: CommandPayload::MessageSubmit(SubmitMessagePayload {
-                    patient_workspace_id: ws_a1,
-                    chat_id: chat,
-                    text: "Attempt cross-patient source read".to_owned(),
-                    physician_time_zone: "UTC".to_owned(),
-                    delivery: None,
-                }),
-            },
-            400,
-        )
-        .expect("submit");
-
-    let search = SearchChartTool {
-        practice_id: prac_a.clone(),
-        physician_id: phys_1.clone(),
-        store: &store,
-    };
-    let read = ReadRecordsTool {
-        practice_id: prac_a,
-        physician_id: phys_1,
-        store: &store,
-    };
-    let tools: [&dyn ClinicalTool; 2] = [&search, &read];
-
-    // Configure stub to attempt reading Patient B's source_key from Patient A's workspace.
-    let mut bad_stub = StubProvider::clinical_two_round_fixture(src_b1);
-    let mut agent = AgentLoop::new();
-    let cancel = CancellationToken::new();
-
+    // 3. Tool access denial fails closed.
+    let wi_denied = WorkItemId::new("wi-denied").expect("wi");
+    adapter.insert_turn(ws, chat, wi_denied.clone(), "Cross-scope read");
+    let mut bad_stub = StubProvider::clinical_two_round_fixture(forbidden);
     let err = agent
         .run_turn_attempt(
-            &mut engine,
-            &acc.work_item_id,
+            &mut adapter,
+            &wi_denied,
             &mut bad_stub,
             &tools,
-            &cancel,
-            401,
+            &fresh_cancel,
+            400,
         )
-        .expect_err("cross-patient read must fail closed");
-    assert_eq!(
+        .expect_err("must fail closed");
+    assert!(matches!(
         err,
-        HarnessError::Tool(ToolError::Access(WorkspaceAccessError::NotFound))
-    );
+        HarnessError::Tool(ToolError::AccessDenied { .. })
+    ));
 }

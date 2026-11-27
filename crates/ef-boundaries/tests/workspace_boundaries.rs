@@ -88,7 +88,12 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
         CrateManifestSummary {
             name: "ef-harness".to_owned(),
             path: PathBuf::from("crates/ef-harness/Cargo.toml"),
-            dependencies: vec!["ef-mobile-domain".to_owned(), "sqlx".to_owned()],
+            dependencies: vec![
+                "ef-clinic-domain".to_owned(),
+                "ef-mobile-domain".to_owned(),
+                "sqlx".to_owned(),
+                "bevy".to_owned(),
+            ],
         },
         CrateManifestSummary {
             name: "ef-clinical-lib".to_owned(),
@@ -112,10 +117,23 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
         crate_name: "ef-mobile-domain".to_owned(),
         forbidden_dep: "ef-clinic-domain".to_owned(),
     }));
-    assert!(violations.contains(&BoundaryViolation::CrossProductImport {
-        crate_name: "ef-harness".to_owned(),
-        forbidden_dep: "ef-mobile-domain".to_owned(),
-    }));
+    assert!(
+        violations.contains(&BoundaryViolation::SharedCrateImportsProduct {
+            crate_name: "ef-harness".to_owned(),
+            forbidden_dep: "ef-clinic-domain".to_owned(),
+        })
+    );
+    assert!(
+        violations.contains(&BoundaryViolation::SharedCrateImportsProduct {
+            crate_name: "ef-harness".to_owned(),
+            forbidden_dep: "ef-mobile-domain".to_owned(),
+        })
+    );
+    assert!(
+        violations.contains(&BoundaryViolation::HeadlessCrateDependsOnBevy {
+            crate_name: "ef-harness".to_owned(),
+        })
+    );
     assert!(
         violations.contains(&BoundaryViolation::HarnessDependsOnPersistence {
             crate_name: "ef-harness".to_owned(),

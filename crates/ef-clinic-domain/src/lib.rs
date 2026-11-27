@@ -4,4 +4,5 @@
 
 pub mod auth;
 pub mod chat;
+pub mod harness_adapter;
 pub mod workspace;

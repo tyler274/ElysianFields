@@ -8,6 +8,7 @@ description = "Headless Curie Clinic M2 domain state machines and invariants: au
 
 [dependencies]
 ef-core = { workspace = true }
+ef-harness = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

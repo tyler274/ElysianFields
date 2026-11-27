@@ -9,9 +9,11 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::{self, File, OpenOptions};
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
 
 use ef_clinic_domain::auth::{EmailAddress, PhysicianAccount, VerificationTokenKind};
 use ef_clinic_domain::chat::{CommandEnvelope, ExchangeStep};
@@ -301,9 +303,33 @@ pub enum WalError {
     },
 }
 
+/// Cross-instance RAII lock guard serializing multi-instance WAL access on native hosts.
+#[derive(Debug)]
+pub struct WalLockGuard {
+    #[cfg(not(target_arch = "wasm32"))]
+    lock_path: PathBuf,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for WalLockGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.lock_path);
+    }
+}
+
 /// Sink abstraction implemented by [`DurableClinicStore`] on native hosts and [`InMemoryWal`] in unit/wasm tests.
 pub trait WalSink: Send {
     fn append(&mut self, entry: &WalEntry) -> Result<(), WalError>;
+
+    /// Reads any newly appended WAL entries written by peer instances since the last sync.
+    fn sync_new_entries(&mut self) -> Result<Vec<WalEntry>, WalError> {
+        Ok(Vec::new())
+    }
+
+    /// Acquires an optional cross-instance directory lock for serializing concurrent multi-instance requests.
+    fn acquire_cross_instance_lock(&self) -> Result<Option<WalLockGuard>, WalError> {
+        Ok(None)
+    }
 }
 
 /// Pure in-memory WAL sink used for cross-platform router unit checks.
@@ -338,7 +364,10 @@ impl WalSink for InMemoryWal {
 #[derive(Debug)]
 pub struct DurableClinicStore {
     wal_path: PathBuf,
+    lock_path: PathBuf,
     file: File,
+    synced_offset: u64,
+    lines_read: usize,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -348,20 +377,30 @@ impl DurableClinicStore {
     pub fn open(data_dir: &Path) -> Result<(Self, Vec<WalEntry>), WalError> {
         fs::create_dir_all(data_dir)?;
         let wal_path = data_dir.join(WAL_FILE_NAME);
+        let lock_path = data_dir.join(".clinic-wal.lock");
 
         let mut existing_entries = Vec::new();
+        let mut synced_offset = 0u64;
+        let mut lines_read = 0usize;
         if wal_path.exists() {
             let reader_file = File::open(&wal_path)?;
-            let reader = BufReader::new(reader_file);
-            for (idx, line_res) in reader.lines().enumerate() {
-                let line = line_res?;
-                let trimmed = line.trim();
+            let mut reader = BufReader::new(reader_file);
+            let mut buf = String::new();
+            loop {
+                buf.clear();
+                let bytes = reader.read_line(&mut buf)?;
+                if bytes == 0 {
+                    break;
+                }
+                synced_offset = synced_offset.saturating_add(bytes as u64);
+                lines_read = lines_read.saturating_add(1);
+                let trimmed = buf.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
                 let entry: WalEntry =
                     serde_json::from_str(trimmed).map_err(|source| WalError::Json {
-                        line: idx + 1,
+                        line: lines_read,
                         source,
                     })?;
                 existing_entries.push(entry);
@@ -373,7 +412,16 @@ impl DurableClinicStore {
             .append(true)
             .open(&wal_path)?;
 
-        Ok((Self { wal_path, file }, existing_entries))
+        Ok((
+            Self {
+                wal_path,
+                lock_path,
+                file,
+                synced_offset,
+                lines_read,
+            },
+            existing_entries,
+        ))
     }
 
     /// Returns the filesystem path of the active WAL file.
@@ -386,12 +434,84 @@ impl DurableClinicStore {
 #[cfg(not(target_arch = "wasm32"))]
 impl WalSink for DurableClinicStore {
     fn append(&mut self, entry: &WalEntry) -> Result<(), WalError> {
+        let len_before = self.file.metadata()?.len();
         let mut line =
             serde_json::to_string(entry).map_err(|source| WalError::Json { line: 0, source })?;
         line.push('\n');
         self.file.write_all(line.as_bytes())?;
         self.file.flush()?;
         self.file.sync_all()?;
+        if len_before == self.synced_offset {
+            self.synced_offset = len_before.saturating_add(line.len() as u64);
+            self.lines_read = self.lines_read.saturating_add(1);
+        }
         Ok(())
+    }
+
+    fn sync_new_entries(&mut self) -> Result<Vec<WalEntry>, WalError> {
+        if !self.wal_path.exists() {
+            return Ok(Vec::new());
+        }
+        let file_len = fs::metadata(&self.wal_path)?.len();
+        if file_len <= self.synced_offset {
+            return Ok(Vec::new());
+        }
+
+        let mut reader_file = File::open(&self.wal_path)?;
+        reader_file.seek(SeekFrom::Start(self.synced_offset))?;
+        let mut reader = BufReader::new(reader_file);
+        let mut new_entries = Vec::new();
+        let mut buf = String::new();
+        loop {
+            buf.clear();
+            let bytes = reader.read_line(&mut buf)?;
+            if bytes == 0 {
+                break;
+            }
+            if !buf.ends_with('\n') {
+                // Partial uncommitted line: wait for peer fsync.
+                break;
+            }
+            self.synced_offset = self.synced_offset.saturating_add(bytes as u64);
+            self.lines_read = self.lines_read.saturating_add(1);
+            let trimmed = buf.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let entry: WalEntry =
+                serde_json::from_str(trimmed).map_err(|source| WalError::Json {
+                    line: self.lines_read,
+                    source,
+                })?;
+            new_entries.push(entry);
+        }
+        Ok(new_entries)
+    }
+
+    fn acquire_cross_instance_lock(&self) -> Result<Option<WalLockGuard>, WalError> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&self.lock_path)
+            {
+                Ok(_) => {
+                    return Ok(Some(WalLockGuard {
+                        lock_path: self.lock_path.clone(),
+                    }));
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Instant::now() >= deadline {
+                        return Err(WalError::Io(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "timed out waiting for shared clinic WAL lock",
+                        )));
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(err) => return Err(WalError::Io(err)),
+            }
+        }
     }
 }
