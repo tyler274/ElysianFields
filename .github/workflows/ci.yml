@@ -72,7 +72,10 @@ jobs:
   rust-native:
     name: Rust native
     needs: [scope]
-    if: needs.scope.outputs.full == 'true' || needs.scope.outputs.native == 'true'
+    if: >-
+      needs.scope.outputs.full == 'true' ||
+      needs.scope.outputs.native == 'true' ||
+      (github.event_name == 'pull_request' && needs.scope.outputs.client_only == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -97,6 +100,7 @@ jobs:
         with:
           key: native
           shared-key: native
+          cache-on-failure: true
       - name: Check formatting and host Clippy lints
         run: |
           set -o pipefail
@@ -148,24 +152,32 @@ jobs:
       - name: Cache wasm32 Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm32
-          shared-key: wasm32
-      - name: Check wasm32 Clippy lints
+          key: wasm32-v2
+          shared-key: wasm32-v2
+          cache-on-failure: true
+      - name: Select Wasm-targeted workspace crates
+        id: wasm-crates
+        run: |
+          args="$(python3 scripts/ci_scope.py wasm-crates)"
+          echo "args=${args}" >> "$GITHUB_OUTPUT"
+          echo "Selected Wasm build crates: ${args}"
+      - name: Check wasm32 Clippy lints across workspace
         run: |
           set -o pipefail
           cargo clippy --workspace --target wasm32-unknown-unknown -- -D warnings 2>&1 \
             | python3 scripts/ci_dep_audit.py --label "rust-wasm clippy" --workspace-root "$PWD"
-      - name: Build wasm32 target (dev on PR)
-        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
+      - name: Build wasm32 client crates (dev — warms PR cache on main)
         run: |
           set -o pipefail
-          cargo build --locked --workspace --target wasm32-unknown-unknown 2>&1 \
+          # shellcheck disable=SC2086
+          cargo build --locked --target wasm32-unknown-unknown ${{ steps.wasm-crates.outputs.args }} 2>&1 \
             | python3 scripts/ci_dep_audit.py --label "rust-wasm dev" --workspace-root "$PWD"
-      - name: Build wasm32 release artifacts once on main
+      - name: Build wasm32 release client artifacts once on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -o pipefail
-          cargo build --locked --release --workspace --target wasm32-unknown-unknown 2>&1 \
+          # shellcheck disable=SC2086
+          cargo build --locked --release --target wasm32-unknown-unknown ${{ steps.wasm-crates.outputs.args }} 2>&1 \
             | python3 scripts/ci_dep_audit.py --label "rust-wasm release" --workspace-root "$PWD"
           mkdir -p dist/wasm
           shopt -s nullglob
