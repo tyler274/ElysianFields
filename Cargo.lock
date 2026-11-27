@@ -1768,6 +1768,7 @@ name = "ef-mobile-client"
 version = "0.1.0"
 dependencies = [
  "accesskit",
+ "android-activity",
  "bevy",
  "ef-connected-care",
  "ef-core",
@@ -2650,6 +2651,7 @@ dependencies = [
 name = "m1-mobile-lifecycle"
 version = "0.1.0"
 dependencies = [
+ "android-activity",
  "bevy",
 ]
 

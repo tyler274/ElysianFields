@@ -14,5 +14,8 @@ bevy = { workspace = true, features = [
     "bevy_window",
 ] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6.1", features = ["native-activity"] }
+
 [lints]
 workspace = true
