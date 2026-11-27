@@ -2,13 +2,18 @@
 //!
 //! Strictly product-isolated from Curie Clinic (`ef-clinic-*` is forbidden by `ef-boundaries`).
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http_transport;
 pub mod plugin;
 pub mod transport;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use http_transport::{LiveHttpMobileTransport, LiveMobileHttpResponse};
 pub use plugin::{
     CurieMobileClientPlugin, MobileClientCommand, MobileClientCommandQueue, MobileClientState,
     MobileTab, MobileTransportResource, MobileVisibility,
 };
 pub use transport::{
-    LocalMobileTransport, MobileApiEndpoint, MobileClientTransport, MobileTransportError,
+    AccountDeleteReceipt, ConnectedCareStatusResult, LocalMobileTransport, MobileApiEndpoint,
+    MobileClientTransport, MobileTransportError,
 };
