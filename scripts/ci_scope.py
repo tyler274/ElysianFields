@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from typing import Iterable
 
@@ -63,6 +64,7 @@ CI_SCRIPT_EXACT: frozenset[str] = frozenset(
     {
         "scripts/ci_scope.py",
         "scripts/ci_timings.py",
+        "scripts/ci_dep_audit.py",
         "scripts/dev-check.sh",
     }
 )
@@ -72,6 +74,19 @@ CLIENT_WEB_PREFIXES: tuple[str, ...] = (
     "assets/web/",
     "crates/client-web/",
     "crates/elysian-web/",
+)
+
+CLIENT_UI_CRATES: frozenset[str] = frozenset(
+    {
+        "ef-ui-catalog",
+        "ef-clinic-client",
+        "ef-mobile-client",
+        "elysian-bevy-probe",
+        "m1-accessibility",
+        "m1-streaming-perf",
+        "m1-text-i18n",
+        "m1-web-delivery",
+    }
 )
 
 DESKTOP_PREFIXES: tuple[str, ...] = (
@@ -87,10 +102,25 @@ MOBILE_PREFIXES: tuple[str, ...] = (
     "crates/elysian-mobile/",
 )
 
+MOBILE_CRATES: frozenset[str] = frozenset(
+    {
+        "m1-mobile-lifecycle",
+    }
+)
+
 SERVER_PREFIXES: tuple[str, ...] = (
     "infra/",
     "crates/server/",
     "crates/elysian-server/",
+)
+
+HEADLESS_SERVER_CRATES: frozenset[str] = frozenset(
+    {
+        "ef-clinic-server",
+        "ef-mobile-server",
+        "ef-harness",
+        "ef-boundaries",
+    }
 )
 
 
@@ -125,7 +155,17 @@ def is_client_web_path(path: str) -> bool:
     if path.startswith(CLIENT_WEB_PREFIXES):
         return True
     crate = _crate_dir(path)
-    return bool(crate and (crate.endswith("-web") or crate.endswith("-wasm")))
+    if not crate:
+        return False
+    if crate in CLIENT_UI_CRATES:
+        return True
+    return (
+        crate.endswith("-web")
+        or crate.endswith("-wasm")
+        or crate.endswith("-client")
+        or crate.endswith("-ui")
+        or crate.endswith("-ui-catalog")
+    )
 
 
 def is_desktop_path(path: str) -> bool:
@@ -139,20 +179,25 @@ def is_mobile_path(path: str) -> bool:
     if path.startswith(MOBILE_PREFIXES):
         return True
     crate = _crate_dir(path)
-    return bool(crate and crate.endswith("-mobile"))
+    if not crate:
+        return False
+    return crate in MOBILE_CRATES or crate.endswith("-mobile")
 
 
 def is_server_path(path: str) -> bool:
     if path.startswith(SERVER_PREFIXES):
         return True
     crate = _crate_dir(path)
-    return bool(
-        crate
-        and (
-            crate.endswith("-server")
-            or crate.endswith("-backend")
-            or crate.endswith("-api")
-        )
+    if not crate:
+        return False
+    if crate in HEADLESS_SERVER_CRATES:
+        return True
+    return (
+        crate.endswith("-server")
+        or crate.endswith("-backend")
+        or crate.endswith("-api")
+        or crate.endswith("-harness")
+        or crate.endswith("-boundaries")
     )
 
 
@@ -211,8 +256,9 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
         if path.startswith("scripts/test_") and path.endswith(".py"):
             continue
 
-        if is_client_web_path(path):
-            wasm = True
+        if is_server_path(path):
+            server = True
+            native = True
             continue
 
         if is_desktop_path(path):
@@ -225,14 +271,13 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
             native = True
             continue
 
-        if is_server_path(path):
-            server = True
-            native = True
+        if is_client_web_path(path):
+            wasm = True
             continue
 
         if path.startswith("crates/"):
-            # Shared workspace crates (e.g. elysian-smoke, shared domain/UI) must
-            # build and lint cleanly on both host native and wasm32 targets.
+            # Shared workspace crates (e.g. elysian-smoke, ef-core, ef-clinic-domain)
+            # must build and lint cleanly on both host native and wasm32 targets.
             native = True
             wasm = True
             continue
@@ -264,6 +309,33 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
         "client_only": client_only,
         "full": full,
     }
+
+
+def wasm_build_crates(workspace_root: Path | None = None) -> list[str]:
+    """Return workspace package names that target browser/Wasm builds.
+
+    Excludes headless server, harness, boundary, desktop-only, and native-mobile-only
+    crates so `cargo build --target wasm32-unknown-unknown` compiles only crates that
+    actually participate in Wasm client delivery (while `cargo clippy --workspace
+    --target wasm32-unknown-unknown` still checks cross-compilation across the tree).
+    """
+    root = workspace_root or Path(__file__).resolve().parent.parent
+    manifest = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    members = manifest.get("workspace", {}).get("members", [])
+
+    selected: list[str] = []
+    for member in members:
+        probe_path = member.rstrip("/") + "/Cargo.toml"
+        if is_server_path(probe_path) or is_desktop_path(probe_path) or is_mobile_path(probe_path):
+            continue
+        crate_toml = root / member / "Cargo.toml"
+        if not crate_toml.is_file():
+            continue
+        pkg = tomllib.loads(crate_toml.read_text(encoding="utf-8")).get("package", {})
+        name = pkg.get("name")
+        if isinstance(name, str) and name:
+            selected.append(name)
+    return selected
 
 
 def parse_name_status_z(raw: bytes) -> list[str]:
@@ -451,7 +523,10 @@ def verify_result(
     is_wasm = outputs.get("wasm") == "true"
     is_client_only = outputs.get("client_only") == "true"
 
-    if is_full or is_native:
+    # PRs editing client/UI crates still run native unit tests; `main` client-only
+    # merges skip `rust-native` to deploy static `/elysianfields/` assets without
+    # rebuilding server binaries.
+    if is_full or is_native or (event_name == "pull_request" and is_client_only):
         require_success("rust-native")
 
     if is_full or is_wasm or is_client_only:
@@ -496,6 +571,15 @@ def cmd_result(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wasm_crates(_args: argparse.Namespace) -> int:
+    crates = wasm_build_crates()
+    if not crates:
+        print("No wasm-targeted workspace crates found.", file=sys.stderr)
+        return 1
+    print(" ".join(f"-p {name}" for name in crates))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ci_scope.py",
@@ -504,6 +588,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("select", help="Classify changed files and write CI scope outputs.")
     sub.add_parser("result", help="Verify every selected CI job succeeded from CI_NEEDS.")
+    sub.add_parser(
+        "wasm-crates",
+        help="Emit Cargo `-p <crate>` arguments for Wasm-targeted workspace crates.",
+    )
     return parser
 
 
@@ -514,6 +602,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_select(args)
     if args.command == "result":
         return cmd_result(args)
+    if args.command == "wasm-crates":
+        return cmd_wasm_crates(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 

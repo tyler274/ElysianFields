@@ -10,6 +10,8 @@ from pathlib import Path
 
 import ci_scope
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 
 class ClassifyPathsTests(unittest.TestCase):
     def test_empty_paths_is_docs_only(self) -> None:
@@ -34,20 +36,44 @@ class ClassifyPathsTests(unittest.TestCase):
         self.assertTrue(scope["native"])
         self.assertTrue(scope["wasm"])
 
-    def test_client_web_only_sets_client_only_and_wasm(self) -> None:
-        scope = ci_scope.classify_paths(["web/index.html", "crates/elysian-web/src/lib.rs"])
-        self.assertFalse(scope["docs_only"])
-        self.assertTrue(scope["wasm"])
-        self.assertTrue(scope["client_only"])
-        self.assertFalse(scope["native"])
-        self.assertFalse(scope["server"])
-        self.assertFalse(scope["full"])
+    def test_client_web_and_ui_crates_set_client_only_and_wasm(self) -> None:
+        for paths in (
+            ["web/elysianfields/index.html"],
+            ["crates/ef-ui-catalog/src/lib.rs"],
+            ["crates/ef-clinic-client/src/lib.rs"],
+            ["web/index.html", "crates/elysian-web/src/lib.rs"],
+            ["crates/m1-web-delivery/src/lib.rs"],
+        ):
+            scope = ci_scope.classify_paths(paths)
+            self.assertFalse(scope["docs_only"], f"paths={paths}")
+            self.assertTrue(scope["wasm"], f"paths={paths}")
+            self.assertTrue(scope["client_only"], f"paths={paths}")
+            self.assertFalse(scope["native"], f"paths={paths}")
+            self.assertFalse(scope["server"], f"paths={paths}")
+            self.assertFalse(scope["full"], f"paths={paths}")
 
-    def test_server_only_skips_wasm_and_client_only(self) -> None:
-        scope = ci_scope.classify_paths(["crates/elysian-server/src/main.rs"])
+    def test_headless_server_harness_boundaries_skip_wasm_and_client_only(self) -> None:
+        for paths in (
+            ["crates/ef-clinic-server/src/main.rs"],
+            ["crates/ef-harness/src/lib.rs"],
+            ["crates/ef-boundaries/src/lib.rs"],
+            ["crates/elysian-server/src/main.rs"],
+            ["infra/gcp/main.tf"],
+        ):
+            scope = ci_scope.classify_paths(paths)
+            self.assertTrue(scope["server"], f"paths={paths}")
+            self.assertTrue(scope["native"], f"paths={paths}")
+            self.assertFalse(scope["wasm"], f"paths={paths}")
+            self.assertFalse(scope["client_only"], f"paths={paths}")
+            self.assertFalse(scope["full"], f"paths={paths}")
+
+    def test_mixed_server_and_client_disables_client_only(self) -> None:
+        scope = ci_scope.classify_paths(
+            ["crates/ef-clinic-server/src/main.rs", "crates/ef-clinic-client/src/lib.rs"]
+        )
         self.assertTrue(scope["server"])
         self.assertTrue(scope["native"])
-        self.assertFalse(scope["wasm"])
+        self.assertTrue(scope["wasm"])
         self.assertFalse(scope["client_only"])
         self.assertFalse(scope["full"])
 
@@ -64,23 +90,34 @@ class ClassifyPathsTests(unittest.TestCase):
         self.assertFalse(mobile_scope["desktop"])
         self.assertFalse(mobile_scope["client_only"])
 
-    def test_shared_crate_runs_native_and_wasm(self) -> None:
-        scope = ci_scope.classify_paths(["crates/elysian-smoke/src/lib.rs"])
-        self.assertFalse(scope["docs_only"])
-        self.assertTrue(scope["native"])
-        self.assertTrue(scope["wasm"])
-        self.assertFalse(scope["client_only"])
-        self.assertFalse(scope["full"])
+        lifecycle_scope = ci_scope.classify_paths(["crates/m1-mobile-lifecycle/src/lib.rs"])
+        self.assertTrue(lifecycle_scope["mobile"])
+        self.assertTrue(lifecycle_scope["native"])
+        self.assertFalse(lifecycle_scope["wasm"])
 
-    def test_root_manifest_triggers_full(self) -> None:
-        scope = ci_scope.classify_paths(["Cargo.toml"])
-        self.assertTrue(scope["full"])
-        self.assertTrue(scope["native"])
-        self.assertTrue(scope["wasm"])
-        self.assertTrue(scope["desktop"])
-        self.assertTrue(scope["mobile"])
-        self.assertTrue(scope["server"])
-        self.assertFalse(scope["client_only"])
+    def test_shared_domain_crates_run_native_and_wasm(self) -> None:
+        for path in (
+            "crates/elysian-smoke/src/lib.rs",
+            "crates/ef-core/src/lib.rs",
+            "crates/ef-clinic-domain/src/lib.rs",
+        ):
+            scope = ci_scope.classify_paths([path])
+            self.assertFalse(scope["docs_only"], f"path={path}")
+            self.assertTrue(scope["native"], f"path={path}")
+            self.assertTrue(scope["wasm"], f"path={path}")
+            self.assertFalse(scope["client_only"], f"path={path}")
+            self.assertFalse(scope["full"], f"path={path}")
+
+    def test_root_manifest_and_workflow_trigger_full(self) -> None:
+        for path in ("Cargo.toml", "Cargo.lock", ".github/workflows/ci.yml", "scripts/ci_scope.py"):
+            scope = ci_scope.classify_paths([path])
+            self.assertTrue(scope["full"], f"path={path}")
+            self.assertTrue(scope["native"], f"path={path}")
+            self.assertTrue(scope["wasm"], f"path={path}")
+            self.assertTrue(scope["desktop"], f"path={path}")
+            self.assertTrue(scope["mobile"], f"path={path}")
+            self.assertTrue(scope["server"], f"path={path}")
+            self.assertFalse(scope["client_only"], f"path={path}")
 
     def test_parse_name_status_z_handles_renames(self) -> None:
         raw = b"R100\0docs/old.md\0crates/elysian-web/src/new.rs\0M\0README.md\0"
@@ -89,6 +126,16 @@ class ClassifyPathsTests(unittest.TestCase):
             parsed,
             ["docs/old.md", "crates/elysian-web/src/new.rs", "README.md"],
         )
+
+    def test_wasm_build_crates_excludes_headless_server_and_mobile_only(self) -> None:
+        crates = ci_scope.wasm_build_crates(REPO_ROOT)
+        self.assertIn("elysian-smoke", crates)
+        self.assertIn("elysian-bevy-probe", crates)
+        self.assertIn("m1-web-delivery", crates)
+        self.assertIn("ef-ui-catalog", crates)
+        self.assertNotIn("ef-harness", crates)
+        self.assertNotIn("ef-boundaries", crates)
+        self.assertNotIn("m1-mobile-lifecycle", crates)
 
 
 class SelectScopeGitTests(unittest.TestCase):
@@ -176,7 +223,35 @@ class VerifyResultTests(unittest.TestCase):
             [],
         )
 
-    def test_main_client_only_requires_wasm_deny_and_deploy_client(self) -> None:
+    def test_main_server_only_skips_wasm_and_deploy_client(self) -> None:
+        needs = {
+            "scope": {
+                "result": "success",
+                "outputs": {
+                    "docs_only": "false",
+                    "native": "true",
+                    "wasm": "false",
+                    "server": "true",
+                    "client_only": "false",
+                    "full": "false",
+                },
+            },
+            "lightweight": {"result": "success"},
+            "rust-native": {"result": "success"},
+            "rust-wasm": {"result": "skipped"},
+            "cargo-deny": {"result": "success"},
+            "deploy-client": {"result": "skipped"},
+        }
+        self.assertEqual(
+            ci_scope.verify_result(
+                needs,
+                event_name="push",
+                ref_name="refs/heads/main",
+            ),
+            [],
+        )
+
+    def test_main_client_only_skips_native_and_requires_deploy_client(self) -> None:
         needs = {
             "scope": {
                 "result": "success",
@@ -201,6 +276,28 @@ class VerifyResultTests(unittest.TestCase):
         )
         self.assertEqual(len(failures), 1)
         self.assertIn("deploy-client", failures[0])
+
+    def test_pr_client_only_requires_native_tests_and_wasm(self) -> None:
+        needs = {
+            "scope": {
+                "result": "success",
+                "outputs": {
+                    "docs_only": "false",
+                    "native": "false",
+                    "wasm": "true",
+                    "client_only": "true",
+                    "full": "false",
+                },
+            },
+            "lightweight": {"result": "success"},
+            "rust-native": {"result": "skipped"},
+            "rust-wasm": {"result": "success"},
+            "cargo-deny": {"result": "success"},
+            "deploy-client": {"result": "skipped"},
+        }
+        failures = ci_scope.verify_result(needs, event_name="pull_request")
+        self.assertEqual(len(failures), 1)
+        self.assertIn("rust-native", failures[0])
 
     def test_pr_full_requires_native_wasm_deny_not_deploy_client(self) -> None:
         needs = {
