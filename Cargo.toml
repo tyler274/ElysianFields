@@ -16,6 +16,7 @@ members = [
     "crates/ef-clinic-server",
     "crates/ef-clinic-client",
     "crates/ef-connected-care",
+    "crates/ef-clinic-workflows",
 ]
 
 [workspace.package]
@@ -32,6 +33,7 @@ elysian-smoke = { path = "crates/elysian-smoke" }
 # Shared serialization and typed-error crates for M2/M3 headless services and clients.
 ef-core = { path = "crates/ef-core" }
 ef-clinic-domain = { path = "crates/ef-clinic-domain" }
+ef-clinic-workflows = { path = "crates/ef-clinic-workflows" }
 ef-harness = { path = "crates/ef-harness" }
 ef-ui-catalog = { path = "crates/ef-ui-catalog" }
 ef-connected-care = { path = "crates/ef-connected-care" }
