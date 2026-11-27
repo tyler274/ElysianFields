@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+# Rootless multi-stage production image for the standalone Curie Mobile backend
+# (`ef-mobile-server`) with isolated WAL data and independent privacy receipt journal.
+
+FROM rust:1.99.1-slim-bookworm AS builder
+
+WORKDIR /src
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml deny.toml ./
+COPY crates ./crates
+
+RUN cargo build --locked --release -p ef-mobile-server --bin ef-mobile-server
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 --system elysian \
+    && useradd --uid 10001 --gid 10001 --system --no-create-home --shell /usr/sbin/nologin elysian \
+    && mkdir -p /var/lib/elysian/mobile-data /var/lib/elysian/mobile-journal \
+    && chown -R 10001:10001 /var/lib/elysian/mobile-data /var/lib/elysian/mobile-journal
+
+COPY --from=builder /src/target/release/ef-mobile-server /usr/local/bin/ef-mobile-server
+
+ENV EF_MOBILE_BIND=0.0.0.0:8089 \
+    EF_MOBILE_DATA_DIR=/var/lib/elysian/mobile-data \
+    EF_MOBILE_JOURNAL_DIR=/var/lib/elysian/mobile-journal
+
+USER 10001:10001
+EXPOSE 8089
+
+HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8089/elysianfields/mobile-api/readyz >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/ef-mobile-server"]
