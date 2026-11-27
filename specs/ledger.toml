@@ -23,13 +23,13 @@ scenario_id = "SCN-CLINIC-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -38,13 +38,13 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719414: macos-15 full 26-crate tests + ARM64 binaries + swift test)
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719406: windows-latest full 26-crate tests + MSVC .exe binaries)
 
 [[requirements]]
 id = "EF-CLINIC-0002"
@@ -65,8 +65,8 @@ scenario_id = "SCN-M2-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -75,25 +75,25 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719414: macos-15 full 26-crate tests + ARM64 binaries + swift test)
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719406: windows-latest full 26-crate tests + MSVC .exe binaries)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-CLINIC-0003"
@@ -107,8 +107,8 @@ scenario_id = "SCN-M2-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [[requirements]]
 id = "EF-CLINIC-0004"
@@ -122,8 +122,8 @@ scenario_id = "SCN-M2-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [[requirements]]
 id = "EF-CLINIC-0005"
@@ -137,13 +137,13 @@ scenario_id = "SCN-M2-0004"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [[requirements]]
 id = "EF-CLINIC-0006"
@@ -157,8 +157,8 @@ scenario_id = "SCN-M2-0005"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -167,15 +167,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-CLINIC-0007"
@@ -189,8 +189,8 @@ scenario_id = "SCN-M2-0006"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -199,15 +199,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-CLINIC-0008"
@@ -221,13 +221,13 @@ scenario_id = "SCN-M2-0007"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0009"
@@ -241,13 +241,13 @@ scenario_id = "SCN-M2-0008"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-HARNESS-0001"
@@ -261,13 +261,13 @@ scenario_id = "SCN-M2-0009"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-PLATFORM-0001"
@@ -281,13 +281,13 @@ scenario_id = "SCN-M2-0010"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-PLATFORM-0002"
@@ -301,8 +301,8 @@ scenario_id = "SCN-M2-0011"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -311,13 +311,13 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (macos-15 job 140665588115)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719414: macos-15 full 26-crate tests + ARM64 binaries + swift test)
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (windows-latest job 140665588503)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719406: windows-latest full 26-crate tests + MSVC .exe binaries)
 
 [[requirements]]
 id = "EF-PLATFORM-0003"
@@ -331,8 +331,8 @@ scenario_id = "SCN-M2-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -341,15 +341,15 @@ evidence = "docs/m2/verification-and-estimate.md"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-CLINIC-0010"
@@ -363,8 +363,8 @@ scenario_id = "SCN-M3-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.desktop-linux]
 state = "passed"
@@ -373,8 +373,8 @@ evidence = "docs/m3/verification-report.md"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0011"
@@ -388,13 +388,13 @@ scenario_id = "SCN-M3-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0012"
@@ -408,13 +408,13 @@ scenario_id = "SCN-M3-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0013"
@@ -428,13 +428,13 @@ scenario_id = "SCN-M3-0004"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0014"
@@ -448,8 +448,8 @@ scenario_id = "SCN-M3-0005"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CLINIC-0015"
@@ -463,8 +463,8 @@ scenario_id = "SCN-M3-0006"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-MOBILE-0001"
@@ -478,20 +478,20 @@ scenario_id = "SCN-M3-0007"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-MOBILE-0002"
@@ -505,25 +505,25 @@ scenario_id = "SCN-M3-0008"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-MOBILE-0003"
@@ -537,15 +537,15 @@ scenario_id = "SCN-M3-0009"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-MOBILE-0004"
@@ -559,25 +559,25 @@ scenario_id = "SCN-M3-0010"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-MOBILE-0005"
@@ -591,20 +591,20 @@ scenario_id = "SCN-M3-0011"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [[requirements]]
 id = "EF-CONN-0001"
@@ -618,30 +618,30 @@ scenario_id = "SCN-M3-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & kotlinc shim build passed (Run 46055614256, job 140697627939)"
+reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check & executable Kotlin EFSS v1 byte-parity suite passed (Run 46068563081, job 140739719525)"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "1681209"
+revision = "e0756a4"
 evidence = "docs/m5/disposition-and-retirement.md"
-reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & swiftc -typecheck passed on macos-15 (Run 46055614256, job 140697627709)"
+reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15 (Run 46068563081, job 140739719414)"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-CONN-0002"
@@ -655,18 +655,18 @@ scenario_id = "SCN-M3-0013"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-HARNESS-0002"
@@ -680,8 +680,8 @@ scenario_id = "SCN-M3-0014"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-HARNESS-0003"
@@ -695,8 +695,8 @@ scenario_id = "SCN-M3-0015"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-HARNESS-0004"
@@ -710,8 +710,8 @@ scenario_id = "SCN-M3-0016"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-EXT-0001"
@@ -740,13 +740,13 @@ scenario_id = "SCN-M3-0018"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright JS-disabled public/Dei job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (jobs 140739719394 & 140739719496: JS-disabled public/Dei + rootless uid=10001 OCI container smoke)
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
 
 [[requirements]]
 id = "EF-PUBLIC-0002"
@@ -760,18 +760,18 @@ scenario_id = "SCN-M3-0019"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright JS-disabled public/Dei job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (jobs 140739719394 & 140739719496: JS-disabled public/Dei + rootless uid=10001 OCI container smoke)
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (Playwright Chromium/Firefox/WebKit job 140665588452)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_clinic_client.wasm 1.734 MiB Brotli-11 under strict CSP in Chromium/Firefox/WebKit)
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "1681209"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46055614256 (job 140697627559: Pixel 7 Chromium + iPhone 14 WebKit LTR/RTL/offline + 1.55 MiB Wasm strict-CSP; web/elysianfields/mobile/ + scripts/browser_e2e.py)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719394: compiled ef_mobile_client.wasm 1.682 MiB Brotli-11 + Pixel 7/iPhone 14 LTR/RTL/offline under strict CSP)
 
 [[requirements]]
 id = "EF-PLATFORM-0004"
@@ -785,5 +785,5 @@ scenario_id = "SCN-M3-0020"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "a9f7abd"
-evidence = "docs/m5/disposition-and-retirement.md" # Run 46046078022 (PostgreSQL 18.7 job 140665588493 + macOS/Windows workspace tests)
+revision = "e0756a4"
+evidence = "docs/m5/disposition-and-retirement.md" # Run 46068563081 (job 140739719087: live PG18 ef-pgwire SCRAM-SHA-256 durability + migrations + live 3-server E2E)
