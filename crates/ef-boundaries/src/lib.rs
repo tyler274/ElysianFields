@@ -201,6 +201,7 @@ pub fn is_headless_crate(name: &str) -> bool {
             | "ef-patient-bank"
             | "ef-extension"
             | "ef-public-site"
+            | "ef-migration-rehearsal"
     ) || name.ends_with("-domain")
         || name.ends_with("-server")
         || name.ends_with("-worker")

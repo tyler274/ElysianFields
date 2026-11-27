@@ -67,6 +67,7 @@ class ClassifyPathsTests(unittest.TestCase):
             ["crates/ef-patient-bank/src/lib.rs"],
             ["crates/ef-extension/src/lib.rs"],
             ["crates/ef-public-site/src/lib.rs"],
+            ["crates/ef-migration-rehearsal/src/lib.rs"],
             ["crates/elysian-server/src/main.rs"],
             ["infra/gcp/main.tf"],
         ):

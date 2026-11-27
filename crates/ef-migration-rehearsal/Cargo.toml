@@ -1,0 +1,21 @@
+[package]
+name = "ef-migration-rehearsal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "M4 Vicissitude headless data migration rehearsal, single-writer domain fencing, privacy receipt restore replay, zero-side-effect shadow mode, pending-job drain, and rollback verification."
+
+[dependencies]
+ef-core = { workspace = true }
+ef-clinic-domain = { workspace = true }
+ef-clinic-workflows = { workspace = true }
+ef-mobile-domain = { workspace = true }
+ef-connected-care = { workspace = true }
+ef-patient-bank = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -1744,6 +1744,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-migration-rehearsal"
+version = "0.1.0"
+dependencies = [
+ "ef-clinic-domain",
+ "ef-clinic-workflows",
+ "ef-connected-care",
+ "ef-core",
+ "ef-mobile-domain",
+ "ef-patient-bank",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ef-mobile-client"
 version = "0.1.0"
 dependencies = [
