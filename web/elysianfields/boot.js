@@ -4,12 +4,14 @@
  * Responsibilities:
  * - Enforces segment-bounded `/elysianfields` subpath mounting without domain-root assumptions.
  * - Mounts the single-owner ARIA tree via `./a11y-bridge.js` (`ElysianNarrowA11yBridge`).
+ * - Supports 12 locales / 7 complex writing systems (`en`, `he`, `ar`, `zh-Hans`, `ja`, `vi`, `hi`),
+ *   reading Rust-owned `snapshot.chrome` from Wasm when loaded with full fallback coverage.
  * - Connects to live `/elysianfields/api/...` HTTP/SSE endpoints when backed by `ef-clinic-server`.
- * - Supports optional compiled Bevy Wasm module loading under `/elysianfields/pkg/`.
  * - Handles WebGPU/WebGL2 capability detection and in-place `webglcontextlost`/`webglcontextrestored`.
  */
 
 import { ElysianNarrowA11yBridge } from "./a11y-bridge.js";
+import { getLocaleMeta, mergeChrome, normalizeLocaleTag } from "./locales.js";
 import {
   isWasmModuleAdvertised,
   loadBevyWasmClient,
@@ -226,7 +228,7 @@ function attachContextLossRecovery(canvas, state, bridge) {
   });
 }
 
-function buildInitialA11yPatches(draftValue) {
+function buildInitialA11yPatches(draftValue, chrome) {
   return [
     {
       kind: "UpsertElement",
@@ -234,7 +236,7 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "100",
         controlKey: "nav-patient-roster",
         role: "navigation",
-        name: "Patient roster navigation",
+        name: chrome.patient_roster,
       },
     },
     {
@@ -243,7 +245,7 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "101",
         controlKey: "btn-patient-1",
         role: "button",
-        name: "Select synthetic patient Avery, Jordan",
+        name: chrome.sample_patient,
         selected: true,
         tabOrder: "Sequential",
       },
@@ -254,7 +256,7 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "200",
         controlKey: "main-clinical-workspace",
         role: "main",
-        name: "Clinical workspace main region",
+        name: chrome.workspace_heading,
       },
     },
     {
@@ -263,7 +265,7 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "201",
         controlKey: "region-transcript-stream",
         role: "region",
-        name: "Clinical transcript stream",
+        name: chrome.transcript_heading,
       },
     },
     {
@@ -272,7 +274,7 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "202",
         controlKey: "textbox-composer",
         role: "textbox",
-        name: "Clinical prompt composer",
+        name: chrome.composer_label,
         value: draftValue,
         tabOrder: "Sequential",
       },
@@ -283,13 +285,13 @@ function buildInitialA11yPatches(draftValue) {
         nodeId: "203",
         controlKey: "button-send-prompt",
         role: "button",
-        name: "Send clinical prompt",
+        name: chrome.send,
         tabOrder: "Sequential",
       },
     },
     {
       kind: "SetPoliteLive",
-      text: "Curie Clinic accessibility tree mounted under /elysianfields/.",
+      text: `${chrome.status_ready} (${MOUNT_PREFIX}/).`,
     },
   ];
 }
@@ -317,24 +319,64 @@ function appendListItem(listId, text) {
   if (!list) return;
   const li = document.createElement("li");
   li.className = "transcript-item";
+  li.dir = "auto";
   li.textContent = text;
   list.appendChild(li);
 }
 
-function applyClinicDocumentLocale(lang, explicitDirection = null) {
-  const raw = String(lang || "en").trim();
-  const isArabic = raw.toLowerCase().startsWith("ar");
-  const normalizedLang = raw || "en";
-  const dir = explicitDirection === "rtl" || explicitDirection === "ltr"
-    ? explicitDirection
-    : isArabic
-      ? "rtl"
-      : "ltr";
+function applyClinicDocumentLocale(
+  lang,
+  explicitDirection = null,
+  wasmSnapshot = null,
+  replaceDraft = false,
+) {
+  const normalizedLang = normalizeLocaleTag(lang);
+  const meta = getLocaleMeta(normalizedLang);
+  const dir =
+    explicitDirection === "rtl" || explicitDirection === "ltr"
+      ? explicitDirection
+      : meta.dir;
+  const chrome = mergeChrome(normalizedLang, wasmSnapshot);
+
   document.documentElement.lang = normalizedLang;
   document.documentElement.dir = dir;
   document.documentElement.dataset.efLang = normalizedLang;
   document.documentElement.dataset.efDir = dir;
-  return { lang: normalizedLang, dir };
+  document.documentElement.dataset.efScript = meta.script;
+  document.documentElement.dataset.efAutonym = wasmSnapshot?.autonym || meta.autonym;
+
+  const selectEl = document.getElementById("locale-select");
+  if (selectEl && selectEl.value !== normalizedLang) {
+    selectEl.value = normalizedLang;
+  }
+
+  setText("clinic-title", chrome.app_brand);
+  setText("label-locale", chrome.language_label);
+  setText("heading-roster", chrome.patient_roster);
+  setText("label-signin-email", chrome.clinician_email);
+  setText("btn-signin", chrome.sign_in);
+  setText("btn-refresh-roster", chrome.reload_roster);
+  setText("sample-patient-btn", chrome.sample_patient);
+  setText("heading-workspace", chrome.workspace_heading);
+  setText("heading-evidence", chrome.evidence_heading);
+  setText("sample-evidence-item", chrome.sample_evidence);
+  setText("heading-transcript", chrome.transcript_heading);
+  setText("sample-transcript-item", chrome.sample_transcript);
+  setText("label-composer", chrome.composer_label);
+  setText("btn-send-prompt", chrome.send);
+  setText("btn-load-wasm", chrome.load_wasm);
+  setText("heading-diagnostics", chrome.diagnostics_heading);
+  setText("metric-locale", `${dir} / ${normalizedLang} (${meta.script})`);
+
+  const composerEl = document.getElementById("composer-draft");
+  if (composerEl) {
+    composerEl.placeholder = chrome.composer_placeholder;
+    if (replaceDraft) {
+      composerEl.value = chrome.composer_placeholder;
+    }
+  }
+
+  return { lang: normalizedLang, dir, script: meta.script, chrome };
 }
 
 async function boot() {
@@ -346,9 +388,13 @@ async function boot() {
     preservedDraft: "",
     activeWorkspaceId: "ws-demo-1",
     lastAction: null,
+    lang: "en",
+    dir: "ltr",
+    script: "Latn",
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
     lastWasmSnapshot: null,
+    userEditedDraft: false,
   };
 
   document.addEventListener("securitypolicyviolation", () => {
@@ -363,11 +409,20 @@ async function boot() {
   setText("metric-subpath", withinMount ? `${pathname} (valid)` : `${pathname} (invalid-mount)`);
 
   const searchParams = new URLSearchParams(window.location.search);
-  const requestedLang = searchParams.get("lang");
-  applyClinicDocumentLocale(requestedLang || "en");
+  const requestedLang = searchParams.get("lang") || "en";
+  let localeInfo = applyClinicDocumentLocale(requestedLang, null, null, true);
+  state.lang = localeInfo.lang;
+  state.dir = localeInfo.dir;
+  state.script = localeInfo.script;
 
   const appRoot = document.getElementById("elysian-app") ?? document.body;
   const composerEl = document.getElementById("composer-draft");
+  if (composerEl) {
+    composerEl.addEventListener("input", () => {
+      state.userEditedDraft = true;
+    });
+  }
+
   let wasmClient = null;
   const bridge = new ElysianNarrowA11yBridge(
     appRoot,
@@ -375,6 +430,7 @@ async function boot() {
       state.lastAction = action;
       if (action.type === "set_value" && composerEl && typeof action.value === "string") {
         composerEl.value = action.value;
+        state.userEditedDraft = true;
         if (wasmClient) {
           const updated = wasmClient.dispatch({
             cmd: "set_composer_text",
@@ -410,7 +466,10 @@ async function boot() {
       });
       let snapshot = wasmClient.initialSnapshot;
       if (requestedLang) {
-        const localized = wasmClient.dispatch({ cmd: "set_locale", lang: requestedLang });
+        const localized = wasmClient.dispatch({
+          cmd: "set_locale",
+          lang: normalizeLocaleTag(requestedLang),
+        });
         if (localized && localized.ok) {
           snapshot = localized;
         }
@@ -430,7 +489,15 @@ async function boot() {
       a11yOwner = "rust-accesskit";
       probeCode = `${state.wasmRuntime}-v${wasmClient.abiVersion}`;
       wasmInitMs = wasmClient.loadMs;
-      applyClinicDocumentLocale(snapshot.locale, snapshot.direction);
+      localeInfo = applyClinicDocumentLocale(
+        snapshot.locale || requestedLang,
+        snapshot.direction,
+        snapshot,
+        !state.userEditedDraft,
+      );
+      state.lang = localeInfo.lang;
+      state.dir = localeInfo.dir;
+      state.script = localeInfo.script;
       syncRustA11yNodes(
         bridge,
         snapshot,
@@ -438,10 +505,48 @@ async function boot() {
       );
     } catch (_err) {
       wasmClient = null;
-      bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? ""));
+      bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? "", localeInfo.chrome));
     }
   } else {
-    bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? ""));
+    bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? "", localeInfo.chrome));
+  }
+
+  const switchClinicLocale = (nextLang) => {
+    const normalized = normalizeLocaleTag(nextLang);
+    if (wasmClient) {
+      const snap = wasmClient.dispatch({ cmd: "set_locale", lang: normalized });
+      if (snap && snap.ok) {
+        state.lastWasmSnapshot = snap;
+        localeInfo = applyClinicDocumentLocale(
+          snap.locale || normalized,
+          snap.direction,
+          snap,
+          !state.userEditedDraft,
+        );
+        state.lang = localeInfo.lang;
+        state.dir = localeInfo.dir;
+        state.script = localeInfo.script;
+        const count = syncRustA11yNodes(bridge, snap);
+        setText("metric-a11y-nodes", count);
+        document.documentElement.dataset.efA11yNodes = String(count);
+        setText("status-banner", `${localeInfo.chrome.status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+        return localeInfo;
+      }
+    }
+    localeInfo = applyClinicDocumentLocale(normalized, null, null, !state.userEditedDraft);
+    state.lang = localeInfo.lang;
+    state.dir = localeInfo.dir;
+    state.script = localeInfo.script;
+    bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? "", localeInfo.chrome));
+    setText("status-banner", `${localeInfo.chrome.status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+    return localeInfo;
+  };
+
+  const localeSelect = document.getElementById("locale-select");
+  if (localeSelect) {
+    localeSelect.addEventListener("change", (event) => {
+      switchClinicLocale(event.target.value);
+    });
   }
 
   const nodeCount = bridge.projectedNodeCount();
@@ -493,7 +598,7 @@ async function boot() {
       event.preventDefault();
       const text = composerEl?.value?.trim() ?? "";
       if (!text) return;
-      appendListItem("transcript-list", `Clinician: ${text}`);
+      appendListItem("transcript-list", text);
       if (wasmClient) {
         const updated = wasmClient.dispatch({ cmd: "set_composer_text", text });
         state.lastWasmSnapshot = updated;
@@ -546,7 +651,7 @@ async function boot() {
     "status-banner",
     backendLabel === "unsupported"
       ? "Hardware-accelerated browser graphics unavailable; accessible shell active."
-      : `Curie Clinic ready on ${backendLabel} under ${MOUNT_PREFIX}/ (${nodeCount} ARIA nodes, ${state.cspViolations} CSP violations).`,
+      : `${localeInfo.chrome.status_ready} (${backendLabel} · ${localeInfo.dir.toUpperCase()} · ${localeInfo.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP).`,
   );
 
   document.documentElement.dataset.efReady = "true";
@@ -575,12 +680,16 @@ async function boot() {
     mountPrefix: MOUNT_PREFIX,
     apiClient,
     bridge,
+    setLocale: (lang) => switchClinicLocale(lang),
     dispatchWasm: (cmd) => {
       if (!wasmClient) return null;
       const snap = wasmClient.dispatch(cmd);
       state.lastWasmSnapshot = snap;
       if (snap && snap.ok) {
-        applyClinicDocumentLocale(snap.locale, snap.direction);
+        localeInfo = applyClinicDocumentLocale(snap.locale, snap.direction, snap, false);
+        state.lang = localeInfo.lang;
+        state.dir = localeInfo.dir;
+        state.script = localeInfo.script;
         syncRustA11yNodes(bridge, snap);
         const count = bridge.projectedNodeCount();
         setText("metric-a11y-nodes", count);

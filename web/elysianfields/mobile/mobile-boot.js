@@ -4,13 +4,15 @@
  * Responsibilities:
  * - Touch-friendly layout with zero horizontal overflow on 390x844 / 412x915 viewports.
  * - Single-owner ARIA landmark/control projection via `../a11y-bridge.js`.
- * - Live Arabic RTL switching (`?lang=ar` or interactive toggle button).
+ * - Full 12-locale / 7-script localization (`en`, `he`, `ar`, `zh-Hans`, `ja`, `vi`, `hi`)
+ *   with live RTL switching for Hebrew (`he`) and Arabic (`ar`).
  * - Live `/elysianfields/mobile-api/*` client (sign-in, offline owed sign-out queue,
  *   Connected Care DOB verify/share, For my doctor curated send).
  * - Offline Service Worker registration (`./sw.js`) preserving crisis lines (`988`, `911`, `SAMHSA`).
  */
 
 import { ElysianNarrowA11yBridge } from "../a11y-bridge.js";
+import { getLocaleMeta, mergeChrome, normalizeLocaleTag } from "../locales.js";
 import {
   isWasmModuleAdvertised,
   loadBevyWasmClient,
@@ -149,33 +151,57 @@ export class MobileApiClient {
   }
 }
 
-function applyLocaleAndDirection(lang, explicitDirection = null) {
-  const raw = String(lang || "en").trim();
-  const isArabic = raw.toLowerCase().startsWith("ar");
-  const normalizedLang = raw || "en";
+function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = null) {
+  const normalizedLang = normalizeLocaleTag(lang);
+  const meta = getLocaleMeta(normalizedLang);
   const dir =
     explicitDirection === "rtl" || explicitDirection === "ltr"
       ? explicitDirection
-      : isArabic
-        ? "rtl"
-        : "ltr";
+      : meta.dir;
+  const chrome = mergeChrome(normalizedLang, wasmSnapshot);
 
   document.documentElement.lang = normalizedLang;
   document.documentElement.dir = dir;
   document.documentElement.dataset.efLang = normalizedLang;
   document.documentElement.dataset.efDir = dir;
+  document.documentElement.dataset.efScript = meta.script;
+  document.documentElement.dataset.efAutonym = wasmSnapshot?.autonym || meta.autonym;
 
-  setText("mobile-title", isArabic ? "كوري موبايل" : "Curie Mobile");
-  setText(
-    "crisis-heading",
-    isArabic ? "الدعم الفوري للأزمات والتعافي (988 / 911 / SAMHSA)" : "Immediate Crisis & Recovery Support",
-  );
-  setText("btn-toggle-lang", isArabic ? "English (LTR)" : "العربية (RTL)");
-  setText("mobile-metric-dir", `${dir} / ${normalizedLang}`);
-  return { lang: normalizedLang, dir };
+  const selectEl = document.getElementById("locale-select");
+  if (selectEl && selectEl.value !== normalizedLang) {
+    selectEl.value = normalizedLang;
+  }
+
+  setText("mobile-title", chrome.mobile_brand);
+  setText("crisis-heading", chrome.crisis_heading);
+  setText("btn-toggle-lang", dir === "rtl" ? "English (LTR)" : "العربية (RTL)");
+  setText("nav-account", chrome.nav_account);
+  setText("nav-connected-care", chrome.nav_connected_care);
+  setText("nav-for-my-doctor", chrome.nav_for_my_doctor);
+  setText("heading-account", chrome.account_heading);
+  setText("label-mobile-email", chrome.patient_email);
+  setText("btn-mobile-signin", chrome.sign_in);
+  setText("btn-mobile-signout", chrome.sign_out);
+  setText("heading-connected-care", chrome.connected_care_heading);
+  setText("label-invite-code", chrome.invite_code_label);
+  setText("label-verify-dob", chrome.verify_dob_label);
+  setText("btn-verify-dob", chrome.verify_dob);
+  setText("btn-share-consent", chrome.share);
+  setText("heading-for-my-doctor", chrome.for_my_doctor_heading);
+  setText("label-doctor-note", chrome.doctor_note_label);
+  setText("btn-send-doctor", chrome.review_and_send);
+  setText("heading-mobile-diagnostics", chrome.mobile_diagnostics);
+  setText("mobile-metric-dir", `${dir} / ${normalizedLang} (${meta.script})`);
+
+  const noteEl = document.getElementById("doctor-note");
+  if (noteEl) {
+    noteEl.placeholder = chrome.doctor_note_placeholder;
+  }
+
+  return { lang: normalizedLang, dir, script: meta.script, chrome };
 }
 
-function buildMobileA11yPatches(noteValue) {
+function buildMobileA11yPatches(noteValue, chrome) {
   return [
     {
       kind: "UpsertElement",
@@ -183,7 +209,7 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "300",
         controlKey: "nav-mobile-sections",
         role: "navigation",
-        name: "Curie Mobile navigation",
+        name: `${chrome.mobile_brand} — ${chrome.nav_account}`,
       },
     },
     {
@@ -192,7 +218,7 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "301",
         controlKey: "region-crisis-support",
         role: "region",
-        name: "Immediate crisis support 988, 911, and SAMHSA National Helpline",
+        name: chrome.crisis_heading,
       },
     },
     {
@@ -201,7 +227,7 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "302",
         controlKey: "main-mobile-workspace",
         role: "main",
-        name: "Curie Mobile workspace",
+        name: chrome.mobile_brand,
       },
     },
     {
@@ -210,7 +236,7 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "303",
         controlKey: "button-connected-care-share",
         role: "button",
-        name: "Confirm Connected Care Share",
+        name: chrome.share,
         tabOrder: "Sequential",
       },
     },
@@ -220,7 +246,7 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "304",
         controlKey: "textbox-doctor-note",
         role: "textbox",
-        name: "For my doctor curated note",
+        name: chrome.doctor_note_label,
         value: noteValue,
         tabOrder: "Sequential",
       },
@@ -231,13 +257,13 @@ function buildMobileA11yPatches(noteValue) {
         nodeId: "305",
         controlKey: "button-offline-signout",
         role: "button",
-        name: "Sign out safely offline",
+        name: chrome.sign_out,
         tabOrder: "Sequential",
       },
     },
     {
       kind: "SetPoliteLive",
-      text: "Curie Mobile accessibility tree mounted under /elysianfields/mobile/.",
+      text: `${chrome.mobile_status_ready} (${MOBILE_MOUNT_PREFIX}/).`,
     },
   ];
 }
@@ -268,6 +294,7 @@ async function bootMobile() {
     cspViolations: 0,
     lang: "en",
     dir: "ltr",
+    script: "Latn",
     lastAction: null,
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
@@ -282,9 +309,10 @@ async function bootMobile() {
 
   const params = new URLSearchParams(window.location.search);
   const initialLang = params.get("lang") || (params.get("dir") === "rtl" ? "ar" : "en");
-  const localeInfo = applyLocaleAndDirection(initialLang);
+  let localeInfo = applyLocaleAndDirection(initialLang);
   state.lang = localeInfo.lang;
   state.dir = localeInfo.dir;
+  state.script = localeInfo.script;
 
   const pathname = window.location.pathname;
   const withinMount = isWithinMobileMount(pathname);
@@ -328,8 +356,9 @@ async function bootMobile() {
         dispatchFn: "ef_mobile_wasm_dispatch_json",
       });
       let snapshot = wasmClient.initialSnapshot;
-      if (initialLang && initialLang.toLowerCase() !== "en") {
-        const localized = wasmClient.dispatch({ cmd: "set_locale", lang: initialLang });
+      const normalizedInit = normalizeLocaleTag(initialLang);
+      if (normalizedInit !== "en") {
+        const localized = wasmClient.dispatch({ cmd: "set_locale", lang: normalizedInit });
         if (localized && localized.ok) {
           snapshot = localized;
         }
@@ -338,9 +367,14 @@ async function bootMobile() {
       state.wasmAbiVersion = wasmClient.abiVersion;
       state.lastWasmSnapshot = snapshot;
       a11yOwner = "rust-accesskit";
-      const syncedLocale = applyLocaleAndDirection(snapshot.locale, snapshot.direction);
-      state.lang = syncedLocale.lang;
-      state.dir = syncedLocale.dir;
+      localeInfo = applyLocaleAndDirection(
+        snapshot.locale || normalizedInit,
+        snapshot.direction,
+        snapshot,
+      );
+      state.lang = localeInfo.lang;
+      state.dir = localeInfo.dir;
+      state.script = localeInfo.script;
       syncRustA11yNodes(
         bridge,
         snapshot,
@@ -348,10 +382,10 @@ async function bootMobile() {
       );
     } catch (_err) {
       wasmClient = null;
-      bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? ""));
+      bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? "", localeInfo.chrome));
     }
   } else {
-    bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? ""));
+    bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? "", localeInfo.chrome));
   }
 
   const nodeCount = bridge.projectedNodeCount();
@@ -360,39 +394,46 @@ async function bootMobile() {
   const apiClient = new MobileApiClient();
 
   const applyMobileLocale = (nextLang) => {
+    const normalized = normalizeLocaleTag(nextLang);
     if (wasmClient) {
-      const snap = wasmClient.dispatch({ cmd: "set_locale", lang: nextLang });
+      const snap = wasmClient.dispatch({ cmd: "set_locale", lang: normalized });
       if (snap && snap.ok) {
         state.lastWasmSnapshot = snap;
-        const updated = applyLocaleAndDirection(snap.locale, snap.direction);
-        state.lang = updated.lang;
-        state.dir = updated.dir;
+        localeInfo = applyLocaleAndDirection(snap.locale || normalized, snap.direction, snap);
+        state.lang = localeInfo.lang;
+        state.dir = localeInfo.dir;
+        state.script = localeInfo.script;
         const count = syncRustA11yNodes(
           bridge,
           snap,
-          updated.dir === "rtl" ? "Switched to Arabic RTL layout." : "Switched to English LTR layout.",
+          `${localeInfo.chrome.mobile_status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`,
         );
         setText("mobile-metric-a11y", count);
         document.documentElement.dataset.efA11yNodes = String(count);
-        return updated;
+        setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+        return localeInfo;
       }
     }
-    const updated = applyLocaleAndDirection(nextLang);
-    state.lang = updated.lang;
-    state.dir = updated.dir;
-    bridge.applyPatches([
-      {
-        kind: "SetPoliteLive",
-        text: updated.dir === "rtl" ? "Switched to Arabic RTL layout." : "Switched to English LTR layout.",
-      },
-    ]);
-    return updated;
+    localeInfo = applyLocaleAndDirection(normalized);
+    state.lang = localeInfo.lang;
+    state.dir = localeInfo.dir;
+    state.script = localeInfo.script;
+    bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? "", localeInfo.chrome));
+    setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+    return localeInfo;
   };
+
+  const localeSelect = document.getElementById("locale-select");
+  if (localeSelect) {
+    localeSelect.addEventListener("change", (event) => {
+      applyMobileLocale(event.target.value);
+    });
+  }
 
   const toggleBtn = document.getElementById("btn-toggle-lang");
   if (toggleBtn) {
     toggleBtn.addEventListener("click", () => {
-      const nextLang = state.lang === "ar" ? "en" : "ar";
+      const nextLang = state.dir === "rtl" ? "en" : "ar";
       applyMobileLocale(nextLang);
     });
   }
@@ -456,13 +497,34 @@ async function bootMobile() {
     });
   }
 
+  const doctorNoteForm = document.getElementById("doctor-note-form");
+  if (doctorNoteForm) {
+    doctorNoteForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = noteEl?.value?.trim() ?? "";
+      if (!text) return;
+      const list = document.getElementById("doctor-sent-list");
+      if (list) {
+        const li = document.createElement("li");
+        li.className = "sent-item";
+        li.dir = "auto";
+        li.textContent = text;
+        list.appendChild(li);
+      }
+      if (wasmClient) {
+        const snap = wasmClient.dispatch({ cmd: "edit_draft", text });
+        state.lastWasmSnapshot = snap;
+        syncRustA11yNodes(bridge, snap);
+      }
+      setText("mobile-status", `${localeInfo.chrome.for_my_doctor_heading}: ${text}`);
+    });
+  }
+
   const coldStartMs = performance.now() - navStartMs;
 
   setText(
     "mobile-status",
-    state.dir === "rtl"
-      ? `كوري موبايل جاهز (${nodeCount} ARIA).`
-      : `Curie Mobile ready (${state.dir.toUpperCase()}, ${nodeCount} ARIA nodes, ${state.cspViolations} CSP violations).`,
+    `${localeInfo.chrome.mobile_status_ready} (${state.dir.toUpperCase()} · ${state.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP).`,
   );
 
   document.documentElement.dataset.efMobileReady = "true";
@@ -487,9 +549,10 @@ async function bootMobile() {
       const snap = wasmClient.dispatch(cmd);
       state.lastWasmSnapshot = snap;
       if (snap && snap.ok) {
-        const updated = applyLocaleAndDirection(snap.locale, snap.direction);
-        state.lang = updated.lang;
-        state.dir = updated.dir;
+        localeInfo = applyLocaleAndDirection(snap.locale, snap.direction, snap);
+        state.lang = localeInfo.lang;
+        state.dir = localeInfo.dir;
+        state.script = localeInfo.script;
         const count = syncRustA11yNodes(bridge, snap);
         setText("mobile-metric-a11y", count);
         document.documentElement.dataset.efA11yNodes = String(count);

@@ -1,0 +1,353 @@
+/**
+ * Shared 12-locale / 7-script clinical UI chrome fallback catalog for Elysian Fields
+ * web shells (`/elysianfields/` and `/elysianfields/mobile/`).
+ *
+ * When a compiled Rust Bevy Wasm module is loaded, `snapshot.chrome` from Rust
+ * (`ef-ui-catalog`) is authoritative and overlays these entries.
+ * Zero secrets, strict-CSP safe, pure ES module.
+ */
+
+export const SUPPORTED_LOCALES = [
+  { code: "en", dir: "ltr", script: "Latn", autonym: "English" },
+  { code: "he", dir: "rtl", script: "Hebr", autonym: "עברית (Hebrew · RTL)" },
+  { code: "ar", dir: "rtl", script: "Arab", autonym: "العربية (Arabic · RTL)" },
+  { code: "zh-Hans", dir: "ltr", script: "Hans", autonym: "简体中文 (Chinese)" },
+  { code: "ja", dir: "ltr", script: "Jpan", autonym: "日本語 (Japanese)" },
+  { code: "vi", dir: "ltr", script: "Latn-VN", autonym: "Tiếng Việt (Vietnamese)" },
+  { code: "hi", dir: "ltr", script: "Deva", autonym: "हिन्दी (Hindi · Devanagari)" },
+  { code: "es", dir: "ltr", script: "Latn", autonym: "Español" },
+  { code: "fr", dir: "ltr", script: "Latn", autonym: "Français" },
+  { code: "pt", dir: "ltr", script: "Latn", autonym: "Português" },
+  { code: "de", dir: "ltr", script: "Latn", autonym: "Deutsch" },
+  { code: "ko", dir: "ltr", script: "Kore", autonym: "한국어" },
+];
+
+const LOCALE_BY_CODE = new Map(SUPPORTED_LOCALES.map((entry) => [entry.code, entry]));
+
+export function normalizeLocaleTag(raw) {
+  const cleaned = String(raw || "en").trim().replace(/_/g, "-");
+  if (!cleaned) return "en";
+  if (LOCALE_BY_CODE.has(cleaned)) return cleaned;
+  const lower = cleaned.toLowerCase();
+  if (lower === "he" || lower.startsWith("he-") || lower === "iw" || lower.startsWith("iw-")) {
+    return "he";
+  }
+  if (lower === "ar" || lower.startsWith("ar-")) return "ar";
+  if (
+    lower === "zh" ||
+    lower === "zh-hans" ||
+    lower.startsWith("zh-cn") ||
+    lower.startsWith("zh-sg") ||
+    lower.startsWith("zh-hans")
+  ) {
+    return "zh-Hans";
+  }
+  if (lower === "ja" || lower.startsWith("ja-")) return "ja";
+  if (lower === "vi" || lower.startsWith("vi-")) return "vi";
+  if (lower === "hi" || lower.startsWith("hi-")) return "hi";
+  if (lower === "es" || lower.startsWith("es-")) return "es";
+  if (lower === "fr" || lower.startsWith("fr-")) return "fr";
+  if (lower === "pt" || lower.startsWith("pt-")) return "pt";
+  if (lower === "de" || lower.startsWith("de-")) return "de";
+  if (lower === "ko" || lower.startsWith("ko-")) return "ko";
+  return "en";
+}
+
+export function getLocaleMeta(raw) {
+  const code = normalizeLocaleTag(raw);
+  return LOCALE_BY_CODE.get(code) ?? SUPPORTED_LOCALES[0];
+}
+
+const FALLBACK_CHROME = {
+  en: {
+    app_brand: "Elysian Fields — Curie Clinic",
+    mobile_brand: "Curie Mobile",
+    language_label: "Language",
+    patient_roster: "Patient Roster",
+    clinician_email: "Clinician email",
+    sign_in: "Sign in",
+    reload_roster: "Reload roster",
+    workspace_heading: "Clinical Transcript & Composer",
+    evidence_heading: "Evidence Panel",
+    transcript_heading: "Transcript Stream",
+    composer_label: "Clinical prompt (preserved across context loss):",
+    composer_placeholder: "Summarize recent glycemic control (HbA1c 6.8%) and active medications.",
+    send: "Send prompt",
+    load_wasm: "Load Wasm runtime",
+    diagnostics_heading: "Delivery Diagnostics",
+    sample_patient: "Avery, Jordan (Synthetic)",
+    sample_evidence: "HbA1c 6.8% · BP 122/78 mmHg · Ready under /elysianfields/api/.",
+    sample_transcript: "Select a patient workspace or submit a clinical question below.",
+    crisis_heading: "Immediate Crisis & Recovery Support (988 / 911 / SAMHSA)",
+    nav_account: "Account",
+    nav_connected_care: "Connected Care",
+    nav_for_my_doctor: "For my doctor",
+    account_heading: "Standalone Account & Offline Sign-Out",
+    patient_email: "Patient email",
+    sign_out: "Sign out (offline-safe)",
+    connected_care_heading: "Connected Care",
+    invite_code_label: "Invitation code",
+    verify_dob_label: "Date of birth (YYYY-MM-DD)",
+    verify_dob: "Verify DOB",
+    share: "Share",
+    for_my_doctor_heading: "For My Doctor",
+    doctor_note_label: "Curated note (nothing sends until you confirm)",
+    doctor_note_placeholder: "Add a short update for your care team (BP 122/78)...",
+    review_and_send: "Review & Send",
+    mobile_diagnostics: "Mobile Diagnostics",
+    status_ready: "Curie Clinic ready",
+    mobile_status_ready: "Curie Mobile ready",
+  },
+  he: {
+    app_brand: "אליזיאן פילדס — מרפאת קירי",
+    mobile_brand: "קירי מובייל",
+    language_label: "שפה",
+    patient_roster: "רשימת מטופלים",
+    clinician_email: "דוא״ל רופא",
+    sign_in: "התחברות",
+    reload_roster: "טען רשימה מחדש",
+    workspace_heading: "תמליל קליני ועורך פניות",
+    evidence_heading: "לוח מקורות וראיות",
+    transcript_heading: "רצף השיחה הקלינית",
+    composer_label: "פנייה קלינית (נשמרת גם בשחזור תצוגה):",
+    composer_placeholder: "סכם איזון סוכרת (HbA1c 6.8%) ולחץ דם BP 122/78 · שָׁלוֹם מְטוּפָּל.",
+    send: "שלח פנייה",
+    load_wasm: "טען מנוע Wasm",
+    diagnostics_heading: "אבחון טעינה ואבטחה",
+    sample_patient: "אבי כהן (מטופל לדוגמה)",
+    sample_evidence: "תוצאת HbA1c 6.8% · לחץ דם BP 122/78 · מאומת ב־/elysianfields/api/.",
+    sample_transcript: "בחר תיק מטופל או הזן שאלה קלינית מטה · שָׁלוֹם מְטוּפָּל.",
+    crisis_heading: "סיוע מיידי למשבר והחלמה (988 / 911 / SAMHSA)",
+    nav_account: "חשבון",
+    nav_connected_care: "טיפול מקושר",
+    nav_for_my_doctor: "עבור הרופא שלי",
+    account_heading: "חשבון עצמאי והתנתקות לא מקוונת",
+    patient_email: "דוא״ל מטופל",
+    sign_out: "התנתק (בטוח ללא רשת)",
+    connected_care_heading: "טיפול מקושר",
+    invite_code_label: "קוד הזמנה",
+    verify_dob_label: "תאריך לידה (YYYY-MM-DD)",
+    verify_dob: "אמת תאריך לידה",
+    share: "שתף",
+    for_my_doctor_heading: "עבור הרופא שלי",
+    doctor_note_label: "הערה מסוכמת (דבר לא נשלח לפני אישורך)",
+    doctor_note_placeholder: "הוסף עדכון קצר לצוות המטפל (HbA1c 6.8%)...",
+    review_and_send: "סקור ושלח",
+    mobile_diagnostics: "אבחון מובייל",
+    status_ready: "מרפאת קירי מוכנה",
+    mobile_status_ready: "קירי מובייל מוכן",
+  },
+  ar: {
+    app_brand: "إليزيان فيلدز — عيادة كوري",
+    mobile_brand: "كوري موبايل",
+    language_label: "اللغة",
+    patient_roster: "قائمة المرضى",
+    clinician_email: "البريد الإلكتروني للطبيب",
+    sign_in: "تسجيل الدخول",
+    reload_roster: "إعادة تحميل القائمة",
+    workspace_heading: "السجل السريري ومحرر الأسئلة",
+    evidence_heading: "لوحة الأدلة والمصادر",
+    transcript_heading: "مسار المحادثة السريرية",
+    composer_label: "السؤال السريري (محفوظ عند استعادة السياق):",
+    composer_placeholder: "لخّص ضبط السكّري (HbA1c 6.8%) وضغط الدم BP 122/78 والأدوية الفعّالة.",
+    send: "إرسال السؤال",
+    load_wasm: "تشغيل نواة Wasm",
+    diagnostics_heading: "تشخيص التسليم والأمان",
+    sample_patient: "أحمد المنصور (مريض تجريبي)",
+    sample_evidence: "فحص HbA1c 6.8% · ضغط الدم BP 122/78 · جاهز عبر /elysianfields/api/.",
+    sample_transcript: "اختر ملف مريض أو أرسل سؤالًا سريريًا أدناه.",
+    crisis_heading: "الدعم الفوري للأزمات والتعافي (988 / 911 / SAMHSA)",
+    nav_account: "الحساب",
+    nav_connected_care: "الرعاية المتصلة",
+    nav_for_my_doctor: "لطبيبي",
+    account_heading: "الحساب المستقل وتسجيل الخروج دون اتصال",
+    patient_email: "البريد الإلكتروني للمريض",
+    sign_out: "تسجيل الخروج (آمن دون اتصال)",
+    connected_care_heading: "الرعاية المتصلة",
+    invite_code_label: "رمز الدعوة",
+    verify_dob_label: "تاريخ الميلاد (YYYY-MM-DD)",
+    verify_dob: "تحقق من تاريخ الميلاد",
+    share: "مشاركة",
+    for_my_doctor_heading: "لطبيبي",
+    doctor_note_label: "ملاحظة مختارة (لا يُرسل شيء قبل تأكيدك)",
+    doctor_note_placeholder: "أضف تحديثًا موجزًا لفريق الرعاية (BP 122/78)...",
+    review_and_send: "مراجعة وإرسال",
+    mobile_diagnostics: "تشخيص التطبيق",
+    status_ready: "عيادة كوري جاهزة",
+    mobile_status_ready: "كوري موبايل جاهز",
+  },
+  "zh-Hans": {
+    app_brand: "Elysian Fields — Curie 临床工作台",
+    mobile_brand: "Curie 移动端",
+    language_label: "语言",
+    patient_roster: "患者名单",
+    clinician_email: "医生邮箱",
+    sign_in: "登录",
+    reload_roster: "刷新名单",
+    workspace_heading: "临床对话与输入框",
+    evidence_heading: "循证依据面板",
+    transcript_heading: "临床记录流",
+    composer_label: "临床提问（上下文恢复时保留草稿）：",
+    composer_placeholder: "总结近期血糖控制情况（HbA1c 6.8%）及当前用药方案。",
+    send: "发送提问",
+    load_wasm: "加载 Wasm 运行时",
+    diagnostics_heading: "交付诊断信息",
+    sample_patient: "陈明远（模拟患者）",
+    sample_evidence: "糖化血红蛋白 HbA1c 6.8% · 血压 BP 122/78 mmHg · 已就绪。",
+    sample_transcript: "请选择患者工作区或在下方提交临床问题。",
+    crisis_heading: "即时危机与康复支持（988 / 911 / SAMHSA）",
+    nav_account: "账户",
+    nav_connected_care: "互联诊疗",
+    nav_for_my_doctor: "给我的医生",
+    account_heading: "独立账户与离线安全退出",
+    patient_email: "患者邮箱",
+    sign_out: "安全退出（支持离线）",
+    connected_care_heading: "互联诊疗",
+    invite_code_label: "邀请码",
+    verify_dob_label: "出生日期（YYYY-MM-DD）",
+    verify_dob: "验证出生日期",
+    share: "确认共享",
+    for_my_doctor_heading: "给我的医生",
+    doctor_note_label: "精选说明（未经您确认不会发送）",
+    doctor_note_placeholder: "为诊疗团队添加简短近况（血压 122/78）…",
+    review_and_send: "审阅并发送",
+    mobile_diagnostics: "移动端诊断",
+    status_ready: "Curie 临床工作台已就绪",
+    mobile_status_ready: "Curie 移动端已就绪",
+  },
+  ja: {
+    app_brand: "Elysian Fields — Curie クリニック",
+    mobile_brand: "Curie モバイル",
+    language_label: "言語",
+    patient_roster: "患者一覧",
+    clinician_email: "医師メールアドレス",
+    sign_in: "サインイン",
+    reload_roster: "一覧を再読込",
+    workspace_heading: "臨床トランスクリプト・入力欄",
+    evidence_heading: "根拠・引用パネル",
+    transcript_heading: "臨床記録ストリーム",
+    composer_label: "臨床プロンプト（描画復帰時も下書きを保持）：",
+    composer_placeholder: "最近の血糖コントロール（HbA1c 6.8%）と処方薬を要約してください。",
+    send: "送信",
+    load_wasm: "Wasm ランタイム読込",
+    diagnostics_heading: "配信診断",
+    sample_patient: "佐藤 健太（模擬患者）",
+    sample_evidence: "HbA1c 6.8% ・ 血圧 BP 122/78 mmHg ・ /elysianfields/api/ 準備完了。",
+    sample_transcript: "患者ワークスペースを選択するか、下の欄から臨床質問を送信してください。",
+    crisis_heading: "緊急危機・回復サポート（988 / 911 / SAMHSA）",
+    nav_account: "アカウント",
+    nav_connected_care: "連携診療",
+    nav_for_my_doctor: "主治医へ",
+    account_heading: "独立アカウントとオフライン安全なサインアウト",
+    patient_email: "患者メールアドレス",
+    sign_out: "サインアウト（オフライン対応）",
+    connected_care_heading: "連携診療",
+    invite_code_label: "招待コード",
+    verify_dob_label: "生年月日（YYYY-MM-DD）",
+    verify_dob: "生年月日を確認",
+    share: "共有を確定",
+    for_my_doctor_heading: "主治医へ",
+    doctor_note_label: "共有メモ（確認するまで送信されません）",
+    doctor_note_placeholder: "担当チームへの短い近況を入力（血圧 122/78）…",
+    review_and_send: "確認して送信",
+    mobile_diagnostics: "モバイル診断",
+    status_ready: "Curie クリニック準備完了",
+    mobile_status_ready: "Curie モバイル準備完了",
+  },
+  vi: {
+    app_brand: "Elysian Fields — Phòng khám Curie",
+    mobile_brand: "Curie Di động",
+    language_label: "Ngôn ngữ",
+    patient_roster: "Danh sách bệnh nhân",
+    clinician_email: "Email bác sĩ",
+    sign_in: "Đăng nhập",
+    reload_roster: "Tải lại danh sách",
+    workspace_heading: "Bản ghi lâm sàng & Soạn thảo",
+    evidence_heading: "Bảng dẫn chứng",
+    transcript_heading: "Luồng trao đổi lâm sàng",
+    composer_label: "Câu hỏi lâm sàng (giữ nguyên khi khôi phục đồ họa):",
+    composer_placeholder: "Tóm tắt kiểm soát đường huyết (HbA1c 6.8%) và phác đồ điều trị hiện tại.",
+    send: "Gửi câu hỏi",
+    load_wasm: "Tải mô-đun Wasm",
+    diagnostics_heading: "Chẩn đoán hệ thống",
+    sample_patient: "Nguyễn Thị Hương (Bệnh nhân mẫu)",
+    sample_evidence: "Chỉ số HbA1c 6.8% · Huyết áp 122/78 mmHg · Dữ liệu sẵn sàng.",
+    sample_transcript: "Chọn hồ sơ bệnh nhân hoặc gửi câu hỏi lâm sàng bên dưới.",
+    crisis_heading: "Hỗ trợ khủng hoảng & phục hồi khẩn cấp (988 / 911 / SAMHSA)",
+    nav_account: "Tài khoản",
+    nav_connected_care: "Chăm sóc kết nối",
+    nav_for_my_doctor: "Gửi bác sĩ",
+    account_heading: "Tài khoản độc lập & Đăng xuất ngoại tuyến",
+    patient_email: "Email bệnh nhân",
+    sign_out: "Đăng xuất (an toàn ngoại tuyến)",
+    connected_care_heading: "Chăm sóc kết nối",
+    invite_code_label: "Mã mời",
+    verify_dob_label: "Ngày sinh (YYYY-MM-DD)",
+    verify_dob: "Xác minh ngày sinh",
+    share: "Chia sẻ",
+    for_my_doctor_heading: "Gửi bác sĩ của tôi",
+    doctor_note_label: "Ghi chú chọn lọc (chỉ gửi khi bạn xác nhận)",
+    doctor_note_placeholder: "Thêm cập nhật ngắn về sức khỏe và huyết áp 122/78...",
+    review_and_send: "Xem lại & Gửi",
+    mobile_diagnostics: "Chẩn đoán di động",
+    status_ready: "Phòng khám Curie đã sẵn sàng",
+    mobile_status_ready: "Curie Di động đã sẵn sàng",
+  },
+  hi: {
+    app_brand: "एलिसियन फील्ड्स — क्यूरी क्लिनिक",
+    mobile_brand: "क्यूरी मोबाइल",
+    language_label: "भाषा",
+    patient_roster: "रोगी सूची",
+    clinician_email: "चिकित्सक ईमेल",
+    sign_in: "साइन इन करें",
+    reload_roster: "सूची पुनः लोड करें",
+    workspace_heading: "चिकित्सा मूल्यांकन एवं संवाद",
+    evidence_heading: "साक्ष्य पैनल",
+    transcript_heading: "चिकित्सा विवरण धारा",
+    composer_label: "चिकित्सा प्रश्न (संदर्भ पुनर्प्राप्ति पर सुरक्षित):",
+    composer_placeholder: "चिकित्सा मूल्यांकन · रक्तचाप BP 122/78 और HbA1c 6.8% का सारांश दें।",
+    send: "प्रश्न भेजें",
+    load_wasm: "Wasm रनटाइम लोड करें",
+    diagnostics_heading: "प्रणाली निदान",
+    sample_patient: "राजेश शर्मा (नकली रोगी)",
+    sample_evidence: "चिकित्सा मूल्यांकन · HbA1c 6.8% · रक्तचाप 122/78 mmHg · तैयार।",
+    sample_transcript: "रोगी कार्यक्षेत्र चुनें या नीचे चिकित्सा प्रश्न प्रस्तुत करें।",
+    crisis_heading: "तत्काल संकट एवं सहायता सेवा (988 / 911 / SAMHSA)",
+    nav_account: "खाता",
+    nav_connected_care: "जुड़ी हुई देखभाल",
+    nav_for_my_doctor: "मेरे डॉक्टर के लिए",
+    account_heading: "स्वतंत्र खाता एवं ऑफ़लाइन साइन-आउट",
+    patient_email: "रोगी ईमेल",
+    sign_out: "साइन आउट (ऑफ़लाइन सुरक्षित)",
+    connected_care_heading: "जुड़ी हुई देखभाल",
+    invite_code_label: "निमंत्रण कोड",
+    verify_dob_label: "जन्म तिथि (YYYY-MM-DD)",
+    verify_dob: "जन्म तिथि सत्यापित करें",
+    share: "साझा करें",
+    for_my_doctor_heading: "मेरे डॉक्टर के लिए",
+    doctor_note_label: "चयनित टिप्पणी (आपकी पुष्टि के बिना कुछ नहीं भेजा जाता)",
+    doctor_note_placeholder: "अपनी देखभाल टीम के लिए संक्षिप्त अद्यतन लिखें (रक्तचाप 122/78)...",
+    review_and_send: "समीक्षा करें और भेजें",
+    mobile_diagnostics: "मोबाइल निदान",
+    status_ready: "क्यूरी क्लिनिक तैयार है",
+    mobile_status_ready: "क्यूरी मोबाइल तैयार है",
+  },
+};
+
+export function mergeChrome(rawLang, wasmSnapshot = null) {
+  const code = normalizeLocaleTag(rawLang);
+  const base = FALLBACK_CHROME[code] ?? FALLBACK_CHROME.en;
+  const rustChrome = wasmSnapshot && typeof wasmSnapshot.chrome === "object" && wasmSnapshot.chrome
+    ? wasmSnapshot.chrome
+    : null;
+  if (!rustChrome) {
+    return { ...base };
+  }
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(rustChrome)) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}

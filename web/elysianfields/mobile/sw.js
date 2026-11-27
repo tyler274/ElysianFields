@@ -11,6 +11,7 @@ const PRECACHE_ASSETS = [
   "./manifest.webmanifest",
   "./wasm-manifest.json",
   "../a11y-bridge.js",
+  "../locales.js",
   "../wasm-bridge.js",
 ];
 
@@ -72,6 +73,7 @@ self.addEventListener("fetch", (event) => {
   if (
     !url.pathname.startsWith("/elysianfields/mobile") &&
     url.pathname !== "/elysianfields/a11y-bridge.js" &&
+    url.pathname !== "/elysianfields/locales.js" &&
     url.pathname !== "/elysianfields/wasm-bridge.js"
   ) {
     return;

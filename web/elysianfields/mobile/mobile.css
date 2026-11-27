@@ -1,6 +1,18 @@
 :root {
   color-scheme: light dark;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    "Noto Sans",
+    "Noto Sans Hebrew",
+    "Noto Sans Arabic",
+    "Noto Sans Devanagari",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "DejaVu Sans",
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 *,
@@ -15,7 +27,8 @@ body {
   padding: 0;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
+  line-height: 1.55;
   background: #0f172a;
   color: #f1f5f9;
 }
@@ -36,7 +49,7 @@ body {
 .mobile-shell {
   width: 100%;
   max-width: 100%;
-  margin: 0 auto;
+  margin-inline: auto;
   padding: 1rem;
   display: flex;
   flex-direction: column;
@@ -57,20 +70,31 @@ body {
   flex-wrap: wrap;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
 .mobile-header h1 {
   margin: 0;
   font-size: 1.25rem;
-  line-height: 1.3;
+  line-height: 1.4;
+  overflow-wrap: break-word;
 }
 
 .status-banner {
   margin: 0;
-  padding: 0.65rem 0.85rem;
+  padding-block: 0.65rem;
+  padding-inline: 0.85rem;
   border-radius: 0.5rem;
   background: #1e293b;
   border: 1px solid #334155;
   font-size: 0.9rem;
-  overflow-wrap: anywhere;
+  line-height: 1.5;
+  overflow-wrap: break-word;
 }
 
 .crisis-banner {
@@ -83,6 +107,8 @@ body {
 .crisis-banner h2 {
   margin: 0 0 0.45rem 0;
   font-size: 1rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
 }
 
 .crisis-list {
@@ -92,6 +118,7 @@ body {
   flex-direction: column;
   gap: 0.35rem;
   font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .crisis-list a {
@@ -115,11 +142,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  overflow-wrap: break-word;
 }
 
 .card h2 {
   margin: 0;
   font-size: 1rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
 }
 
 .stack-form {
@@ -130,27 +160,47 @@ body {
 }
 
 .touch-input,
-.touch-textarea {
+.touch-textarea,
+.touch-select {
   width: 100%;
+  max-width: 100%;
   min-height: 44px;
-  padding: 0.6rem 0.75rem;
+  padding-block: 0.6rem;
+  padding-inline: 0.75rem;
   border-radius: 0.45rem;
   border: 1px solid #475569;
   background: #020617;
   color: #f8fafc;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
   font-family: inherit;
+  unicode-bidi: plaintext;
+}
+
+.header-controls .touch-select {
+  width: auto;
+  max-width: 100%;
+  background: #1e293b;
 }
 
 .touch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 44px;
-  padding: 0.6rem 0.9rem;
+  padding-block: 0.6rem;
+  padding-inline: 0.9rem;
   border-radius: 0.45rem;
   border: 1px solid #475569;
   background: #0f172a;
   color: #f8fafc;
+  font-family: inherit;
   font-size: 0.92rem;
   font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  text-align: start;
+  overflow-wrap: break-word;
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -159,11 +209,13 @@ body {
   background: #2563eb;
   border-color: #3b82f6;
   color: #ffffff;
+  text-align: center;
 }
 
 .touch-btn:focus-visible,
 .touch-input:focus-visible,
 .touch-textarea:focus-visible,
+.touch-select:focus-visible,
 a:focus-visible {
   outline: 3px solid #93c5fd;
   outline-offset: 2px;
@@ -177,6 +229,26 @@ a:focus-visible {
 
 .btn-row .touch-btn {
   flex: 1 1 8.5rem;
+}
+
+.sent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sent-item {
+  padding-block: 0.55rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.4rem;
+  background: #0f172a;
+  border: 1px solid #334155;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  unicode-bidi: plaintext;
 }
 
 .metric-grid {
