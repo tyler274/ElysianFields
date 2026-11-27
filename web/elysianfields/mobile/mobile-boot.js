@@ -174,6 +174,15 @@ function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = 
 
   setText("mobile-title", chrome.mobile_brand);
   setText("crisis-heading", chrome.crisis_heading);
+  setText("crisis-988-label", chrome.crisis_988_label);
+  setText("crisis-988-prefix", chrome.crisis_988_prefix);
+  setText("crisis-988-suffix", chrome.crisis_988_suffix);
+  setText("crisis-911-label", chrome.crisis_911_label);
+  setText("crisis-911-prefix", chrome.crisis_911_prefix);
+  setText("crisis-911-suffix", chrome.crisis_911_suffix);
+  setText("crisis-samhsa-label", chrome.crisis_samhsa_label);
+  setText("crisis-samhsa-prefix", chrome.crisis_samhsa_prefix);
+  setText("crisis-samhsa-suffix", chrome.crisis_samhsa_suffix);
   setText("btn-toggle-lang", dir === "rtl" ? "English (LTR)" : "العربية (RTL)");
   setText("nav-account", chrome.nav_account);
   setText("nav-connected-care", chrome.nav_connected_care);
@@ -410,7 +419,7 @@ async function bootMobile() {
         );
         setText("mobile-metric-a11y", count);
         document.documentElement.dataset.efA11yNodes = String(count);
-        setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+        setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
         return localeInfo;
       }
     }
@@ -419,7 +428,7 @@ async function bootMobile() {
     state.dir = localeInfo.dir;
     state.script = localeInfo.script;
     bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? "", localeInfo.chrome));
-    setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+    setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
     return localeInfo;
   };
 
@@ -524,7 +533,7 @@ async function bootMobile() {
 
   setText(
     "mobile-status",
-    `${localeInfo.chrome.mobile_status_ready} (${state.dir.toUpperCase()} · ${state.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP).`,
+    `${localeInfo.chrome.mobile_status_ready} \u2066(${state.dir.toUpperCase()} · ${state.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP)\u2069.`,
   );
 
   document.documentElement.dataset.efMobileReady = "true";

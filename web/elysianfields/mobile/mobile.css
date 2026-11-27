@@ -121,9 +121,13 @@ body {
   line-height: 1.5;
 }
 
-.crisis-list a {
+.crisis-list a,
+.crisis-tel {
   color: #fde68a;
   font-weight: 700;
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
 }
 
 .mobile-nav {
@@ -181,6 +185,19 @@ body {
   width: auto;
   max-width: 100%;
   background: #1e293b;
+}
+
+input[type="email"],
+#invite-code,
+#verify-dob {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir="rtl"] input[type="email"],
+html[dir="rtl"] #invite-code,
+html[dir="rtl"] #verify-dob {
+  text-align: right;
 }
 
 .touch-btn {
@@ -268,4 +285,10 @@ a:focus-visible {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir="rtl"] .metric-grid dd {
+  text-align: right;
 }

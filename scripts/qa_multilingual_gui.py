@@ -192,6 +192,14 @@ def _desktop_probe_js(native_probe: str, composer_sample: str) -> str:
         const overlay = document.getElementById("ef-a11y-overlay");
         const bridgeNodes = overlay ? overlay.querySelectorAll("[data-ef-node-id]").length : 0;
 
+        const metricDdDirs = Array.from(document.querySelectorAll(".metric-list dd")).map((el) => getComputedStyle(el).direction);
+        const emailEl = document.querySelector('input[type="email"]');
+        const emailDir = emailEl ? getComputedStyle(emailEl).direction : "ltr";
+        const bidiIsolationOk =
+            metricDdDirs.length > 0 &&
+            metricDdDirs.every((d) => d === "ltr") &&
+            emailDir === "ltr";
+
         return {{
             lang: html.lang || "",
             dir: html.dir || "",
@@ -217,6 +225,7 @@ def _desktop_probe_js(native_probe: str, composer_sample: str) -> str:
             renderedTranscript,
             transcriptBidi,
             bridgeNodes,
+            bidiIsolationOk,
         }};
     }})()"""
 
@@ -308,6 +317,21 @@ def _mobile_probe_js(native_probe: str, composer_sample: str) -> str:
         const overlay = document.getElementById("ef-a11y-overlay");
         const bridgeNodes = overlay ? overlay.querySelectorAll("[data-ef-node-id]").length : 0;
 
+        const metricDdDirs = Array.from(document.querySelectorAll(".metric-grid dd")).map((el) => getComputedStyle(el).direction);
+        const telLinkDirs = Array.from(document.querySelectorAll('a[href^="tel:"]')).map(
+            (el) => el.getAttribute("dir") === "ltr" && getComputedStyle(el).direction === "ltr",
+        );
+        const structuredInputDirs = Array.from(
+            document.querySelectorAll('input[type="email"], #invite-code, #verify-dob'),
+        ).map((el) => getComputedStyle(el).direction === "ltr");
+        const bidiIsolationOk =
+            metricDdDirs.length > 0 &&
+            metricDdDirs.every((d) => d === "ltr") &&
+            telLinkDirs.length >= 3 &&
+            telLinkDirs.every(Boolean) &&
+            structuredInputDirs.length >= 3 &&
+            structuredInputDirs.every(Boolean);
+
         return {{
             lang: html.lang || "",
             dir: html.dir || "",
@@ -332,6 +356,7 @@ def _mobile_probe_js(native_probe: str, composer_sample: str) -> str:
             renderedNote,
             crisisLinesPresent,
             bridgeNodes,
+            bidiIsolationOk,
         }};
     }})()"""
 
@@ -363,6 +388,7 @@ def evaluate_desktop_view(
     glyph = metrics.get("glyphProbe", {})
     non_tofu_ok = bool(glyph.get("distinctFromTofu")) and int(glyph.get("sampleInkedPixels", 0)) > 0
     composer_ok = bool(metrics.get("composerRoundTrip"))
+    bidi_isolation_ok = bool(metrics.get("bidiIsolationOk"))
 
     passed = (
         http_status == 200
@@ -377,6 +403,7 @@ def evaluate_desktop_view(
         and zero_clipping
         and non_tofu_ok
         and composer_ok
+        and bidi_isolation_ok
         and int(metrics.get("bridgeNodes", 0)) >= 5
     )
 
@@ -392,6 +419,7 @@ def evaluate_desktop_view(
         "actual_dir": metrics.get("dir"),
         "computed_direction": metrics.get("computedDirection"),
         "rtl_mirror_ok": rtl_mirror_ok,
+        "bidi_isolation_ok": bidi_isolation_ok,
         "nav_rect": nav_rect,
         "main_rect": main_rect,
         "zero_overflow": zero_overflow,
@@ -437,6 +465,7 @@ def evaluate_mobile_view(
     non_tofu_ok = bool(glyph.get("distinctFromTofu")) and int(glyph.get("sampleInkedPixels", 0)) > 0
     composer_ok = bool(metrics.get("composerRoundTrip"))
     crisis_ok = bool(metrics.get("crisisLinesPresent"))
+    bidi_isolation_ok = bool(metrics.get("bidiIsolationOk"))
 
     passed = (
         http_status == 200
@@ -452,6 +481,7 @@ def evaluate_mobile_view(
         and non_tofu_ok
         and composer_ok
         and crisis_ok
+        and bidi_isolation_ok
         and int(metrics.get("bridgeNodes", 0)) >= 5
     )
 
@@ -466,6 +496,7 @@ def evaluate_mobile_view(
         "actual_lang": metrics.get("lang"),
         "actual_dir": metrics.get("dir"),
         "computed_direction": metrics.get("computedDirection"),
+        "bidi_isolation_ok": bidi_isolation_ok,
         "zero_overflow": zero_overflow,
         "scroll_width": metrics.get("scrollWidth"),
         "inner_width": metrics.get("innerWidth"),

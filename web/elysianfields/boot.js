@@ -529,7 +529,7 @@ async function boot() {
         const count = syncRustA11yNodes(bridge, snap);
         setText("metric-a11y-nodes", count);
         document.documentElement.dataset.efA11yNodes = String(count);
-        setText("status-banner", `${localeInfo.chrome.status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+        setText("status-banner", `${localeInfo.chrome.status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
         return localeInfo;
       }
     }
@@ -538,7 +538,7 @@ async function boot() {
     state.dir = localeInfo.dir;
     state.script = localeInfo.script;
     bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? "", localeInfo.chrome));
-    setText("status-banner", `${localeInfo.chrome.status_ready} (${localeInfo.dir.toUpperCase()} · ${localeInfo.lang}).`);
+    setText("status-banner", `${localeInfo.chrome.status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
     return localeInfo;
   };
 
@@ -651,7 +651,7 @@ async function boot() {
     "status-banner",
     backendLabel === "unsupported"
       ? "Hardware-accelerated browser graphics unavailable; accessible shell active."
-      : `${localeInfo.chrome.status_ready} (${backendLabel} · ${localeInfo.dir.toUpperCase()} · ${localeInfo.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP).`,
+      : `${localeInfo.chrome.status_ready} \u2066(${backendLabel} · ${localeInfo.dir.toUpperCase()} · ${localeInfo.lang} · ${nodeCount} ARIA · ${state.cspViolations} CSP)\u2069.`,
   );
 
   document.documentElement.dataset.efReady = "true";

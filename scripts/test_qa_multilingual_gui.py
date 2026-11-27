@@ -51,6 +51,7 @@ def _make_desktop_metrics(scenario: dict[str, str], **overrides: Any) -> dict[st
         "renderedTranscript": scenario["composer_sample"],
         "transcriptBidi": "plaintext",
         "bridgeNodes": 6,
+        "bidiIsolationOk": True,
     }
     base.update(overrides)
     return base
@@ -85,6 +86,7 @@ def _make_mobile_metrics(scenario: dict[str, str], **overrides: Any) -> dict[str
         "renderedNote": scenario["composer_sample"],
         "crisisLinesPresent": True,
         "bridgeNodes": 6,
+        "bidiIsolationOk": True,
     }
     base.update(overrides)
     return base
@@ -196,6 +198,13 @@ class MultilingualQaTests(unittest.TestCase):
         self.assertFalse(bad_overflow["passed"])
         self.assertFalse(bad_overflow["zero_overflow"])
 
+        # Missing BiDi isolation on diagnostic <dd> or structured email input must fail.
+        bad_bidi = qa.evaluate_desktop_view(
+            he_scenario, _make_desktop_metrics(he_scenario, bidiIsolationOk=False), 200, [], []
+        )
+        self.assertFalse(bad_bidi["passed"])
+        self.assertFalse(bad_bidi["bidi_isolation_ok"])
+
     def test_mobile_touch_targets_and_crisis_lines_invariants(self) -> None:
         hi_scenario = next(s for s in qa.MULTILINGUAL_SCENARIOS if s["lang"] == "hi")
         good = qa.evaluate_mobile_view(hi_scenario, _make_mobile_metrics(hi_scenario), 200, [], [])
@@ -213,6 +222,12 @@ class MultilingualQaTests(unittest.TestCase):
         missing_crisis = _make_mobile_metrics(hi_scenario, crisisLinesPresent=False)
         bad_crisis = qa.evaluate_mobile_view(hi_scenario, missing_crisis, 200, [], [])
         self.assertFalse(bad_crisis["passed"])
+
+        bad_mobile_bidi = qa.evaluate_mobile_view(
+            hi_scenario, _make_mobile_metrics(hi_scenario, bidiIsolationOk=False), 200, [], []
+        )
+        self.assertFalse(bad_mobile_bidi["passed"])
+        self.assertFalse(bad_mobile_bidi["bidi_isolation_ok"])
 
     def test_mocked_three_engine_playwright_qa_captures_14_views_per_engine(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

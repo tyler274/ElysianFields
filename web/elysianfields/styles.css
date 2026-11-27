@@ -240,6 +240,15 @@ input[type="text"],
   unicode-bidi: plaintext;
 }
 
+input[type="email"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir="rtl"] input[type="email"] {
+  text-align: right;
+}
+
 .metric-list {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -256,6 +265,12 @@ input[type="text"],
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir="rtl"] .metric-list dd {
+  text-align: right;
 }
 
 .fallback-panel {
