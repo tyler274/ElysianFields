@@ -208,3 +208,5 @@ mod tests {
         );
     }
 }
+
+// Warm-cache verification pass 1.
