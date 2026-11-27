@@ -24,64 +24,90 @@ if [[ ! -f "${MOBILE_SQL}" ]]; then
 fi
 
 # Locate PostgreSQL binaries (supports Nix shell, Ubuntu /usr/lib/postgresql/*/bin, or PATH).
-if ! command -v initdb >/dev/null 2>&1; then
+if ! command -v psql >/dev/null 2>&1 || [[ -z "${PGHOST:-}" && ! -x "$(command -v initdb || true)" ]]; then
   for candidate in /usr/lib/postgresql/18/bin /usr/lib/postgresql/17/bin /usr/lib/postgresql/16/bin; do
-    if [[ -x "${candidate}/initdb" ]]; then
+    if [[ -x "${candidate}/psql" ]]; then
       export PATH="${candidate}:${PATH}"
       break
     fi
   done
 fi
 
-for bin in initdb pg_ctl createdb psql; do
+USE_EXTERNAL_PG=0
+if [[ -n "${PGHOST:-}" ]]; then
+  USE_EXTERNAL_PG=1
+  required_bins=(createdb dropdb psql)
+else
+  required_bins=(initdb pg_ctl createdb psql)
+fi
+
+for bin in "${required_bins[@]}"; do
   if ! command -v "${bin}" >/dev/null 2>&1; then
     echo "ERROR: required PostgreSQL tool '${bin}' not found on PATH" >&2
     exit 1
   fi
 done
 
-# PostgreSQL refuses to run as root; guard clearly if invoked unexpectedly as UID 0.
-if [[ "$(id -u)" -eq 0 ]]; then
-  echo "ERROR: run verify_postgres_migrations.sh as a non-root user (initdb forbids root)" >&2
-  exit 1
-fi
-
-WORK_DIR="$(mktemp -d -t ef-pg-migrations-XXXXXX)"
-PGDATA="${WORK_DIR}/pgdata"
-PGSOCK="${WORK_DIR}/sock"
-PGLOG="${WORK_DIR}/postgres.log"
-mkdir -p "${PGSOCK}"
+WORK_DIR=""
+PGDATA=""
+PG_CONN_ARGS=()
 
 cleanup() {
-  if [[ -d "${PGDATA}" ]] && pg_ctl -D "${PGDATA}" status >/dev/null 2>&1; then
-    pg_ctl -D "${PGDATA}" -m immediate stop >/dev/null 2>&1 || true
+  if [[ "${USE_EXTERNAL_PG}" -eq 1 ]]; then
+    dropdb --if-exists ef_clinic_test >/dev/null 2>&1 || true
+    dropdb --if-exists ef_mobile_test >/dev/null 2>&1 || true
+  else
+    if [[ -n "${PGDATA}" && -d "${PGDATA}" ]] && pg_ctl -D "${PGDATA}" status >/dev/null 2>&1; then
+      pg_ctl -D "${PGDATA}" -m immediate stop >/dev/null 2>&1 || true
+    fi
+    if [[ -n "${WORK_DIR}" ]]; then
+      rm -rf "${WORK_DIR}"
+    fi
   fi
-  rm -rf "${WORK_DIR}"
 }
 trap cleanup EXIT
 
-echo "==> Initializing disposable PostgreSQL cluster in ${PGDATA}"
-initdb -D "${PGDATA}" --no-locale --encoding=UTF8 --auth=trust >/dev/null
+if [[ "${USE_EXTERNAL_PG}" -eq 1 ]]; then
+  echo "==> Using external PostgreSQL server at ${PGHOST}:${PGPORT:-5432}"
+  dropdb --if-exists ef_clinic_test >/dev/null 2>&1 || true
+  dropdb --if-exists ef_mobile_test >/dev/null 2>&1 || true
+else
+  # PostgreSQL refuses to run as root; guard clearly if invoked unexpectedly as UID 0.
+  if [[ "$(id -u)" -eq 0 ]]; then
+    echo "ERROR: run verify_postgres_migrations.sh as a non-root user (initdb forbids root)" >&2
+    exit 1
+  fi
 
-echo "==> Starting PostgreSQL on local Unix socket ${PGSOCK}"
-pg_ctl -D "${PGDATA}" -l "${PGLOG}" -o "-k ${PGSOCK} -h '' -F" start >/dev/null
+  WORK_DIR="$(mktemp -d -t ef-pg-migrations-XXXXXX)"
+  PGDATA="${WORK_DIR}/pgdata"
+  PGSOCK="${WORK_DIR}/sock"
+  PGLOG="${WORK_DIR}/postgres.log"
+  mkdir -p "${PGSOCK}"
 
-PG_VERSION="$(psql -h "${PGSOCK}" -d postgres -v ON_ERROR_STOP=1 -tAc "SELECT version();")"
+  echo "==> Initializing disposable PostgreSQL cluster in ${PGDATA}"
+  initdb -D "${PGDATA}" --no-locale --encoding=UTF8 --auth=trust >/dev/null
+
+  echo "==> Starting PostgreSQL on local Unix socket ${PGSOCK}"
+  pg_ctl -D "${PGDATA}" -l "${PGLOG}" -o "-k ${PGSOCK} -h '' -F" start >/dev/null
+  PG_CONN_ARGS=(-h "${PGSOCK}")
+fi
+
+PG_VERSION="$(psql "${PG_CONN_ARGS[@]}" -d postgres -v ON_ERROR_STOP=1 -tAc "SELECT version();")"
 echo "==> Connected: ${PG_VERSION}"
 
-createdb -h "${PGSOCK}" ef_clinic_test
-createdb -h "${PGSOCK}" ef_mobile_test
+createdb "${PG_CONN_ARGS[@]}" ef_clinic_test
+createdb "${PG_CONN_ARGS[@]}" ef_mobile_test
 
 echo "==> Applying clinic migration (pass 1 + idempotent pass 2)"
-psql -h "${PGSOCK}" -d ef_clinic_test -v ON_ERROR_STOP=1 -f "${CLINIC_SQL}" >/dev/null
-psql -h "${PGSOCK}" -d ef_clinic_test -v ON_ERROR_STOP=1 -f "${CLINIC_SQL}" >/dev/null
+psql "${PG_CONN_ARGS[@]}" -d ef_clinic_test -v ON_ERROR_STOP=1 -f "${CLINIC_SQL}" >/dev/null
+psql "${PG_CONN_ARGS[@]}" -d ef_clinic_test -v ON_ERROR_STOP=1 -f "${CLINIC_SQL}" >/dev/null
 
 echo "==> Applying mobile migration (pass 1 + idempotent pass 2)"
-psql -h "${PGSOCK}" -d ef_mobile_test -v ON_ERROR_STOP=1 -f "${MOBILE_SQL}" >/dev/null
-psql -h "${PGSOCK}" -d ef_mobile_test -v ON_ERROR_STOP=1 -f "${MOBILE_SQL}" >/dev/null
+psql "${PG_CONN_ARGS[@]}" -d ef_mobile_test -v ON_ERROR_STOP=1 -f "${MOBILE_SQL}" >/dev/null
+psql "${PG_CONN_ARGS[@]}" -d ef_mobile_test -v ON_ERROR_STOP=1 -f "${MOBILE_SQL}" >/dev/null
 
 echo "==> Verifying Curie Clinic relational constraints & invariants"
-psql -h "${PGSOCK}" -d ef_clinic_test -v ON_ERROR_STOP=1 <<'SQL'
+psql "${PG_CONN_ARGS[@]}" -d ef_clinic_test -v ON_ERROR_STOP=1 <<'SQL'
 -- Valid vertical-slice rows across all core tables.
 INSERT INTO practices (practice_id, display_name, created_at_secs)
 VALUES ('practice-a', 'Synthetic Practice A', 1760000000);
@@ -200,7 +226,7 @@ END $$;
 SQL
 
 echo "==> Verifying Curie Mobile relational constraints & Part 2 / incarnation invariants"
-psql -h "${PGSOCK}" -d ef_mobile_test -v ON_ERROR_STOP=1 <<'SQL'
+psql "${PG_CONN_ARGS[@]}" -d ef_mobile_test -v ON_ERROR_STOP=1 <<'SQL'
 -- Verify schema_migrations seeded version 1 idempotently.
 DO $$
 DECLARE mig_count INT;
