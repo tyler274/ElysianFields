@@ -1,0 +1,680 @@
+{
+  "schema_version": 1,
+  "reference_sha": "01b762838d639a51f82e9d7d15e788e02bac772f",
+  "allowed_classes": [
+    "replace",
+    "retain-as-tooling",
+    "reuse-as-approved-asset",
+    "out-of-scope"
+  ],
+  "summary": {
+    "workspace_members_total": 43,
+    "workspace_members_by_class": {
+      "replace": 34,
+      "retain-as-tooling": 6,
+      "reuse-as-approved-asset": 0,
+      "out-of-scope": 3
+    }
+  },
+  "workspace_members": [
+    {
+      "path": "crates/agent-skills",
+      "package": "agent-skills",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Shared runtime clinical skill catalog loader and manifest validator; reimplemented behind the wall under D1."
+    },
+    {
+      "path": "crates/ancestry",
+      "package": "ancestry",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "justification": "Standalone pure-Rust population-genetics engine (G25, AADR, ClinVar, PGS, HMM painting) with zero Curie Clinic or Curie Mobile dependency; continues independent static deployment outside dabney.moe/elysianfields (flagged for M0 owner confirmation)."
+    },
+    {
+      "path": "crates/ancestry-app",
+      "package": "ancestry-app",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "justification": "Standalone dabney.moe/dux/ Dioxus/Wasm web utility; separate from clinical care suite and continues independent deployment (flagged for M0 owner confirmation)."
+    },
+    {
+      "path": "crates/ancestry-fit",
+      "package": "ancestry-fit",
+      "zone": "Ancestry",
+      "classification": "out-of-scope",
+      "justification": "Offline native CLI fitter/packer for G25 weights and CC0 AADR genotype packs; belongs solely to standalone ancestry tooling."
+    },
+    {
+      "path": "crates/android",
+      "package": "android",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Developer/CI Android AVD manager, APK build wrapper, and headless emulator test runner; retained as tooling and adapted for Bevy Android APK builds."
+    },
+    {
+      "path": "crates/availability-probe",
+      "package": "availability-probe",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Secret-free Cloud Run uptime and readiness probe binary with zero clinical or product logic; retained as operational infrastructure tooling."
+    },
+    {
+      "path": "crates/boundaries",
+      "package": "boundaries",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Compile/test-time architectural isolation and shared-UI boundary verifier; retained and extended to enforce cross-product boundaries on replacement crates."
+    },
+    {
+      "path": "crates/clinical-library",
+      "package": "clinical-library",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Product-neutral clinical literature storage, nightly failure rules, and PubMed status pipeline; in scope under D1."
+    },
+    {
+      "path": "crates/dei-site",
+      "package": "dei-site",
+      "zone": "Tooling",
+      "classification": "replace",
+      "justification": "Static site generator for the Dei SAMHSA recovery facility finder at dei.dabney.moe; in scope per plan Section 3 and replaced as semantic indexable HTML + clean-room search island."
+    },
+    {
+      "path": "crates/encoder",
+      "package": "encoder",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Offline semantic retrieval encoder and canonical serialization primitives; in scope under D1."
+    },
+    {
+      "path": "crates/extension-popup",
+      "package": "extension-popup",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Chrome MV3 extension popup UI; candidate for Bevy Wasm under strict MV3 CSP subject to M1 qualification (fallback narrow HTML adapter per D2)."
+    },
+    {
+      "path": "crates/front-door",
+      "package": "front-door",
+      "zone": "Bridge",
+      "classification": "replace",
+      "justification": "Authoritative connected-care bridge owning practice invitations, DOB verification, Share consent, link registry, and deletion journal; in scope under D1."
+    },
+    {
+      "path": "crates/gmail",
+      "package": "gmail",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Product-neutral Gmail API and SMTP AUTH mail relay adapter used for physician sign-in links and clinic channel ingestion; in scope under D1."
+    },
+    {
+      "path": "crates/harness",
+      "package": "harness",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Product-neutral bounded model execution, streaming, tool-dispatch, skill_view, cancellation, and quota harness; explicitly in scope under D1."
+    },
+    {
+      "path": "crates/http",
+      "package": "curie-http",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Shared HTTP client abstractions, IAP verification, and IngressGuard transport policy used across clients and backends; in scope under D1."
+    },
+    {
+      "path": "crates/local-product",
+      "package": "local-product",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Physician domain runtime, PostgreSQL store, source adapters, rounds, and clinical chat workflows; core Curie Clinic backend replaced under D1."
+    },
+    {
+      "path": "crates/mobile",
+      "package": "mobile",
+      "zone": "Bridge",
+      "classification": "replace",
+      "justification": "Combined Android/iOS/web mode shell mounting Curie Mobile and Curie Clinic views; replaced by Bevy mobile shell."
+    },
+    {
+      "path": "crates/mobile-api",
+      "package": "mobile-api",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Curie Mobile patient backend API, migrations, privacy receipt delivery, and journal replay; core patient backend replaced under D1."
+    },
+    {
+      "path": "crates/mobile-app",
+      "package": "mobile-app",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Curie Mobile patient UI client (You, For my doctor, records, trends, sharing, account); replaced by Bevy client."
+    },
+    {
+      "path": "crates/mobile-client",
+      "package": "mobile-client",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Typed HTTP/SSE client and local retention state for mobile-api; replaced under D1."
+    },
+    {
+      "path": "crates/mobile-health",
+      "package": "mobile-health",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "On-device HealthKit/Health Connect record sync, canonical health mapping, and account-fenced transactional outbox; replaced under D1."
+    },
+    {
+      "path": "crates/mobile-notify",
+      "package": "mobile-notify",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Push notification registration, APNs/FCM token handling, and withdrawal logic; replaced under D1."
+    },
+    {
+      "path": "crates/mobile-stub",
+      "package": "mobile-stub",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Offline stub backend implementing Curie Mobile API contract for client development and tests; replaced behind the wall against new contracts."
+    },
+    {
+      "path": "crates/mobile-wire",
+      "package": "mobile_wire",
+      "zone": "Curie Mobile",
+      "classification": "replace",
+      "justification": "Curie Mobile wire models and OpenAPI DTOs; replaced with clean-room wire contract types under D1."
+    },
+    {
+      "path": "crates/observability-relay",
+      "package": "observability-relay",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Secret-free OTLP and staging Grafana IAP proxy service for engineering operators; operational telemetry infrastructure with no product/clinical logic."
+    },
+    {
+      "path": "crates/patient-bank",
+      "package": "patient-bank",
+      "zone": "Tooling",
+      "classification": "replace",
+      "justification": "Synthetic primary-care cohort generator, authoring checks, FHIR R4 builder, and scenario catalog; explicitly listed in replacement scope (plan Section 3)."
+    },
+    {
+      "path": "crates/patient-work",
+      "package": "patient-work",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Patient workspace state machine, work grouping window, chat turns, reviews, and message workflows; replaced under D1."
+    },
+    {
+      "path": "crates/physician-app",
+      "package": "physician-app",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Curie Clinic physician client (Today, patient workspace, streaming chat, citations, chart reader, message matching/reply); replaced by Bevy client."
+    },
+    {
+      "path": "crates/physician-auth",
+      "package": "physician-auth",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Physician invite-only accounts, practice memberships, panel access, single-use email links, and PostgreSQL session store; replaced under D1."
+    },
+    {
+      "path": "crates/physician-bus",
+      "package": "physician-bus",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Lossy Valkey/Redis pub/sub workspace invalidation bus for cross-instance physician fan-out; replaced under D1."
+    },
+    {
+      "path": "crates/physician-client",
+      "package": "physician-client",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Typed HTTP/SSE client for the physician API; replaced under D1."
+    },
+    {
+      "path": "crates/physician-demo-api",
+      "package": "physician-demo-api",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Embeddable synthetic physician demo API router with turn budgets and cloud/local model support; in scope under public site & demo."
+    },
+    {
+      "path": "crates/physician-demo-db",
+      "package": "physician-demo-db",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Isolated per-visitor in-memory SQLite demo chart store and verbatim citation matcher; in scope under public site & demo."
+    },
+    {
+      "path": "crates/physician-sample",
+      "package": "physician-sample",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Physician HTTP/SSE server, background worker (physician-worker), rounds job, and composite migrator (physician-migrate); core physician backend replaced under D1."
+    },
+    {
+      "path": "crates/physician-wire",
+      "package": "physician-wire",
+      "zone": "Physician",
+      "classification": "replace",
+      "justification": "Shared wire DTOs between physician server, client, and web app; replaced with clean-room contract types under D1."
+    },
+    {
+      "path": "crates/public-site",
+      "package": "public-site",
+      "zone": "Tooling",
+      "classification": "replace",
+      "justification": "Public marketing site server, legal documents, recovery pages, interactive demo host, and static export; replaced as semantic indexable HTML per plan Sections 3 and 5."
+    },
+    {
+      "path": "crates/recovery-directory",
+      "package": "recovery-directory",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "SAMHSA FindTreatment.gov shard search, Cache Storage load state machine, and browser finder island; in scope per plan Section 3."
+    },
+    {
+      "path": "crates/spruce",
+      "package": "spruce",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Product-neutral Spruce clinical messaging channel adapter; in scope under D1."
+    },
+    {
+      "path": "crates/telemetry",
+      "package": "telemetry",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "OpenTelemetry tracing, metrics, log formatting, and HIPAA content-redaction policy used by harness and services; in scope under D1."
+    },
+    {
+      "path": "crates/ui",
+      "package": "ui",
+      "zone": "Shared",
+      "classification": "replace",
+      "justification": "Shared design system, tokens, components, 9-language i18n, motion, accessibility contracts, and browser scripts; replaced by unified Bevy UI catalog."
+    },
+    {
+      "path": "crates/ui-gallery",
+      "package": "ui-gallery",
+      "zone": "Tooling",
+      "classification": "replace",
+      "justification": "Interactive component showcase and visual proof target; replaced by Bevy component gallery."
+    },
+    {
+      "path": "crates/workspace-tools",
+      "package": "workspace-tools",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Workspace automation CLI (install-doppler, staging-release, mirrors, recovery-import, wire tooling); retained as development/release tooling."
+    },
+    {
+      "path": "crates/workspace-tools/sandbox",
+      "package": "mole-sandbox",
+      "zone": "Tooling",
+      "classification": "retain-as-tooling",
+      "justification": "Worktree seed manager and NixOS/Firecracker agent sandbox CLI; retained as development/isolation tooling."
+    }
+  ],
+  "platform_bridges": [
+    {
+      "path": "platform/android/HealthConnectBridge.kt",
+      "platform": "android",
+      "classification": "replace",
+      "justification": "Native Android Health Connect query bridge; reimplemented as Bevy/Android platform adapter."
+    },
+    {
+      "path": "platform/android/NotificationBridge.kt",
+      "platform": "android",
+      "classification": "replace",
+      "justification": "Native Android push notification bridge; reimplemented as Bevy/Android platform adapter."
+    },
+    {
+      "path": "platform/android/SecureRetentionBridge.kt",
+      "platform": "android",
+      "classification": "replace",
+      "justification": "Native Android keystore-backed secure storage/retention bridge; reimplemented as Bevy/Android platform adapter."
+    },
+    {
+      "path": "platform/android/DoctorPdfProvider.kt",
+      "platform": "android",
+      "classification": "replace",
+      "justification": "Native Android FileProvider/PDF export bridge for For my doctor exports; reimplemented as Bevy/Android platform adapter."
+    },
+    {
+      "path": "platform/android/HardwareKeyDispatch.kt",
+      "platform": "android",
+      "classification": "replace",
+      "justification": "Dioxus WebView hardware keyboard dispatch bridge; replaced by Bevy Android native input/IME adapter."
+    },
+    {
+      "path": "platform/android/ModeShellTest.kt",
+      "platform": "android",
+      "classification": "retain-as-tooling",
+      "justification": "Android UI Automator test harness; kept on observer/verifier side with behavioral assertions restated for Bevy."
+    },
+    {
+      "path": "platform/android/maven-central-mirror.gradle",
+      "platform": "android",
+      "classification": "retain-as-tooling",
+      "justification": "Gradle init script configuring Maven Central mirror for CI reliability; retained as build tooling."
+    },
+    {
+      "path": "platform/ios/HealthKitBridge.swift",
+      "platform": "ios",
+      "classification": "replace",
+      "justification": "Native iOS HealthKit query bridge; reimplemented as Bevy/iOS platform adapter."
+    },
+    {
+      "path": "platform/ios/NotificationBridge.swift",
+      "platform": "ios",
+      "classification": "replace",
+      "justification": "Native iOS APNs registration and notification bridge; reimplemented as Bevy/iOS platform adapter."
+    },
+    {
+      "path": "platform/ios/SecureRetentionBridge.swift",
+      "platform": "ios",
+      "classification": "replace",
+      "justification": "Native iOS Keychain-backed secure retention bridge; reimplemented as Bevy/iOS platform adapter."
+    },
+    {
+      "path": "platform/ios/CurieMobile.entitlements",
+      "platform": "ios",
+      "classification": "reuse-as-approved-asset",
+      "justification": "Declarative Apple HealthKit and background-delivery capability entitlements plist; static platform metadata reused directly."
+    },
+    {
+      "path": "platform/ios/build_bridge.rs",
+      "platform": "ios",
+      "classification": "retain-as-tooling",
+      "justification": "Cargo build-script helper invoking xcrun swiftc for iOS static library linking; retained as build tooling."
+    }
+  ],
+  "chrome_extension_components": [
+    {
+      "component": "MV3 Popup UI",
+      "paths": [
+        "crates/extension-popup",
+        "extension/chrome/options.html",
+        "extension/chrome/popup.js"
+      ],
+      "classification": "replace",
+      "justification": "Candidate for Bevy Wasm popup under strict MV3 CSP ('wasm-unsafe-eval'), subject to M1 cold-start & size gate; narrow HTML/Wasm fallback per D2."
+    },
+    {
+      "component": "MV3 Background Service Worker & Connector",
+      "paths": [
+        "extension/chrome/worker.js",
+        "extension/chrome/connector.js"
+      ],
+      "classification": "replace",
+      "justification": "Reimplemented as ordinary non-Bevy extension JS/TS per architecture constraint Section 5 (memory-only session tokens, durable outbox, job envelope validation)."
+    },
+    {
+      "component": "EHR Content / Page-Context Readers",
+      "paths": [
+        "extension/chrome/readers/index.js",
+        "extension/chrome/readers/hint.js",
+        "extension/chrome/readers/hint-page.js"
+      ],
+      "classification": "replace",
+      "justification": "Reimplemented as ordinary non-Bevy extension scripts preserving declared named reads, response validation, and billing/price redaction."
+    },
+    {
+      "component": "MV3 Manifest",
+      "paths": [
+        "extension/chrome/manifest.json"
+      ],
+      "classification": "replace",
+      "justification": "Re-authored MV3 manifest preserving optional_host_permissions only, strict CSP, and pinned extension identity."
+    },
+    {
+      "component": "Extension Brand Icons",
+      "paths": [
+        "extension/chrome/icons/dabney-16.png",
+        "extension/chrome/icons/dabney-32.png",
+        "extension/chrome/icons/dabney-48.png",
+        "extension/chrome/icons/dabney-128.png"
+      ],
+      "classification": "reuse-as-approved-asset",
+      "justification": "Static PNG toolbar and store brand icons reused directly."
+    },
+    {
+      "component": "Extension Local Pairing Sandbox & Offline Suite",
+      "paths": [
+        "extension/sandbox/bridge.py",
+        "extension/sandbox/run_agent.py",
+        "extension/sandbox/test_connector.mjs",
+        "extension/sandbox/extension-identity.json"
+      ],
+      "classification": "retain-as-tooling",
+      "justification": "Local HTTP/MCP test bridge and 11-case offline simulated-Chrome test suite retained for black-box verification."
+    }
+  ],
+  "public_route_families": [
+    {
+      "family": "Marketing & Product Overview",
+      "routes": ["/", "/mobile"],
+      "owner": "crates/public-site",
+      "classification": "replace",
+      "justification": "Replaced as semantic, indexable HTML (architecture Section 5) with clean-room interactive physician demo."
+    },
+    {
+      "family": "Versioned Legal & Clinical Transparency Documents",
+      "routes": [
+        "/privacy",
+        "/terms",
+        "/clinical-transparency",
+        "/mobile/privacy",
+        "/mobile/privacy/:slug",
+        "/mobile/terms",
+        "/mobile/terms/:slug",
+        "/mobile/consumer-health-data"
+      ],
+      "owner": "crates/public-site",
+      "classification": "replace",
+      "justification": "Replaced as semantic, indexable HTML rendered from approved verbatim legal JSON documents."
+    },
+    {
+      "family": "Connected-Care Invitation Landing",
+      "routes": ["/invite"],
+      "owner": "crates/public-site",
+      "classification": "replace",
+      "justification": "Replaced as noindex semantic HTML deep-link handoff and App Store/Play Store fallback."
+    },
+    {
+      "family": "SAMHSA Recovery Facility Directory (Public Site & Dei)",
+      "routes": [
+        "/recovery",
+        "/recovery/:state",
+        "dei.dabney.moe/",
+        "dei.dabney.moe/<ST>/",
+        "dei.dabney.moe/data/<ST>.json",
+        "dei.dabney.moe/data/index.json",
+        "dei.dabney.moe/sw.js"
+      ],
+      "owner": "crates/public-site, crates/dei-site, crates/recovery-directory",
+      "classification": "replace",
+      "justification": "Replaced as zero-JS semantic prerendered HTML + clean-room search island consuming reused SAMHSA JSON shards."
+    },
+    {
+      "family": "Crawler, Health & Fallback Endpoints",
+      "routes": ["/robots.txt", "/sitemap.xml", "/health", "/readyz", "/404"],
+      "owner": "crates/public-site",
+      "classification": "replace",
+      "justification": "Standard operational and SEO endpoints reimplemented in replacement public-site."
+    },
+    {
+      "family": "Staging Observability Proxy Mount",
+      "routes": ["staging.curie.dabney.moe/grafana/*"],
+      "owner": "crates/public-site, crates/observability-relay",
+      "classification": "retain-as-tooling",
+      "justification": "IAP-gated staging-only operator observability proxy (never enabled in production); retained as ops tooling."
+    },
+    {
+      "family": "Pages-Only Personal Statement",
+      "routes": ["curie.dabney.moe/personal-clarification/"],
+      "owner": "crates/public-site/pages-only/personal-clarification/index.html",
+      "classification": "reuse-as-approved-asset",
+      "justification": "Owner-authored static HTML personal clarification published on its designated domain only."
+    },
+    {
+      "family": "Standalone Dux Ancestry & Genetics Web Application",
+      "routes": ["dabney.moe/dux/#data..#painting", "dabney.moe/dux (308 -> /dux/)"],
+      "owner": "crates/ancestry-app (mounted by DabneyMoeWebsite origin/main 1946246 at /dux/)",
+      "classification": "out-of-scope",
+      "justification": "Separate population-genetics client utility outside Curie Clinic/Mobile; continues independent static deployment at dabney.moe/dux/ alongside /elysianfields/."
+    },
+    {
+      "family": "Elysian Fields Application Subpath (Target)",
+      "routes": ["dabney.moe/elysianfields/*"],
+      "owner": "Elysian Realm replacement web clients & APIs",
+      "classification": "replace",
+      "justification": "New clean-room deployment subpath housing replacement Bevy browser clients and backend APIs per plan Section 5."
+    }
+  ],
+  "background_services_and_workers": [
+    {
+      "name": "physician-sample",
+      "crate": "crates/physician-sample",
+      "role": "HTTP/SSE API server for Curie Clinic",
+      "classification": "replace",
+      "justification": "Core physician serving runtime; replaced as headless Rust service under D1."
+    },
+    {
+      "name": "physician-worker",
+      "crate": "crates/physician-sample",
+      "role": "Async leased chat-turn & reply-revision worker (PostgreSQL LISTEN + 10s sweep + harness loop)",
+      "classification": "replace",
+      "justification": "Core durable execution worker; replaced as headless Rust worker under D1."
+    },
+    {
+      "name": "physician-rounds",
+      "crate": "crates/physician-sample",
+      "role": "Scheduled background patient-memory rounds upkeep job",
+      "classification": "replace",
+      "justification": "Core clinical memory upkeep job; replaced under D1."
+    },
+    {
+      "name": "physician-migrate (+ physician-auth-migrate, front-door-migrate, physician-runtime-migrate)",
+      "crate": "crates/physician-sample, crates/physician-auth, crates/front-door, crates/local-product",
+      "role": "Composite PostgreSQL schema migration & synthetic chart loader job",
+      "classification": "replace",
+      "justification": "Owns physician/auth/front-door schema evolution; replaced alongside clean-room persistence layer under D1."
+    },
+    {
+      "name": "mobile-api",
+      "crate": "crates/mobile-api",
+      "role": "HTTP/SSE backend API for Curie Mobile",
+      "classification": "replace",
+      "justification": "Core patient serving runtime; replaced as headless Rust service under D1."
+    },
+    {
+      "name": "mobile-migrate",
+      "crate": "crates/mobile-api",
+      "role": "Curie Mobile PostgreSQL schema migrator",
+      "classification": "replace",
+      "justification": "Owns patient database migrations; replaced alongside clean-room persistence layer under D1."
+    },
+    {
+      "name": "mobile-app-privacy-delivery",
+      "crate": "crates/mobile-api",
+      "role": "Cloud Run job delivering privacy/deletion receipts",
+      "classification": "replace",
+      "justification": "Core patient privacy-receipt delivery workflow; replaced under D1."
+    },
+    {
+      "name": "mobile-privacy-replay",
+      "crate": "crates/mobile-api",
+      "role": "Independent privacy receipt journal replay binary for DB restore qualification",
+      "classification": "replace",
+      "justification": "Enforces deletion durability across DB restores (intent/mobile.md); replaced under D1."
+    },
+    {
+      "name": "mobile-map-front-door",
+      "crate": "crates/mobile-api",
+      "role": "Front-door connected-care mapping helper binary",
+      "classification": "replace",
+      "justification": "Part of Curie Mobile/front-door bridge lifecycle; replaced under D1."
+    },
+    {
+      "name": "clinical-library-server (+ clinical-library-migrate, clinical-library-pubmed-status)",
+      "crate": "crates/clinical-library",
+      "role": "Nightly clinical literature ingestion, PubMed retraction/correction status, and query service",
+      "classification": "replace",
+      "justification": "Shared clinical reference library pipeline; replaced under D1."
+    },
+    {
+      "name": "mail-relay",
+      "crate": "crates/gmail",
+      "role": "SMTP AUTH / Gmail API outbound delivery service",
+      "classification": "replace",
+      "justification": "Delivers physician sign-in links and clinic mail; replaced under D1."
+    },
+    {
+      "name": "encoder",
+      "crate": "crates/encoder",
+      "role": "Offline local BGE semantic chart retrieval encoder",
+      "classification": "replace",
+      "justification": "Shared local embedding service; replaced under D1."
+    },
+    {
+      "name": "seed_demo_db",
+      "crate": "crates/physician-demo-db",
+      "role": "Build-time synthetic demo SQLite database seeder",
+      "classification": "replace",
+      "justification": "Part of embedded interactive physician demo; replaced under D1."
+    },
+    {
+      "name": "availability-probe",
+      "crate": "crates/availability-probe",
+      "role": "Secret-free Cloud Run uptime and readiness probe",
+      "classification": "retain-as-tooling",
+      "justification": "Operational monitoring probe with zero product logic."
+    },
+    {
+      "name": "observability-relay",
+      "crate": "crates/observability-relay",
+      "role": "Secret-free OTLP/Grafana IAP relay service",
+      "classification": "retain-as-tooling",
+      "justification": "Operational telemetry relay with zero product logic."
+    },
+    {
+      "name": "mole-staging-events",
+      "crate": "crates/physician-sample",
+      "role": "Staging rehearsal synthetic event generator binary",
+      "classification": "retain-as-tooling",
+      "justification": "Operator staging rehearsal utility; retained as operational tooling."
+    },
+    {
+      "name": "curie-login",
+      "crate": "crates/local-product",
+      "role": "Developer local subscription grant login CLI",
+      "classification": "retain-as-tooling",
+      "justification": "Local developer authentication helper for synthetic-only model rehearsals."
+    }
+  ],
+  "infrastructure_and_dev_tooling": [
+    {
+      "item": "Nix flake, devShells, Crane dependency roots, and container image packaging",
+      "paths": ["flake.nix", "flake.lock", "nix/*"],
+      "classification": "retain-as-tooling",
+      "justification": "Build and packaging foundation retained and evolved in Elysian Realm for Bevy multi-target caching."
+    },
+    {
+      "item": "GitHub Actions workflows & CI scoping/timing scripts",
+      "paths": [".github/workflows/*", "scripts/ci_scope.py", "scripts/ci_timings.py", "scripts/dev-check.sh"],
+      "classification": "retain-as-tooling",
+      "justification": "CI/CD pipeline tooling retained as starting pattern (not product code)."
+    },
+    {
+      "item": "OpenTofu GCP infrastructure roots",
+      "paths": ["infra/gcp/*"],
+      "classification": "retain-as-tooling",
+      "justification": "Cloud infrastructure-as-code retained by default per plan Section 3."
+    }
+  ]
+}
