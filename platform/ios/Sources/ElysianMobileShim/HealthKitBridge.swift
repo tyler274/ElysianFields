@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(HealthKit)
+#if canImport(HealthKit) && os(iOS)
 import HealthKit
 #endif
 
@@ -38,18 +38,18 @@ public final class HealthKitBridge {
     private let lock = NSLock()
     private var requestedMetrics: Set<HealthMetricTag> = []
 
-    #if canImport(HealthKit)
+    #if canImport(HealthKit) && os(iOS)
     private let store: HKHealthStore?
     #endif
 
     public init() {
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && os(iOS)
         self.store = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil
         #endif
     }
 
     public func isAvailable() -> Bool {
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && os(iOS)
         return store != nil
         #else
         return false
@@ -81,7 +81,7 @@ public final class HealthKitBridge {
             return
         }
 
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && os(iOS)
         guard let store = self.store, let sampleType = Self.objectType(for: metric) else {
             completion(.success(.unavailable))
             return
@@ -115,7 +115,7 @@ public final class HealthKitBridge {
             return
         }
 
-        #if canImport(HealthKit)
+        #if canImport(HealthKit) && os(iOS)
         guard let store = self.store, let sampleType = Self.sampleType(for: metric) else {
             completion(.failure(.platformUnavailable))
             return
@@ -143,7 +143,7 @@ public final class HealthKitBridge {
         #endif
     }
 
-    #if canImport(HealthKit)
+    #if canImport(HealthKit) && os(iOS)
     private static func objectType(for metric: HealthMetricTag) -> HKObjectType? {
         sampleType(for: metric)
     }
