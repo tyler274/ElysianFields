@@ -2437,6 +2437,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "m1-mobile-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "m1-streaming-perf"
 version = "0.1.0"
 dependencies = [

@@ -6,6 +6,7 @@ members = [
     "crates/m1-accessibility",
     "crates/m1-streaming-perf",
     "crates/m1-text-i18n",
+    "crates/m1-mobile-lifecycle",
 ]
 
 [workspace.package]
