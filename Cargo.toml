@@ -8,6 +8,7 @@ members = [
     "crates/m1-text-i18n",
     "crates/m1-mobile-lifecycle",
     "crates/m1-web-delivery",
+    "crates/ef-ui-catalog",
 ]
 
 [workspace.package]
