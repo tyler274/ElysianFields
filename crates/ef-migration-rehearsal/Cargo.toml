@@ -19,3 +19,8 @@ thiserror = { workspace = true }
 
 [lints]
 workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-clinic-server = { path = "../ef-clinic-server" }
+ef-mobile-server = { path = "../ef-mobile-server" }
+ef-public-site = { path = "../ef-public-site" }

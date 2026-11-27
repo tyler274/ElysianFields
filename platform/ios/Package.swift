@@ -18,5 +18,10 @@ let package = Package(
             name: "ElysianMobileShim",
             path: "Sources/ElysianMobileShim"
         ),
+        .testTarget(
+            name: "ElysianMobileShimTests",
+            dependencies: ["ElysianMobileShim"],
+            path: "Tests/ElysianMobileShimTests"
+        ),
     ]
 )

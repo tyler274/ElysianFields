@@ -261,6 +261,64 @@ fn saved_screen_state_codec_rejects_corruption_and_truncation() {
 }
 
 #[test]
+fn efss_v1_canonical_cross_platform_vectors_match_byte_for_byte() {
+    let home = SavedScreenState::default();
+    let expected_home: &[u8] = &[
+        0x45, 0x46, 0x53, 0x53, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x37, 0x26, 0xfc, 0x82,
+    ];
+    let encoded_home = home.encode().expect("encode home");
+    assert_eq!(encoded_home.as_slice(), expected_home);
+    assert_eq!(
+        SavedScreenState::decode(expected_home).expect("decode home"),
+        home
+    );
+
+    let rec42 = RecordId::parse("rec-42").expect("rec-42");
+    let conv = SavedScreenState {
+        route: ScreenRoute::Conversation {
+            record_id: rec42.clone(),
+        },
+        draft_text: "Check BP".to_owned(),
+        scroll_offset_px: 320,
+        active_record_id: Some(rec42),
+    };
+    let expected_conv: &[u8] = &[
+        0x45, 0x46, 0x53, 0x53, 0x01, 0x03, 0x00, 0x00, 0x00, 0x06, 0x72, 0x65, 0x63, 0x2d, 0x34,
+        0x32, 0x00, 0x00, 0x00, 0x08, 0x43, 0x68, 0x65, 0x63, 0x6b, 0x20, 0x42, 0x50, 0x00, 0x00,
+        0x01, 0x40, 0x01, 0x00, 0x00, 0x00, 0x06, 0x72, 0x65, 0x63, 0x2d, 0x34, 0x32, 0x83, 0xc5,
+        0xf9, 0x68,
+    ];
+    let encoded_conv = conv.encode().expect("encode conv");
+    assert_eq!(encoded_conv.as_slice(), expected_conv);
+    assert_eq!(
+        SavedScreenState::decode(expected_conv).expect("decode conv"),
+        conv
+    );
+
+    let sign_in = SavedScreenState {
+        route: ScreenRoute::SignIn {
+            origin: SignInOrigin::DeepLink {
+                launch_mode: LaunchMode::ColdStart,
+            },
+        },
+        draft_text: String::new(),
+        scroll_offset_px: 0,
+        active_record_id: None,
+    };
+    let expected_sign_in: &[u8] = &[
+        0x45, 0x46, 0x53, 0x53, 0x01, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0xbc, 0x9f, 0x11, 0xe9,
+    ];
+    let encoded_sign_in = sign_in.encode().expect("encode sign-in");
+    assert_eq!(encoded_sign_in.as_slice(), expected_sign_in);
+    assert_eq!(
+        SavedScreenState::decode(expected_sign_in).expect("decode sign-in"),
+        sign_in
+    );
+}
+
+#[test]
 fn deep_link_cold_and_warm_sign_in_routes_valid_links_and_rejects_untrusted_uris() {
     let os_bundle = OsStateBundleHandle::new();
     let vault = PersistentVaultHandle::new();
