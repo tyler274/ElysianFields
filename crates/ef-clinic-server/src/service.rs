@@ -148,9 +148,8 @@ pub struct ClinicService {
 }
 
 impl ClinicService {
-    /// Creates an in-memory clinic service backed by [`InMemoryWal`].
-    #[must_use]
-    pub fn new_in_memory(
+    fn from_wal_store(
+        wal: Box<dyn WalSink>,
         sign_in_mode: SignInMode,
         retry_mode: RetryBackoffMode,
         default_cited_source: SourceKey,
@@ -166,7 +165,7 @@ impl ClinicService {
             default_cited_source,
             queued_providers: VecDeque::new(),
             clock_secs: initial_clock_secs,
-            wal: Box::new(InMemoryWal::new()),
+            wal,
             rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
             #[cfg(not(target_arch = "wasm32"))]
             web_dir: None,
@@ -183,6 +182,23 @@ impl ClinicService {
         }
     }
 
+    /// Creates an in-memory clinic service backed by [`InMemoryWal`].
+    #[must_use]
+    pub fn new_in_memory(
+        sign_in_mode: SignInMode,
+        retry_mode: RetryBackoffMode,
+        default_cited_source: SourceKey,
+        initial_clock_secs: u64,
+    ) -> Self {
+        Self::from_wal_store(
+            Box::new(InMemoryWal::new()),
+            sign_in_mode,
+            retry_mode,
+            default_cited_source,
+            initial_clock_secs,
+        )
+    }
+
     /// Opens a durable WAL directory, replays all persisted mutations through the
     /// live domain owners, and returns a ready-to-serve [`ClinicService`].
     #[cfg(not(target_arch = "wasm32"))]
@@ -194,30 +210,13 @@ impl ClinicService {
         initial_clock_secs: u64,
     ) -> Result<Self, ClinicServiceError> {
         let (store, entries) = DurableClinicStore::open(data_dir)?;
-        let mut service = Self {
-            auth: AuthAuthority::new(sign_in_mode),
-            evidence: WorkspaceEvidenceStore::new(),
-            chats: BTreeMap::new(),
-            drafts: DraftStore::new(),
+        let mut service = Self::from_wal_store(
+            Box::new(store),
+            sign_in_mode,
             retry_mode,
-            agent_loop: AgentLoop::new(),
             default_cited_source,
-            queued_providers: VecDeque::new(),
-            clock_secs: initial_clock_secs,
-            wal: Box::new(store),
-            rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
-            web_dir: None,
-            today_engine: TodayQueueEngine::new(),
-            today_candidates: Vec::new(),
-            scheduled_visits: Vec::new(),
-            today_also_reviewed: 0,
-            matching_engine: MessageMatchingEngine::new(),
-            reply_engine: MessageReplyEngine::new(),
-            patient_memories: BTreeMap::new(),
-            connected_care: ConnectedCareBridge::new(),
-            invitation_pairs: BTreeMap::new(),
-            intelligence: crate::intelligence::ClinicIntelligenceState::default(),
-        };
+            initial_clock_secs,
+        );
         for entry in entries {
             service.replay_wal_entry(entry);
         }
@@ -235,29 +234,13 @@ impl ClinicService {
         initial_clock_secs: u64,
     ) -> Result<Self, ClinicServiceError> {
         let (store, entries) = PgClinicStore::open(config)?;
-        let mut service = Self {
-            auth: AuthAuthority::new(sign_in_mode),
-            evidence: WorkspaceEvidenceStore::new(),
-            chats: BTreeMap::new(),
-            drafts: DraftStore::new(),
+        let mut service = Self::from_wal_store(
+            Box::new(store),
+            sign_in_mode,
             retry_mode,
-            agent_loop: AgentLoop::new(),
             default_cited_source,
-            queued_providers: VecDeque::new(),
-            clock_secs: initial_clock_secs,
-            wal: Box::new(store),
-            rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
-            web_dir: None,
-            today_engine: TodayQueueEngine::new(),
-            today_candidates: Vec::new(),
-            scheduled_visits: Vec::new(),
-            today_also_reviewed: 0,
-            matching_engine: MessageMatchingEngine::new(),
-            reply_engine: MessageReplyEngine::new(),
-            patient_memories: BTreeMap::new(),
-            connected_care: ConnectedCareBridge::new(),
-            invitation_pairs: BTreeMap::new(),
-        };
+            initial_clock_secs,
+        );
         for entry in entries {
             service.replay_wal_entry(entry);
         }
