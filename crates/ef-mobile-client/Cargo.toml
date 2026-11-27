@@ -19,6 +19,7 @@ bevy = { workspace = true, features = [
     "bevy_ui",
     "bevy_window",
 ] }
+ef-connected-care = { workspace = true }
 ef-core = { workspace = true }
 ef-mobile-domain = { workspace = true }
 ef-ui-catalog = { workspace = true }
@@ -28,3 +29,6 @@ thiserror = { workspace = true }
 
 [lints]
 workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-mobile-server = { path = "../ef-mobile-server" }

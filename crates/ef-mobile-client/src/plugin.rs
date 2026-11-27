@@ -3,16 +3,24 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use ef_connected_care::{
+    ConnectionId, ConnectionStanding, DateOfBirth, DobVerificationOutcome, EnvelopeItem,
+    InviteChallenge, InviteCredential, Part2WrittenConsent, TransferEnvelope,
+};
+use ef_core::IdempotencyKey;
 use ef_mobile_domain::{
     AccountFencedHealthBatch, ConnectivityState, HealthSampleEntry, HealthTransactionalOutbox,
-    MobileClientScreen, MobileDeviceAuthState, MobileSessionId, PatientRecord, PushTokenRegistry,
+    IncomingBatchItem, MobileClientScreen, MobileDeviceAuthState, MobileSessionId, PatientRecord,
+    PushTokenRegistry, SavepointBatchReport,
 };
 use ef_ui_catalog::{
     ComposerAction, ComposerSurface, EfUiCatalogPlugin, FrameDecision, IdleRedrawGate,
     RedrawReason, SoftKeyboardInsets,
 };
 
-use crate::transport::{LocalMobileTransport, MobileClientTransport, MobileTransportError};
+use crate::transport::{
+    AccountDeleteReceipt, LocalMobileTransport, MobileClientTransport, MobileTransportError,
+};
 
 /// Active navigation tab in Curie Mobile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -40,13 +48,43 @@ pub enum MobileClientCommand {
     SetVisibility(MobileVisibility),
     SetSoftKeyboardInsetPx(f32),
     SwitchTab(MobileTab),
-    SignIn { email: String },
-    EditLocalDraft { text: String },
-    SignOut { device_id: Option<String> },
+    SignIn {
+        email: String,
+    },
+    EditLocalDraft {
+        text: String,
+    },
+    SignOut {
+        device_id: Option<String>,
+    },
     FlushOwedSignOuts,
+    IngestRecords(Vec<IncomingBatchItem>),
     QueueHealthBatch(AccountFencedHealthBatch),
     SyncHealthOutboxAndRefreshTrends,
     RefreshRecords,
+    ConnectedCareLookup {
+        credential: InviteCredential,
+    },
+    ConnectedCareVerifyDob {
+        credential: InviteCredential,
+        dob: DateOfBirth,
+    },
+    ConnectedCareShare {
+        credential: InviteCredential,
+    },
+    SendForMyDoctor {
+        idempotency_key: IdempotencyKey,
+        connection_id: ConnectionId,
+        items: Vec<EnvelopeItem>,
+        part2_consent: Option<Part2WrittenConsent>,
+    },
+    ConnectedCareDisconnect {
+        connection_id: ConnectionId,
+    },
+    DeleteAccount {
+        event_id: String,
+        occurred_at: String,
+    },
 }
 
 #[derive(Resource, Default)]
@@ -72,6 +110,12 @@ pub struct MobileClientState {
     pub visible_health_trends: Vec<HealthSampleEntry>,
     /// Synced patient records read strictly via [`MobileClientTransport`].
     pub visible_records: Vec<PatientRecord>,
+    pub last_ingest_report: Option<SavepointBatchReport>,
+    pub last_invite_challenge: Option<InviteChallenge>,
+    pub last_dob_outcome: Option<DobVerificationOutcome>,
+    pub last_connection_standing: Option<ConnectionStanding>,
+    pub sent_envelopes: Vec<TransferEnvelope>,
+    pub last_delete_receipt: Option<AccountDeleteReceipt>,
     pub errors: Vec<String>,
     pub frames_drawn: u64,
     pub frames_skipped_background: u64,
@@ -88,10 +132,39 @@ impl Default for MobileClientState {
             push_registry: PushTokenRegistry::new(),
             visible_health_trends: Vec::new(),
             visible_records: Vec::new(),
+            last_ingest_report: None,
+            last_invite_challenge: None,
+            last_dob_outcome: None,
+            last_connection_standing: None,
+            sent_envelopes: Vec::new(),
+            last_delete_receipt: None,
             errors: Vec::new(),
             frames_drawn: 0,
             frames_skipped_background: 0,
             clock_secs: 1_760_000_000,
+        }
+    }
+}
+
+impl MobileClientState {
+    fn clear_account_visible_state(&mut self, composer: &mut ComposerSurface) {
+        self.visible_health_trends.clear();
+        self.visible_records.clear();
+        self.last_ingest_report = None;
+        self.last_invite_challenge = None;
+        self.last_dob_outcome = None;
+        self.last_connection_standing = None;
+        self.sent_envelopes.clear();
+        let _ = composer.apply(ComposerAction::SelectAll);
+        let _ = composer.apply(ComposerAction::Backspace);
+    }
+
+    fn current_session_id(&self) -> Option<MobileSessionId> {
+        match self.auth_device.screen() {
+            MobileClientScreen::SignedIn { session_id, .. } => Some(session_id.clone()),
+            MobileClientScreen::EnterYourEmail
+            | MobileClientScreen::CheckYourEmail { .. }
+            | MobileClientScreen::SessionEnded => None,
         }
     }
 }
@@ -166,6 +239,7 @@ fn process_mobile_client_commands(
                 let token = match transport_res.transport.request_sign_in_link(&email, now) {
                     Ok(t) => t,
                     Err(err) => {
+                        state.auth_device.return_to_sign_in();
                         state.errors.push(err.to_string());
                         continue;
                     }
@@ -173,14 +247,12 @@ fn process_mobile_client_commands(
                 match transport_res.transport.verify_sign_in(&email, &token, now) {
                     Ok(verified) => {
                         // Clean handoff: clear any visible trends/records/composer before entering SignedIn.
-                        state.visible_health_trends.clear();
-                        state.visible_records.clear();
-                        let _ = composer.apply(ComposerAction::SelectAll);
-                        let _ = composer.apply(ComposerAction::Backspace);
+                        state.clear_account_visible_state(&mut composer);
                         state.auth_device.complete_sign_in(verified);
                         gate.request_redraw(RedrawReason::StreamDelta);
                     }
                     Err(err) => {
+                        state.auth_device.return_to_sign_in();
                         state.errors.push(err.to_string());
                     }
                 }
@@ -200,10 +272,7 @@ fn process_mobile_client_commands(
                     let _ = state.push_registry.revoke_device(&dev_id);
                 }
                 // Clear all visible trends, records, and composer buffer immediately (`SignInHoldsNothing`).
-                state.visible_health_trends.clear();
-                state.visible_records.clear();
-                let _ = composer.apply(ComposerAction::SelectAll);
-                let _ = composer.apply(ComposerAction::Backspace);
+                state.clear_account_visible_state(&mut composer);
 
                 // Extract signed-out session & queue offline or revoke online through transport.
                 let mut local_auth_shadow = ef_mobile_domain::MobileAuthAuthority::new();
@@ -226,18 +295,36 @@ fn process_mobile_client_commands(
                     .iter()
                     .map(|o| o.session_id.clone())
                     .collect();
-                let mut all_ok = true;
-                for sess in &owed_sessions {
-                    if let Err(err) = transport_res.transport.revoke_session(sess) {
-                        state.errors.push(err.to_string());
-                        all_ok = false;
-                    }
+                if owed_sessions.is_empty() {
+                    continue;
                 }
-                if all_ok {
-                    let mut dummy = ef_mobile_domain::MobileAuthAuthority::new();
-                    let _ = state.auth_device.flush_owed_sign_outs(&mut dummy);
+                match transport_res
+                    .transport
+                    .revoke_sessions(None, &owed_sessions)
+                {
+                    Ok(_) => {
+                        let mut dummy = ef_mobile_domain::MobileAuthAuthority::new();
+                        let _ = state.auth_device.flush_owed_sign_outs(&mut dummy);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
                 }
                 gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            MobileClientCommand::IngestRecords(items) => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res
+                    .transport
+                    .ingest_records(&session_id, items, now)
+                {
+                    Ok(report) => {
+                        state.last_ingest_report = Some(report);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
             }
             MobileClientCommand::QueueHealthBatch(batch) => {
                 if let Err(err) = state.outbox.enqueue(batch) {
@@ -281,15 +368,129 @@ fn process_mobile_client_commands(
                 }
             }
             MobileClientCommand::RefreshRecords => {
-                let MobileClientScreen::SignedIn { session_id, .. } =
-                    state.auth_device.screen().clone()
-                else {
+                let Some(session_id) = state.current_session_id() else {
                     continue;
                 };
                 let now = state.clock_secs;
                 match transport_res.transport.fetch_records(&session_id, now) {
                     Ok(records) => {
                         state.visible_records = records;
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::ConnectedCareLookup { credential } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res
+                    .transport
+                    .connected_care_lookup(&session_id, credential, now)
+                {
+                    Ok(challenge) => {
+                        state.last_invite_challenge = Some(challenge);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::ConnectedCareVerifyDob { credential, dob } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res.transport.connected_care_verify_dob(
+                    &session_id,
+                    credential,
+                    dob,
+                    now,
+                ) {
+                    Ok(outcome) => {
+                        state.last_dob_outcome = Some(outcome);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::ConnectedCareShare { credential } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res
+                    .transport
+                    .connected_care_share(&session_id, credential, now)
+                {
+                    Ok(standing) => {
+                        state.last_connection_standing = Some(standing);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::SendForMyDoctor {
+                idempotency_key,
+                connection_id,
+                items,
+                part2_consent,
+            } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res.transport.connected_care_transfer(
+                    &session_id,
+                    idempotency_key,
+                    connection_id,
+                    items,
+                    part2_consent,
+                    now,
+                ) {
+                    Ok(envelope) => {
+                        state.sent_envelopes.push(envelope);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::ConnectedCareDisconnect { connection_id } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res.transport.connected_care_disconnect(
+                    &session_id,
+                    connection_id,
+                    now,
+                ) {
+                    Ok(standing) => {
+                        state.last_connection_standing = Some(standing);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::DeleteAccount {
+                event_id,
+                occurred_at,
+            } => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res.transport.delete_account(
+                    &session_id,
+                    &event_id,
+                    &occurred_at,
+                    now,
+                ) {
+                    Ok(receipt) => {
+                        state.last_delete_receipt = Some(receipt);
+                        state.clear_account_visible_state(&mut composer);
+                        let mut shadow = ef_mobile_domain::MobileAuthAuthority::new();
+                        let _ = state.auth_device.sign_out(&mut shadow);
                         gate.request_redraw(RedrawReason::StreamDelta);
                     }
                     Err(err) => state.errors.push(err.to_string()),
