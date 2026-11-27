@@ -25,10 +25,10 @@ use ef_core::{
 };
 use ef_harness::StubProvider;
 use ef_ui_catalog::{
-    A11yProjection, A11ySemanticKey, AriaRole, ComposerAction, ComposerSurface, FrameDecision,
-    HorizontalEdge, IdleRedrawGate, Locale as UiLocaleKind, ModifierChord, NodeAvailability,
-    NodeInteractivity, PoliteLiveQueue, ProjectedA11yNode, ShortcutInput, ShortcutKey,
-    ShortcutRouter, TextDirection, UiLocale,
+    A11yProjection, A11ySemanticKey, AriaRole, ChromeProduct, ComposerAction, ComposerSurface,
+    FrameDecision, HorizontalEdge, IdleRedrawGate, Locale as UiLocaleKind, LocalizedChrome,
+    ModifierChord, NodeAvailability, NodeInteractivity, PoliteLiveQueue, ProjectedA11yNode,
+    ShortcutInput, ShortcutKey, ShortcutRouter, TextDirection, UiLocale, localized_chrome,
 };
 use serde::{Deserialize, Serialize};
 
@@ -110,9 +110,12 @@ pub struct ClinicWasmSnapshot {
     pub abi_version: u32,
     pub mount_subpath: String,
     pub locale: String,
+    pub autonym: String,
     pub direction: String,
     pub sidebar_edge: String,
+    pub citation_edge: String,
     pub citation_panel_edge: String,
+    pub chrome: LocalizedChrome,
     pub privacy_cover_active: bool,
     pub composer_text: String,
     pub a11y_tree_generation: u64,
@@ -250,9 +253,12 @@ impl ClinicWasmRuntime {
             abi_version: CLINIC_WASM_ABI_VERSION,
             mount_subpath: projection.mount_subpath.clone(),
             locale: locale.bcp47_tag().to_owned(),
+            autonym: locale.native_autonym().to_owned(),
             direction: direction_str(locale.direction()).to_owned(),
             sidebar_edge: edge_str(runtime_cfg.sidebar_edge).to_owned(),
+            citation_edge: edge_str(runtime_cfg.citation_panel_edge).to_owned(),
             citation_panel_edge: edge_str(runtime_cfg.citation_panel_edge).to_owned(),
+            chrome: localized_chrome(locale, ChromeProduct::Clinic),
             privacy_cover_active: router.is_privacy_cover_active(),
             composer_text: composer.display_text(),
             a11y_tree_generation: report.a11y_tree_generation,
@@ -681,5 +687,104 @@ mod tests {
                 .expect("parse error snapshot must parse");
         assert!(!bad_json.ok);
         assert!(bad_json.error.is_some());
+    }
+
+    #[test]
+    fn clinic_wasm_runtime_covers_all_seven_writing_systems_with_localized_chrome_and_rtl() {
+        let mut runtime = ClinicWasmRuntime::new();
+        let cases = [
+            (
+                "en",
+                "en",
+                "English",
+                "ltr",
+                "left",
+                "right",
+                "Clinical assessment: BP 122/78 mmHg.",
+            ),
+            (
+                "he-IL",
+                "he",
+                "עברית",
+                "rtl",
+                "right",
+                "left",
+                "שָׁלוֹם מְטוּפָּל — בדיקת HbA1c 6.8%",
+            ),
+            (
+                "ar",
+                "ar",
+                "العربية",
+                "rtl",
+                "right",
+                "left",
+                "فحص HbA1c 6.8% — ضَغْطُ الدَّمِ 122/78",
+            ),
+            (
+                "zh-Hans",
+                "zh-Hans",
+                "简体中文",
+                "ltr",
+                "left",
+                "right",
+                "临床评估：糖化血红蛋白 HbA1c 6.8%",
+            ),
+            (
+                "ja",
+                "ja",
+                "日本語",
+                "ltr",
+                "left",
+                "right",
+                "臨床評価：HbA1c 6.8%・血圧 122/78",
+            ),
+            (
+                "vi",
+                "vi",
+                "Tiếng Việt",
+                "ltr",
+                "left",
+                "right",
+                "Tiếng Việt — Nguyễn Thị Hương — HbA1c 6.8%",
+            ),
+            (
+                "hi-IN",
+                "hi",
+                "हिन्दी",
+                "ltr",
+                "left",
+                "right",
+                "चिकित्सा मूल्यांकन · रक्तचाप 122/78",
+            ),
+        ];
+
+        for (query, expected_tag, autonym, dir, sidebar, citation, prompt) in cases {
+            let set_cmd = format!(r#"{{"cmd":"set_locale","lang":"{query}"}}"#);
+            let snap: ClinicWasmSnapshot = serde_json::from_str(&runtime.dispatch_json(&set_cmd))
+                .expect("clinic locale snapshot must parse");
+            assert!(snap.ok, "set_locale failed for {query}: {:?}", snap.error);
+            assert_eq!(snap.locale, expected_tag);
+            assert_eq!(snap.autonym, autonym);
+            assert_eq!(snap.direction, dir);
+            assert_eq!(snap.sidebar_edge, sidebar);
+            assert_eq!(snap.citation_edge, citation);
+            assert_eq!(snap.citation_panel_edge, citation);
+            assert_eq!(snap.duplicate_a11y_nodes, 0);
+            assert!(snap.a11y_node_count >= 5);
+            assert!(!snap.chrome.app_brand.is_empty());
+            assert!(!snap.chrome.patient_roster.is_empty());
+            assert!(!snap.chrome.transcript_heading.is_empty());
+            assert!(!snap.chrome.evidence_heading.is_empty());
+            assert!(!snap.chrome.composer_placeholder.is_empty());
+            assert!(snap.chrome.crisis_heading.contains("988"));
+
+            let edit_cmd =
+                serde_json::json!({ "cmd": "set_composer_text", "text": prompt }).to_string();
+            let edited: ClinicWasmSnapshot =
+                serde_json::from_str(&runtime.dispatch_json(&edit_cmd))
+                    .expect("clinic composer snapshot must parse");
+            assert!(edited.ok);
+            assert_eq!(edited.composer_text, prompt);
+        }
     }
 }

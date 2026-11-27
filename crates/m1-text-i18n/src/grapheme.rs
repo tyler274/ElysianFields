@@ -85,6 +85,7 @@ pub const fn is_strong_ltr(ch: char) -> bool {
         0x0041..=0x005A
             | 0x0061..=0x007A
             | 0x00C0..=0x024F
+            | 0x1E00..=0x1EFF
             | 0x0900..=0x097F
             | 0x0980..=0x09FF
             | 0x0B80..=0x0BFF
@@ -119,6 +120,12 @@ pub const fn is_combining_mark(ch: char) -> bool {
             | 0x1DC0..=0x1DFF
             | 0x20D0..=0x20FF
             | 0xFE20..=0xFE2F
+            // Hebrew cantillation & nikud vowel points
+            | 0x0591..=0x05BD
+            | 0x05BF
+            | 0x05C1..=0x05C2
+            | 0x05C4..=0x05C5
+            | 0x05C7
             // Arabic combining marks & harakat (Arabic + Urdu)
             | 0x0610..=0x061A
             | 0x064B..=0x065F

@@ -13,9 +13,9 @@ use m1_text_i18n::{
 
 #[test]
 fn locale_catalog_covers_all_shipped_and_shaping_probe_locales() {
-    assert_eq!(Locale::SHIPPED_UI.len(), 9);
-    assert_eq!(Locale::SHAPING_PROBES.len(), 6);
-    assert_eq!(Locale::ALL.len(), 15);
+    assert_eq!(Locale::SHIPPED_UI.len(), 12);
+    assert_eq!(Locale::SHAPING_PROBES.len(), 5);
+    assert_eq!(Locale::ALL.len(), 17);
 
     for locale in Locale::ALL {
         let meta = locale.metadata();
@@ -31,16 +31,84 @@ fn locale_catalog_covers_all_shipped_and_shaping_probe_locales() {
     }
 
     assert_eq!(Locale::Ar.direction(), TextDirection::Rtl);
+    assert_eq!(Locale::He.direction(), TextDirection::Rtl);
     assert_eq!(Locale::Ur.direction(), TextDirection::Rtl);
     assert_eq!(Locale::En.direction(), TextDirection::Ltr);
-    assert_eq!(Locale::Hi.metadata().tier, LocaleTier::ShapingProbe);
+    assert_eq!(Locale::Vi.direction(), TextDirection::Ltr);
+    assert_eq!(Locale::Hi.direction(), TextDirection::Ltr);
+    assert_eq!(Locale::parse_bcp47("iw"), Ok(Locale::He));
+    assert_eq!(Locale::parse_bcp47("he-IL"), Ok(Locale::He));
+    assert_eq!(Locale::parse_bcp47("vi-VN"), Ok(Locale::Vi));
+    assert_eq!(Locale::He.primary_font(), FontFamily::NotoSansHebrew);
+    assert_eq!(Locale::Vi.primary_font(), FontFamily::NotoSans);
+    assert_eq!(Locale::Ur.metadata().tier, LocaleTier::ShapingProbe);
     assert_eq!(Locale::En.metadata().tier, LocaleTier::ShippedUi);
+    assert_eq!(Locale::He.metadata().tier, LocaleTier::ShippedUi);
+    assert_eq!(Locale::Vi.metadata().tier, LocaleTier::ShippedUi);
+    assert_eq!(Locale::Hi.metadata().tier, LocaleTier::ShippedUi);
 
     let err = Locale::parse_bcp47("xx-INVALID").expect_err("unknown locale must fail");
     assert_eq!(err.invalid_tag(), "xx-INVALID");
 
     assert!(FontFamily::core_eager_bundle_kib() < 512);
     assert!(FontFamily::total_all_scripts_kib() > FontFamily::core_eager_bundle_kib());
+}
+
+#[test]
+fn hebrew_nikud_vietnamese_diacritics_and_hindi_conjuncts_preserve_clusters_and_bidi() {
+    use m1_text_i18n::{detect_paragraph_direction, next_cluster_boundary, prev_cluster_boundary};
+
+    // Hebrew Nikud vowel-pointed words (`שָׁלוֹם`, `מְטוּפָּל`) preserve orthographic clusters and detect RTL.
+    let shalom = "שָׁלוֹם";
+    assert_eq!(
+        detect_paragraph_direction(shalom, TextDirection::Ltr),
+        TextDirection::Rtl
+    );
+    let shalom_bounds = cluster_boundaries(shalom);
+    assert_eq!(
+        shalom_bounds.len(),
+        5,
+        "שָׁ + ל + וֹ + ם = 4 clusters (5 boundaries)"
+    );
+    assert_eq!(&shalom[shalom_bounds[0]..shalom_bounds[1]], "שָׁ");
+
+    let mut he_doc = ComposerDocument::new(Locale::He);
+    he_doc.apply(TextInputCommand::Focus);
+    he_doc.apply(TextInputCommand::InsertText("מְטוּפָּל HbA1c 6.8%".into()));
+    assert_eq!(he_doc.effective_direction(), TextDirection::Rtl);
+    // Backspacing through `מְטוּפָּל` after selecting just the word deletes whole nikud clusters.
+    let mut word_doc = ComposerDocument::new(Locale::He);
+    word_doc.apply(TextInputCommand::Focus);
+    word_doc.apply(TextInputCommand::InsertText("מְטוּפָּל".into()));
+    word_doc.apply(TextInputCommand::Backspace);
+    assert_eq!(word_doc.text(), "מְטוּפָּ");
+    word_doc.apply(TextInputCommand::Backspace);
+    assert_eq!(word_doc.text(), "מְטוּ");
+
+    // Vietnamese stacked diacritics detect LTR even when starting with Latin Extended Additional.
+    let vi = "Ứng dụng — Nguyễn Thị Hương";
+    assert_eq!(
+        detect_paragraph_direction(vi, TextDirection::Rtl),
+        TextDirection::Ltr
+    );
+    let vi_nfd = "Tie\u{0302}\u{0301}ng";
+    let t_end = next_cluster_boundary(vi_nfd, m1_text_i18n::ByteOffset(0));
+    let i_end = next_cluster_boundary(vi_nfd, t_end);
+    let e_end = next_cluster_boundary(vi_nfd, i_end);
+    assert_eq!(
+        &vi_nfd[i_end.as_usize()..e_end.as_usize()],
+        "e\u{0302}\u{0301}"
+    );
+    assert_eq!(prev_cluster_boundary(vi_nfd, e_end), i_end);
+
+    // Modern Hindi Devanagari virama conjuncts (`चिकित्सा मूल्यांकन`, `रक्तचाप`).
+    let hi = "चिकित्सा मूल्यांकन · रक्तचाप";
+    assert_eq!(
+        detect_paragraph_direction(hi, TextDirection::Rtl),
+        TextDirection::Ltr
+    );
+    let rakta_bounds = cluster_boundaries("रक्तचाप");
+    assert_eq!(&"रक्तचाप"[rakta_bounds[1]..rakta_bounds[2]], "क्त");
 }
 
 #[test]

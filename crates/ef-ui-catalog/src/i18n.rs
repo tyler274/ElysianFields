@@ -19,7 +19,7 @@ pub enum HorizontalEdge {
     Right,
 }
 
-/// All 9 shipped UI locales for Curie Clinic and Curie Mobile.
+/// All 12 shipped UI locales for Curie Clinic and Curie Mobile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum Locale {
     #[default]
@@ -32,10 +32,13 @@ pub enum Locale {
     Ja,
     Ko,
     Ar,
+    He,
+    Vi,
+    Hi,
 }
 
 impl Locale {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::En,
         Self::Es,
         Self::Fr,
@@ -45,6 +48,9 @@ impl Locale {
         Self::Ja,
         Self::Ko,
         Self::Ar,
+        Self::He,
+        Self::Vi,
+        Self::Hi,
     ];
 
     #[must_use]
@@ -59,6 +65,9 @@ impl Locale {
             Self::Ja => "ja",
             Self::Ko => "ko",
             Self::Ar => "ar",
+            Self::He => "he",
+            Self::Vi => "vi",
+            Self::Hi => "hi",
         }
     }
 
@@ -74,6 +83,9 @@ impl Locale {
             Self::Ja => "日本語",
             Self::Ko => "한국어",
             Self::Ar => "العربية",
+            Self::He => "עברית",
+            Self::Vi => "Tiếng Việt",
+            Self::Hi => "हिन्दी",
         }
     }
 
@@ -89,13 +101,16 @@ impl Locale {
             Self::Ja => "日本語",
             Self::Ko => "한국어",
             Self::Ar => "العربية",
+            Self::He => "עברית",
+            Self::Vi => "VI",
+            Self::Hi => "हिन्दी",
         }
     }
 
     #[must_use]
     pub const fn direction(self) -> TextDirection {
         match self {
-            Self::Ar => TextDirection::Rtl,
+            Self::Ar | Self::He => TextDirection::Rtl,
             Self::En
             | Self::Es
             | Self::Fr
@@ -103,7 +118,9 @@ impl Locale {
             | Self::De
             | Self::ZhHans
             | Self::Ja
-            | Self::Ko => TextDirection::Ltr,
+            | Self::Ko
+            | Self::Vi
+            | Self::Hi => TextDirection::Ltr,
         }
     }
 
@@ -113,7 +130,7 @@ impl Locale {
     }
 
     /// Parses a BCP-47 tag case-insensitively, accepting `-` or `_` separators
-    /// and region/script subtags (e.g., `es-MX`, `zh_Hans`, `zh-CN`, `ar-EG`).
+    /// and region/script subtags (e.g., `es-MX`, `zh_Hans`, `zh-CN`, `ar-EG`, `he-IL`, `iw`, `vi-VN`, `hi-IN`).
     #[must_use]
     pub fn parse_bcp47(raw: &str) -> Option<Self> {
         let normalized = raw.trim().replace('_', "-").to_ascii_lowercase();
@@ -133,6 +150,9 @@ impl Locale {
             "ja" => Some(Self::Ja),
             "ko" => Some(Self::Ko),
             "ar" => Some(Self::Ar),
+            "he" | "iw" => Some(Self::He),
+            "vi" => Some(Self::Vi),
+            "hi" => Some(Self::Hi),
             "zh" => match subtag {
                 None | Some("hans" | "cn" | "sg") => Some(Self::ZhHans),
                 Some(_) => Some(Self::ZhHans),
@@ -170,7 +190,7 @@ impl Locale {
         Self::En
     }
 
-    /// Returns mirrored Bevy horizontal flex direction for RTL (`ar`) vs LTR.
+    /// Returns mirrored Bevy horizontal flex direction for RTL (`ar`, `he`) vs LTR.
     #[must_use]
     pub const fn row_flex_direction(self) -> FlexDirection {
         match self.direction() {
@@ -217,7 +237,7 @@ impl UiLocale {
 }
 
 /// Compile-time exhaustive message keys covering shared controls, Curie Clinic,
-/// and Curie Mobile (56 keys across all 9 locales = 504 statically checked strings).
+/// and Curie Mobile (56 keys across all 12 locales = 672 statically checked strings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UiKey {
     // Shared core actions & chrome (20)
@@ -354,6 +374,9 @@ struct LocalizedRow {
     ja: &'static str,
     ko: &'static str,
     ar: &'static str,
+    he: &'static str,
+    vi: &'static str,
+    hi: &'static str,
 }
 
 impl LocalizedRow {
@@ -368,11 +391,14 @@ impl LocalizedRow {
             Locale::Ja => self.ja,
             Locale::Ko => self.ko,
             Locale::Ar => self.ar,
+            Locale::He => self.he,
+            Locale::Vi => self.vi,
+            Locale::Hi => self.hi,
         }
     }
 }
 
-/// Compile-time exhaustive translation lookup for all 9 shipped locales.
+/// Compile-time exhaustive translation lookup for all 12 shipped locales.
 #[must_use]
 pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
     let row = match key {
@@ -386,6 +412,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "Curie クリニック",
             ko: "Curie 클리닉",
             ar: "عيادة كوري",
+            he: "מרפאת קירי",
+            vi: "Phòng khám Curie",
+            hi: "क्यूरी क्लिनिक",
         },
         UiKey::AppBrandMobile => LocalizedRow {
             en: "Curie Mobile",
@@ -397,6 +426,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "Curie モバイル",
             ko: "Curie 모바일",
             ar: "كوري للجوال",
+            he: "קירי מובייל",
+            vi: "Curie Di động",
+            hi: "क्यूरी मोबाइल",
         },
         UiKey::ActionSignIn => LocalizedRow {
             en: "Sign in",
@@ -408,6 +440,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "サインイン",
             ko: "로그인",
             ar: "تسجيل الدخول",
+            he: "התחברות",
+            vi: "Đăng nhập",
+            hi: "साइन इन करें",
         },
         UiKey::ActionSignOut => LocalizedRow {
             en: "Sign out",
@@ -419,6 +454,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "サインアウト",
             ko: "로그아웃",
             ar: "تسجيل الخروج",
+            he: "התנתקות",
+            vi: "Đăng xuất",
+            hi: "साइन आउट करें",
         },
         UiKey::ActionCancel => LocalizedRow {
             en: "Cancel",
@@ -430,6 +468,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "キャンセル",
             ko: "취소",
             ar: "إلغاء",
+            he: "ביטול",
+            vi: "Hủy",
+            hi: "रद्द करें",
         },
         UiKey::ActionConfirm => LocalizedRow {
             en: "Confirm",
@@ -441,6 +482,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "確認",
             ko: "확인",
             ar: "تأكيد",
+            he: "אישור",
+            vi: "Xác nhận",
+            hi: "पुष्टि करें",
         },
         UiKey::ActionClose => LocalizedRow {
             en: "Close",
@@ -452,6 +496,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "閉じる",
             ko: "닫기",
             ar: "إغلاق",
+            he: "סגירה",
+            vi: "Đóng",
+            hi: "बंद करें",
         },
         UiKey::ActionRetry => LocalizedRow {
             en: "Try again",
@@ -463,6 +510,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "再試行",
             ko: "다시 시도",
             ar: "إعادة المحاولة",
+            he: "נסה שוב",
+            vi: "Thử lại",
+            hi: "पुनः प्रयास करें",
         },
         UiKey::ActionSave => LocalizedRow {
             en: "Save",
@@ -474,6 +524,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "保存",
             ko: "저장",
             ar: "حفظ",
+            he: "שמירה",
+            vi: "Lưu",
+            hi: "सहेजें",
         },
         UiKey::ActionSearch => LocalizedRow {
             en: "Search",
@@ -485,6 +538,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "検索",
             ko: "검색",
             ar: "بحث",
+            he: "חיפוש",
+            vi: "Tìm kiếm",
+            hi: "खोजें",
         },
         UiKey::ActionCopy => LocalizedRow {
             en: "Copy",
@@ -496,6 +552,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "コピー",
             ko: "복사",
             ar: "نسخ",
+            he: "העתקה",
+            vi: "Sao chép",
+            hi: "कॉपी करें",
         },
         UiKey::ActionPaste => LocalizedRow {
             en: "Paste",
@@ -507,6 +566,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "貼り付け",
             ko: "붙여넣기",
             ar: "لصق",
+            he: "הדבקה",
+            vi: "Dán",
+            hi: "पेस्ट करें",
         },
         UiKey::ActionUndo => LocalizedRow {
             en: "Undo",
@@ -518,6 +580,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "元に戻す",
             ko: "실행 취소",
             ar: "تراجع",
+            he: "ביטול פעולה",
+            vi: "Hoàn tác",
+            hi: "पूर्ववत करें",
         },
         UiKey::ActionRedo => LocalizedRow {
             en: "Redo",
@@ -529,6 +594,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "やり直す",
             ko: "다시 실행",
             ar: "إعادة",
+            he: "ביצוע מחדש",
+            vi: "Làm lại",
+            hi: "फिर से करें",
         },
         UiKey::LabelLanguage => LocalizedRow {
             en: "Language",
@@ -540,6 +608,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "言語",
             ko: "언어",
             ar: "اللغة",
+            he: "שפה",
+            vi: "Ngôn ngữ",
+            hi: "भाषा",
         },
         UiKey::LabelThemeLight => LocalizedRow {
             en: "Light theme",
@@ -551,6 +622,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ライトテーマ",
             ko: "라이트 테마",
             ar: "المظهر الفاتح",
+            he: "ערכת נושא בהירה",
+            vi: "Giao diện sáng",
+            hi: "हल्की थीम",
         },
         UiKey::LabelThemeDark => LocalizedRow {
             en: "Dark theme",
@@ -562,6 +636,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ダークテーマ",
             ko: "다크 테마",
             ar: "المظهر الداكن",
+            he: "ערכת נושא כהה",
+            vi: "Giao diện tối",
+            hi: "गहरी थीम",
         },
         UiKey::LabelLoading => LocalizedRow {
             en: "Loading",
@@ -573,6 +650,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "読み込み中",
             ko: "불러오는 중",
             ar: "جاري التحميل",
+            he: "טוען",
+            vi: "Đang tải",
+            hi: "लोड हो रहा है",
         },
         UiKey::LabelSettings => LocalizedRow {
             en: "Settings",
@@ -584,6 +664,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "設定",
             ko: "설정",
             ar: "الإعدادات",
+            he: "הגדרות",
+            vi: "Cài đặt",
+            hi: "सेटिंग्स",
         },
         UiKey::LabelHelp => LocalizedRow {
             en: "Help",
@@ -595,6 +678,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ヘルプ",
             ko: "도움말",
             ar: "مساعدة",
+            he: "עזרה",
+            vi: "Trợ giúp",
+            hi: "सहायता",
         },
         UiKey::PrivacyCoverTitle => LocalizedRow {
             en: "Privacy screen active",
@@ -606,6 +692,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "プライバシーカバー有効",
             ko: "개인정보 보호 화면 활성화됨",
             ar: "شاشة الخصوصية نشطة",
+            he: "מסך פרטיות פעיל",
+            vi: "Màn hình bảo mật đang bật",
+            hi: "गोपनीयता स्क्रीन सक्रिय है",
         },
         UiKey::PrivacyCoverHint => LocalizedRow {
             en: "Clinical details are hidden. Press Cmd/Ctrl+Shift+L to return.",
@@ -617,6 +706,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "臨床情報は非表示です。Cmd/Ctrl+Shift+L で戻ります。",
             ko: "임상 정보가 숨겨졌습니다. 돌아가려면 Cmd/Ctrl+Shift+L을 누르세요.",
             ar: "التفاصيل السريرية مخفية. اضغط Cmd/Ctrl+Shift+L للعودة.",
+            he: "פרטים קליניים מוסתרים. לחץ על Cmd/Ctrl+Shift+L כדי לחזור.",
+            vi: "Thông tin lâm sàng đang được ẩn. Nhấn Cmd/Ctrl+Shift+L để quay lại.",
+            hi: "नैदानिक विवरण छिपे हैं। वापस आने के लिए Cmd/Ctrl+Shift+L दबाएँ।",
         },
         UiKey::PrivacyCoverDismiss => LocalizedRow {
             en: "Resume session",
@@ -628,6 +720,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "セッションを再開",
             ko: "세션 재개",
             ar: "استئناف الجلسة",
+            he: "המשך הפעלה",
+            vi: "Tiếp tục phiên làm việc",
+            hi: "सत्र फिर से शुरू करें",
         },
         UiKey::ShortcutsDialogTitle => LocalizedRow {
             en: "Keyboard shortcuts",
@@ -639,6 +734,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "キーボードショートカット",
             ko: "키보드 단축키",
             ar: "اختصارات لوحة المفاتيح",
+            he: "קיצורי מקלדת",
+            vi: "Phím tắt bàn phím",
+            hi: "कीबोर्ड शॉर्टकट",
         },
         UiKey::ShortcutsHintOpenFinder => LocalizedRow {
             en: "Open patient finder",
@@ -650,6 +748,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "患者検索を開く",
             ko: "환자 검색 열기",
             ar: "فتح البحث عن المرضى",
+            he: "פתיחת חיפוש מטופלים",
+            vi: "Mở tìm kiếm bệnh nhân",
+            hi: "मरीज़ खोज खोलें",
         },
         UiKey::ShortcutsHintPrivacyCover => LocalizedRow {
             en: "Toggle privacy screen cover",
@@ -661,6 +762,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "プライバシーカバーを切り替え",
             ko: "개인정보 보호 화면 전환",
             ar: "تبديل شاشة الخصوصية",
+            he: "הפעלה או כיבוי של מסך פרטיות",
+            vi: "Bật/tắt màn hình bảo mật",
+            hi: "गोपनीयता आवरण टॉगल करें",
         },
         UiKey::ClinicPatientsHeading => LocalizedRow {
             en: "Patients",
@@ -672,6 +776,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "患者一覧",
             ko: "환자 목록",
             ar: "المرضى",
+            he: "מטופלים",
+            vi: "Danh sách bệnh nhân",
+            hi: "मरीज़",
         },
         UiKey::ClinicPatientFinderPlaceholder => LocalizedRow {
             en: "Find a patient...",
@@ -683,6 +790,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "患者を検索…",
             ko: "환자 검색…",
             ar: "ابحث عن مريض...",
+            he: "חיפוש מטופל...",
+            vi: "Tìm bệnh nhân...",
+            hi: "मरीज़ खोजें...",
         },
         UiKey::ClinicPatientRosterEmpty => LocalizedRow {
             en: "No patients in this workspace yet.",
@@ -694,6 +804,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "このワークスペースにはまだ患者がいません。",
             ko: "이 워크스페이스에 아직 환자가 없습니다.",
             ar: "لا يوجد مرضى في مساحة العمل هذه بعد.",
+            he: "אין עדיין מטופלים בסביבת עבודה זו.",
+            vi: "Chưa có bệnh nhân nào trong không gian làm việc này.",
+            hi: "इस कार्यक्षेत्र में अभी कोई मरीज़ नहीं है।",
         },
         UiKey::ClinicPatientRosterError => LocalizedRow {
             en: "Could not load the patient list.",
@@ -705,6 +818,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "患者一覧を読み込めませんでした。",
             ko: "환자 목록을 불러올 수 없습니다.",
             ar: "تعذر تحميل قائمة المرضى.",
+            he: "לא ניתן היה לטעון את רשימת המטופלים.",
+            vi: "Không thể tải danh sách bệnh nhân.",
+            hi: "मरीज़ों की सूची लोड नहीं हो सकी।",
         },
         UiKey::ClinicTranscriptHeading => LocalizedRow {
             en: "Clinical conversation",
@@ -716,6 +832,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "臨床会話",
             ko: "임상 대화",
             ar: "المحادثة السريرية",
+            he: "שיחה קלינית",
+            vi: "Trao đổi lâm sàng",
+            hi: "नैदानिक संवाद",
         },
         UiKey::ClinicComposerPlaceholder => LocalizedRow {
             en: "Ask a clinical question or review records...",
@@ -727,6 +846,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "臨床上の質問を入力または記録を確認…",
             ko: "임상 질문을 입력하거나 기록을 검토하세요…",
             ar: "اطرح سؤالاً سريرياً أو راجع السجلات...",
+            he: "שאל שאלה קלינית או עיין ברשומות...",
+            vi: "Đặt câu hỏi lâm sàng hoặc xem lại hồ sơ...",
+            hi: "नैदानिक प्रश्न पूछें या मेडिकल रिकॉर्ड देखें...",
         },
         UiKey::ClinicSendMessage => LocalizedRow {
             en: "Send",
@@ -738,6 +860,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "送信",
             ko: "보내기",
             ar: "إرسال",
+            he: "שליחה",
+            vi: "Gửi",
+            hi: "भेजें",
         },
         UiKey::ClinicStopWork => LocalizedRow {
             en: "Stop",
@@ -749,6 +874,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "停止",
             ko: "중지",
             ar: "إيقاف",
+            he: "עצירה",
+            vi: "Dừng",
+            hi: "रोकें",
         },
         UiKey::ClinicResumeWork => LocalizedRow {
             en: "Resume",
@@ -760,6 +888,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "再開",
             ko: "재개",
             ar: "استئناف",
+            he: "המשך",
+            vi: "Tiếp tục",
+            hi: "जारी रखें",
         },
         UiKey::ClinicStatusWorking => LocalizedRow {
             en: "Working on clinical review...",
@@ -771,6 +902,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "臨床レビューを作成中…",
             ko: "임상 검토 진행 중…",
             ar: "جاري إعداد المراجعة السريرية...",
+            he: "מעבד סקירה קלינית...",
+            vi: "Đang xử lý đánh giá lâm sàng...",
+            hi: "नैदानिक समीक्षा पर कार्य जारी है...",
         },
         UiKey::ClinicStatusStopped => LocalizedRow {
             en: "Stopped.",
@@ -782,6 +916,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "停止しました。",
             ko: "중지됨.",
             ar: "تم الإيقاف.",
+            he: "נעצר.",
+            vi: "Đã dừng.",
+            hi: "रोका गया।",
         },
         UiKey::ClinicStatusCouldntFinish => LocalizedRow {
             en: "Could not finish this response.",
@@ -793,6 +930,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "この応答を完了できませんでした。",
             ko: "이 응답을 완료할 수 없습니다.",
             ar: "تعذر إكمال هذه الاستجابة.",
+            he: "לא ניתן היה להשלים תשובה זו.",
+            vi: "Không thể hoàn tất phản hồi này.",
+            hi: "यह उत्तर पूरा नहीं किया जा सका।",
         },
         UiKey::ClinicCitedSourcesHeading => LocalizedRow {
             en: "Cited sources",
@@ -804,6 +944,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "引用元",
             ko: "인용 출처",
             ar: "المصادر المستشهد بها",
+            he: "מקורות מצוטטים",
+            vi: "Nguồn trích dẫn",
+            hi: "उद्धृत स्रोत",
         },
         UiKey::ClinicCitationLoading => LocalizedRow {
             en: "Loading cited record...",
@@ -815,6 +958,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "引用記録を読み込み中…",
             ko: "인용 기록을 불러오는 중…",
             ar: "جاري تحميل السجل المستشهد به...",
+            he: "טוען רשומה מצוטטת...",
+            vi: "Đang tải hồ sơ được trích dẫn...",
+            hi: "उद्धृत रिकॉर्ड लोड हो रहा है...",
         },
         UiKey::ClinicCitationUnavailable => LocalizedRow {
             en: "This cited record is no longer available.",
@@ -826,6 +972,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "この引用記録は利用できません。",
             ko: "이 인용 기록은 더 이상 사용할 수 없습니다.",
             ar: "هذا السجل المستشهد به لم يعد متاحاً.",
+            he: "רשומה מצוטטת זו אינה זמינה עוד.",
+            vi: "Hồ sơ được trích dẫn này không còn khả dụng.",
+            hi: "यह उद्धृत रिकॉर्ड अब उपलब्ध नहीं है।",
         },
         UiKey::ClinicOriginalLanguageNote => LocalizedRow {
             en: "Shown verbatim in its original source language.",
@@ -837,6 +986,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "元の言語のまま原文で表示しています。",
             ko: "원본 언어로 그대로 표시됩니다.",
             ar: "معروض حرفياً بلغته الأصلية.",
+            he: "מוצג מילה במילה בשפת המקור.",
+            vi: "Hiển thị nguyên văn bằng ngôn ngữ gốc của tài liệu.",
+            hi: "मूल स्रोत भाषा में शब्दशः प्रदर्शित।",
         },
         UiKey::ClinicDraftSaved => LocalizedRow {
             en: "Draft saved",
@@ -848,6 +1000,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "下書きを保存しました",
             ko: "초안 저장됨",
             ar: "تم حفظ المسودة",
+            he: "הטיוטה נשמרה",
+            vi: "Đã lưu bản nháp",
+            hi: "ड्राफ्ट सहेजा गया",
         },
         UiKey::ClinicDraftConflict => LocalizedRow {
             en: "Draft updated in another tab.",
@@ -859,6 +1014,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "下書きが別のタブで更新されました。",
             ko: "다른 탭에서 초안이 업데이트되었습니다.",
             ar: "تم تحديث المسودة في علامة تبويب أخرى.",
+            he: "הטיוטה עודכנה בלשונית אחרת.",
+            vi: "Bản nháp đã được cập nhật ở thẻ khác.",
+            hi: "ड्राफ्ट दूसरे टैब में अपडेट हो गया है।",
         },
         UiKey::ClinicDraftNotSaved => LocalizedRow {
             en: "Draft could not be saved.",
@@ -870,6 +1028,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "下書きを保存できませんでした。",
             ko: "초안을 저장할 수 없습니다.",
             ar: "تعذر حفظ المسودة.",
+            he: "לא ניתן היה לשמור את הטיוטה.",
+            vi: "Không thể lưu bản nháp.",
+            hi: "ड्राफ्ट सहेजा नहीं जा सका।",
         },
         UiKey::ClinicSessionEnded => LocalizedRow {
             en: "Your session has ended. Sign in again to continue.",
@@ -881,6 +1042,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "セッションが終了しました。続行するには再度サインインしてください。",
             ko: "세션이 종료되었습니다. 계속하려면 다시 로그인하세요.",
             ar: "انتهت جلستك. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
+            he: "ההפעלה שלך הסתיימה. התחבר שוב כדי להמשיך.",
+            vi: "Phiên của bạn đã kết thúc. Vui lòng đăng nhập lại để tiếp tục.",
+            hi: "आपका सत्र समाप्त हो गया है। जारी रखने के लिए पुनः साइन इन करें।",
         },
         UiKey::ClinicLabRecordsHeading => LocalizedRow {
             en: "Laboratory results",
@@ -892,6 +1056,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "検査結果",
             ko: "검사 결과",
             ar: "نتائج المختبر",
+            he: "תוצאות מעבדה",
+            vi: "Kết quả xét nghiệm",
+            hi: "प्रयोगशाला परिणाम",
         },
         UiKey::ClinicMobileMenuButton => LocalizedRow {
             en: "Open navigation menu",
@@ -903,6 +1070,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ナビゲーションメニューを開く",
             ko: "탐색 메뉴 열기",
             ar: "فتح قائمة التنقل",
+            he: "פתיחת תפריט ניווט",
+            vi: "Mở trình đơn điều hướng",
+            hi: "नेविगेशन मेनू खोलें",
         },
         UiKey::MobileTabHome => LocalizedRow {
             en: "Home",
@@ -914,6 +1084,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ホーム",
             ko: "홈",
             ar: "الرئيسية",
+            he: "בית",
+            vi: "Trang chủ",
+            hi: "होम",
         },
         UiKey::MobileTabCarePlan => LocalizedRow {
             en: "Care plan",
@@ -925,6 +1098,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ケアプラン",
             ko: "케어 플랜",
             ar: "خطة الرعاية",
+            he: "תוכנית טיפול",
+            vi: "Kế hoạch chăm sóc",
+            hi: "देखभाल योजना",
         },
         UiKey::MobileTabMessages => LocalizedRow {
             en: "Messages",
@@ -936,6 +1112,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "メッセージ",
             ko: "메시지",
             ar: "الرسائل",
+            he: "הודעות",
+            vi: "Tin nhắn",
+            hi: "संदेश",
         },
         UiKey::MobileTabHealthRecords => LocalizedRow {
             en: "Health records",
@@ -947,6 +1126,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "健康記録",
             ko: "건강 기록",
             ar: "السجلات الصحية",
+            he: "רשומות בריאות",
+            vi: "Hồ sơ sức khỏe",
+            hi: "स्वास्थ्य रिकॉर्ड",
         },
         UiKey::MobileRecordsSynced => LocalizedRow {
             en: "Records synced",
@@ -958,6 +1140,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "記録を同期しました",
             ko: "기록 동기화됨",
             ar: "تمت مزامنة السجلات",
+            he: "הרשומות סונכרנו",
+            vi: "Hồ sơ đã đồng bộ",
+            hi: "रिकॉर्ड सिंक हो गए",
         },
         UiKey::MobileHealthPermissionsNeeded => LocalizedRow {
             en: "Health data permission required",
@@ -969,6 +1154,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "ヘルスケアデータの許可が必要です",
             ko: "건강 데이터 권한이 필요합니다",
             ar: "مطلوب إذن الوصول إلى البيانات الصحية",
+            he: "נדרשת הרשאה לנתוני בריאות",
+            vi: "Cần quyền truy cập dữ liệu sức khỏe",
+            hi: "स्वास्थ्य डेटा की अनुमति आवश्यक है",
         },
         UiKey::MobileNotificationsHeading => LocalizedRow {
             en: "Notifications",
@@ -980,6 +1168,9 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "通知",
             ko: "알림",
             ar: "الإشعارات",
+            he: "התראות",
+            vi: "Thông báo",
+            hi: "सूचनाएँ",
         },
         UiKey::MobileOfflineBanner => LocalizedRow {
             en: "Offline mode — changes will sync when reconnected.",
@@ -991,7 +1182,199 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             ja: "オフラインモード — 再接続時に変更が同期されます。",
             ko: "오프라인 모드 — 다시 연결되면 변경 사항이 동기화됩니다.",
             ar: "وضع عدم الاتصال — ستتم مزامنة التغييرات عند إعادة الاتصال.",
+            he: "מצב לא מקוון — השינויים יסונכרנו עם החיבור מחדש.",
+            vi: "Chế độ ngoại tuyến — thay đổi sẽ đồng bộ khi kết nối lại.",
+            hi: "ऑफ़लाइन मोड — पुनः कनेक्ट होने पर परिवर्तन सिंक हो जाएँगे।",
         },
     };
     row.pick(locale)
+}
+
+/// Product target selecting brand strings for [`LocalizedChrome`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChromeProduct {
+    Clinic,
+    Mobile,
+}
+
+/// Single-owner localized UI chrome dictionary emitted by Rust Wasm snapshots
+/// so browser shells render localized strings directly from [`translate`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalizedChrome {
+    pub app_brand: String,
+    pub sign_in: String,
+    pub sign_out: String,
+    pub send: String,
+    pub search: String,
+    pub patient_roster: String,
+    pub transcript_heading: String,
+    pub evidence_heading: String,
+    pub lab_records_heading: String,
+    pub composer_label: String,
+    pub composer_placeholder: String,
+    pub language_label: String,
+    pub privacy_cover_title: String,
+    pub crisis_heading: String,
+    pub nav_account: String,
+    pub nav_connected_care: String,
+    pub nav_for_my_doctor: String,
+    pub review_and_send: String,
+    pub verify_dob: String,
+    pub share: String,
+    pub status_ready: String,
+    pub offline_banner: String,
+}
+
+/// Builds the complete Rust-owned [`LocalizedChrome`] dictionary for `locale` and `product`.
+#[must_use]
+pub fn localized_chrome(locale: Locale, product: ChromeProduct) -> LocalizedChrome {
+    let app_brand_key = match product {
+        ChromeProduct::Clinic => UiKey::AppBrandClinic,
+        ChromeProduct::Mobile => UiKey::AppBrandMobile,
+    };
+
+    let crisis_heading = match locale {
+        Locale::En => "Immediate Crisis & Recovery Support (988 / 911 / SAMHSA)",
+        Locale::Es => "Apoyo inmediato en crisis y recuperación (988 / 911 / SAMHSA)",
+        Locale::Fr => "Aide immédiate en cas de crise et rétablissement (988 / 911 / SAMHSA)",
+        Locale::Pt => "Apoio imediato em crise e recuperação (988 / 911 / SAMHSA)",
+        Locale::De => "Soforthilfe bei Krisen und Genesung (988 / 911 / SAMHSA)",
+        Locale::ZhHans => "即时危机与康复支持（988 / 911 / SAMHSA）",
+        Locale::Ja => "緊急危機・回復サポート（988 / 911 / SAMHSA）",
+        Locale::Ko => "긴급 위기 및 회복 지원 (988 / 911 / SAMHSA)",
+        Locale::Ar => "الدعم الفوري للأزمات والتعافي (988 / 911 / SAMHSA)",
+        Locale::He => "תמיכה מיידית בשעת משבר והחלמה (988 / 911 / SAMHSA)",
+        Locale::Vi => "Hỗ trợ khủng hoảng và phục hồi khẩn cấp (988 / 911 / SAMHSA)",
+        Locale::Hi => "तत्काल संकट और स्वास्थ्य लाभ सहायता (988 / 911 / SAMHSA)",
+    };
+
+    let nav_account = match locale {
+        Locale::En => "Account",
+        Locale::Es => "Cuenta",
+        Locale::Fr => "Compte",
+        Locale::Pt => "Conta",
+        Locale::De => "Konto",
+        Locale::ZhHans => "账户",
+        Locale::Ja => "アカウント",
+        Locale::Ko => "계정",
+        Locale::Ar => "الحساب",
+        Locale::He => "חשבון",
+        Locale::Vi => "Tài khoản",
+        Locale::Hi => "खाता",
+    };
+
+    let nav_connected_care = match locale {
+        Locale::En => "Connected Care",
+        Locale::Es => "Atención conectada",
+        Locale::Fr => "Soins connectés",
+        Locale::Pt => "Cuidado conectado",
+        Locale::De => "Vernetzte Versorgung",
+        Locale::ZhHans => "互联照护",
+        Locale::Ja => "連携ケア",
+        Locale::Ko => "연계 진료",
+        Locale::Ar => "الرعاية المتصلة",
+        Locale::He => "טיפול מקושר",
+        Locale::Vi => "Chăm sóc kết nối",
+        Locale::Hi => "कनेक्टेड केयर",
+    };
+
+    let nav_for_my_doctor = match locale {
+        Locale::En => "For my doctor",
+        Locale::Es => "Para mi médico",
+        Locale::Fr => "Pour mon médecin",
+        Locale::Pt => "Para meu médico",
+        Locale::De => "Für meine Ärztin / meinen Arzt",
+        Locale::ZhHans => "致我的医生",
+        Locale::Ja => "主治医へ",
+        Locale::Ko => "주치의에게",
+        Locale::Ar => "لطبيبي",
+        Locale::He => "לרופא שלי",
+        Locale::Vi => "Gửi bác sĩ của tôi",
+        Locale::Hi => "मेरे डॉक्टर के लिए",
+    };
+
+    let review_and_send = match locale {
+        Locale::En => "Review & Send",
+        Locale::Es => "Revisar y enviar",
+        Locale::Fr => "Vérifier et envoyer",
+        Locale::Pt => "Revisar e enviar",
+        Locale::De => "Prüfen & senden",
+        Locale::ZhHans => "审核并发送",
+        Locale::Ja => "確認して送信",
+        Locale::Ko => "검토 후 보내기",
+        Locale::Ar => "مراجعة وإرسال",
+        Locale::He => "סקירה ושליחה",
+        Locale::Vi => "Xem lại và gửi",
+        Locale::Hi => "समीक्षा करें और भेजें",
+    };
+
+    let verify_dob = match locale {
+        Locale::En => "Verify DOB",
+        Locale::Es => "Verificar fecha de nacimiento",
+        Locale::Fr => "Vérifier la date de naissance",
+        Locale::Pt => "Verificar data de nascimento",
+        Locale::De => "Geburtsdatum bestätigen",
+        Locale::ZhHans => "验证出生日期",
+        Locale::Ja => "生年月日を確認",
+        Locale::Ko => "생년월일 확인",
+        Locale::Ar => "تأكيد تاريخ الميلاد",
+        Locale::He => "אימות תאריך לידה",
+        Locale::Vi => "Xác minh ngày sinh",
+        Locale::Hi => "जन्म तिथि सत्यापित करें",
+    };
+
+    let share = match locale {
+        Locale::En => "Share",
+        Locale::Es => "Compartir",
+        Locale::Fr => "Partager",
+        Locale::Pt => "Compartilhar",
+        Locale::De => "Teilen",
+        Locale::ZhHans => "共享",
+        Locale::Ja => "共有",
+        Locale::Ko => "공유",
+        Locale::Ar => "مشاركة",
+        Locale::He => "שיתוף",
+        Locale::Vi => "Chia sẻ",
+        Locale::Hi => "साझा करें",
+    };
+
+    let status_ready = match locale {
+        Locale::En => "Ready",
+        Locale::Es => "Listo",
+        Locale::Fr => "Prêt",
+        Locale::Pt => "Pronto",
+        Locale::De => "Bereit",
+        Locale::ZhHans => "已就绪",
+        Locale::Ja => "準備完了",
+        Locale::Ko => "준비됨",
+        Locale::Ar => "جاهز",
+        Locale::He => "מוכן",
+        Locale::Vi => "Sẵn sàng",
+        Locale::Hi => "तैयार",
+    };
+
+    LocalizedChrome {
+        app_brand: translate(locale, app_brand_key).to_owned(),
+        sign_in: translate(locale, UiKey::ActionSignIn).to_owned(),
+        sign_out: translate(locale, UiKey::ActionSignOut).to_owned(),
+        send: translate(locale, UiKey::ClinicSendMessage).to_owned(),
+        search: translate(locale, UiKey::ActionSearch).to_owned(),
+        patient_roster: translate(locale, UiKey::ClinicPatientsHeading).to_owned(),
+        transcript_heading: translate(locale, UiKey::ClinicTranscriptHeading).to_owned(),
+        evidence_heading: translate(locale, UiKey::ClinicCitedSourcesHeading).to_owned(),
+        lab_records_heading: translate(locale, UiKey::ClinicLabRecordsHeading).to_owned(),
+        composer_label: translate(locale, UiKey::ClinicComposerPlaceholder).to_owned(),
+        composer_placeholder: translate(locale, UiKey::ClinicComposerPlaceholder).to_owned(),
+        language_label: translate(locale, UiKey::LabelLanguage).to_owned(),
+        privacy_cover_title: translate(locale, UiKey::PrivacyCoverTitle).to_owned(),
+        crisis_heading: crisis_heading.to_owned(),
+        nav_account: nav_account.to_owned(),
+        nav_connected_care: nav_connected_care.to_owned(),
+        nav_for_my_doctor: nav_for_my_doctor.to_owned(),
+        review_and_send: review_and_send.to_owned(),
+        verify_dob: verify_dob.to_owned(),
+        share: share.to_owned(),
+        status_ready: status_ready.to_owned(),
+        offline_banner: translate(locale, UiKey::MobileOfflineBanner).to_owned(),
+    }
 }

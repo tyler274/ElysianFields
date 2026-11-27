@@ -10,9 +10,10 @@
 use bevy::prelude::App;
 use ef_mobile_domain::ConnectivityState;
 use ef_ui_catalog::{
-    A11yProjection, A11ySemanticKey, AriaRole, ComposerAction, ComposerSurface, IdleRedrawGate,
-    Locale as UiLocaleKind, NodeAvailability, NodeInteractivity, PoliteLiveQueue,
-    ProjectedA11yNode, RedrawReason, TextDirection, UiLocale,
+    A11yProjection, A11ySemanticKey, AriaRole, ChromeProduct, ComposerAction, ComposerSurface,
+    HorizontalEdge, IdleRedrawGate, Locale as UiLocaleKind, LocalizedChrome, NodeAvailability,
+    NodeInteractivity, PoliteLiveQueue, ProjectedA11yNode, RedrawReason, TextDirection, UiLocale,
+    localized_chrome,
 };
 use serde::{Deserialize, Serialize};
 
@@ -130,7 +131,11 @@ pub struct MobileWasmSnapshot {
     pub abi_version: u32,
     pub mount_subpath: String,
     pub locale: String,
+    pub autonym: String,
     pub direction: String,
+    pub sidebar_edge: String,
+    pub citation_edge: String,
+    pub chrome: LocalizedChrome,
     pub active_tab: MobileWasmTab,
     pub connectivity: String,
     pub draft_text: String,
@@ -216,7 +221,11 @@ impl MobileWasmRuntime {
             abi_version: MOBILE_WASM_ABI_VERSION,
             mount_subpath: MOBILE_MOUNT_SUBPATH.to_owned(),
             locale: locale.bcp47_tag().to_owned(),
+            autonym: locale.native_autonym().to_owned(),
             direction: direction_str(locale.direction()).to_owned(),
+            sidebar_edge: edge_str(locale.sidebar_edge()).to_owned(),
+            citation_edge: edge_str(locale.citation_panel_edge()).to_owned(),
+            chrome: localized_chrome(locale, ChromeProduct::Mobile),
             active_tab: MobileWasmTab::from(state.active_tab),
             connectivity: connectivity.to_owned(),
             draft_text: composer.display_text(),
@@ -385,6 +394,13 @@ const fn direction_str(direction: TextDirection) -> &'static str {
     match direction {
         TextDirection::Ltr => "ltr",
         TextDirection::Rtl => "rtl",
+    }
+}
+
+const fn edge_str(edge: HorizontalEdge) -> &'static str {
+    match edge {
+        HorizontalEdge::Left => "left",
+        HorizontalEdge::Right => "right",
     }
 }
 
@@ -561,5 +577,102 @@ mod tests {
                 .expect("error snapshot must parse");
         assert!(!bad.ok);
         assert!(bad.error.as_deref().is_some_and(|e| e.contains("zz-bad")));
+    }
+
+    #[test]
+    fn mobile_wasm_runtime_covers_all_seven_writing_systems_with_localized_chrome_and_rtl() {
+        let mut runtime = MobileWasmRuntime::new();
+        let cases = [
+            (
+                "en",
+                "en",
+                "English",
+                "ltr",
+                "left",
+                "right",
+                "Blood pressure 118/76 mmHg.",
+            ),
+            (
+                "iw-IL",
+                "he",
+                "עברית",
+                "rtl",
+                "right",
+                "left",
+                "שָׁלוֹם מְטוּפָּל — בדיקת HbA1c 6.8%",
+            ),
+            (
+                "ar",
+                "ar",
+                "العربية",
+                "rtl",
+                "right",
+                "left",
+                "ضَغْطُ الدَّمِ 122/78 — فحص HbA1c 6.8%",
+            ),
+            (
+                "zh-Hans",
+                "zh-Hans",
+                "简体中文",
+                "ltr",
+                "left",
+                "right",
+                "临床随访：血压 122/78 mmHg",
+            ),
+            (
+                "ja",
+                "ja",
+                "日本語",
+                "ltr",
+                "left",
+                "right",
+                "臨床経過：血圧 122/78 mmHg",
+            ),
+            (
+                "vi",
+                "vi",
+                "Tiếng Việt",
+                "ltr",
+                "left",
+                "right",
+                "Nguyễn Thị Hương — Đánh giá lâm sàng",
+            ),
+            (
+                "hi",
+                "hi",
+                "हिन्दी",
+                "ltr",
+                "left",
+                "right",
+                "चिकित्सा मूल्यांकन · रक्तचाप 122/78",
+            ),
+        ];
+
+        for (query, expected_tag, autonym, dir, sidebar, citation, note) in cases {
+            let set_cmd = format!(r#"{{"cmd":"set_locale","lang":"{query}"}}"#);
+            let snap: MobileWasmSnapshot = serde_json::from_str(&runtime.dispatch_json(&set_cmd))
+                .expect("mobile locale snapshot must parse");
+            assert!(snap.ok, "set_locale failed for {query}: {:?}", snap.error);
+            assert_eq!(snap.locale, expected_tag);
+            assert_eq!(snap.autonym, autonym);
+            assert_eq!(snap.direction, dir);
+            assert_eq!(snap.sidebar_edge, sidebar);
+            assert_eq!(snap.citation_edge, citation);
+            assert_eq!(snap.duplicate_a11y_nodes, 0);
+            assert_eq!(snap.a11y_node_count, 6);
+            assert!(!snap.chrome.app_brand.is_empty());
+            assert!(snap.chrome.crisis_heading.contains("988"));
+            assert!(snap.chrome.crisis_heading.contains("911"));
+            assert!(snap.chrome.crisis_heading.contains("SAMHSA"));
+            assert!(!snap.chrome.review_and_send.is_empty());
+            assert!(!snap.chrome.verify_dob.is_empty());
+
+            let edit_cmd = serde_json::json!({ "cmd": "edit_draft", "text": note }).to_string();
+            let edited: MobileWasmSnapshot =
+                serde_json::from_str(&runtime.dispatch_json(&edit_cmd))
+                    .expect("mobile draft snapshot must parse");
+            assert!(edited.ok);
+            assert_eq!(edited.draft_text, note);
+        }
     }
 }

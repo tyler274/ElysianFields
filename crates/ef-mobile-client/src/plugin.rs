@@ -15,9 +15,9 @@ use ef_mobile_domain::{
     PushTokenRegistry, SavepointBatchReport,
 };
 use ef_ui_catalog::{
-    A11yNodeMarker, A11ySemanticKey, ComposerAction, ComposerSurface, EfUiCatalogPlugin,
-    FrameDecision, IdleRedrawGate, Locale as UiLocaleKind, NodeInteractivity, RedrawReason,
-    SoftKeyboardInsets, UiLocale,
+    A11yNodeMarker, A11ySemanticKey, ChromeProduct, ComposerAction, ComposerSurface,
+    EfUiCatalogPlugin, FrameDecision, IdleRedrawGate, Locale as UiLocaleKind, NodeInteractivity,
+    RedrawReason, SoftKeyboardInsets, UiLocale, localized_chrome,
 };
 
 use crate::transport::{
@@ -547,7 +547,7 @@ fn sync_mobile_a11y_entities_system(
         commands.entity(entity).despawn();
     }
 
-    let is_arabic = ui_locale.current.is_rtl();
+    let chrome = localized_chrome(ui_locale.current, ChromeProduct::Mobile);
     let mut order = 0usize;
     let mut spawn_node =
         |key: A11ySemanticKey, interactivity: NodeInteractivity, node: accesskit::Node| {
@@ -565,11 +565,7 @@ fn sync_mobile_a11y_entities_system(
         };
 
     let mut nav = accesskit::Node::new(accesskit::Role::Navigation);
-    nav.set_label(if is_arabic {
-        "تنقل كوري موبايل"
-    } else {
-        "Curie Mobile navigation"
-    });
+    nav.set_label(format!("{} — {}", chrome.app_brand, chrome.nav_account));
     spawn_node(
         A11ySemanticKey::NavigationLandmark,
         NodeInteractivity::Structural,
@@ -577,11 +573,7 @@ fn sync_mobile_a11y_entities_system(
     );
 
     let mut crisis = accesskit::Node::new(accesskit::Role::Region);
-    crisis.set_label(if is_arabic {
-        "الدعم الفوري للأزمات 988 و 911 و SAMHSA National Helpline"
-    } else {
-        "Immediate crisis support 988, 911, and SAMHSA National Helpline"
-    });
+    crisis.set_label(chrome.crisis_heading.clone());
     spawn_node(
         A11ySemanticKey::CitationPanelRegion,
         NodeInteractivity::Structural,
@@ -589,11 +581,7 @@ fn sync_mobile_a11y_entities_system(
     );
 
     let mut main = accesskit::Node::new(accesskit::Role::Main);
-    main.set_label(if is_arabic {
-        "مساحة عمل كوري موبايل"
-    } else {
-        "Curie Mobile workspace"
-    });
+    main.set_label(chrome.app_brand.clone());
     spawn_node(
         A11ySemanticKey::MainLandmark,
         NodeInteractivity::Structural,
@@ -601,11 +589,7 @@ fn sync_mobile_a11y_entities_system(
     );
 
     let mut share_btn = accesskit::Node::new(accesskit::Role::Button);
-    share_btn.set_label(if is_arabic {
-        "تأكيد مشاركة الرعاية المتصلة"
-    } else {
-        "Confirm Connected Care Share"
-    });
+    share_btn.set_label(format!("{} — {}", chrome.nav_connected_care, chrome.share));
     spawn_node(
         A11ySemanticKey::ListRow(0),
         NodeInteractivity::Interactive,
@@ -613,11 +597,7 @@ fn sync_mobile_a11y_entities_system(
     );
 
     let mut note_input = accesskit::Node::new(accesskit::Role::MultilineTextInput);
-    note_input.set_label(if is_arabic {
-        "ملاحظة منسقة لطبيبي"
-    } else {
-        "For my doctor curated note"
-    });
+    note_input.set_label(chrome.nav_for_my_doctor.clone());
     note_input.set_value(composer.display_text());
     spawn_node(
         A11ySemanticKey::ComposerInput,
@@ -626,11 +606,7 @@ fn sync_mobile_a11y_entities_system(
     );
 
     let mut signout_btn = accesskit::Node::new(accesskit::Role::Button);
-    signout_btn.set_label(if is_arabic {
-        "تسجيل الخروج بأمان دون اتصال"
-    } else {
-        "Sign out safely offline"
-    });
+    signout_btn.set_label(chrome.sign_out);
     spawn_node(
         A11ySemanticKey::SendButton,
         NodeInteractivity::Interactive,

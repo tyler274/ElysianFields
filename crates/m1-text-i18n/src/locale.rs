@@ -26,9 +26,13 @@ pub enum Locale {
     Ko,
     /// Arabic (Arabic script, RTL) — shipped UI locale.
     Ar,
+    /// Hebrew (Hebrew script, RTL) — shipped UI locale.
+    He,
+    /// Vietnamese (Latin script with stacked diacritics, LTR) — shipped UI locale.
+    Vi,
     /// Urdu (Arabic Nastaliq/Naskh script, RTL) — complex-script shaping probe.
     Ur,
-    /// Hindi (Devanagari script, LTR) — complex-script shaping probe.
+    /// Hindi (Devanagari script, LTR) — shipped UI locale & Indic shaping probe.
     Hi,
     /// Bengali (Bengali script, LTR) — complex-script shaping probe.
     Bn,
@@ -66,6 +70,7 @@ pub enum WritingScript {
     JapaneseKanjiKana,
     Hangul,
     Arabic,
+    Hebrew,
     Devanagari,
     Bengali,
     Tamil,
@@ -91,6 +96,7 @@ pub enum FontFamily {
     NotoSans,
     NotoSansMono,
     NotoSansArabic,
+    NotoSansHebrew,
     NotoSansCjkSc,
     NotoSansCjkJp,
     NotoSansCjkKr,
@@ -173,10 +179,11 @@ impl std::error::Error for LocaleParseError {}
 
 impl FontFamily {
     /// All bundled font families covering shipped locales, monospace, and Indic/Urdu probes.
-    pub const ALL: [FontFamily; 10] = [
+    pub const ALL: [FontFamily; 11] = [
         FontFamily::NotoSans,
         FontFamily::NotoSansMono,
         FontFamily::NotoSansArabic,
+        FontFamily::NotoSansHebrew,
         FontFamily::NotoSansCjkSc,
         FontFamily::NotoSansCjkJp,
         FontFamily::NotoSansCjkKr,
@@ -209,6 +216,13 @@ impl FontFamily {
                 family_name: "Noto Sans Arabic",
                 license: FontLicense::SilOfl1_1,
                 compressed_kib: 120,
+                delivery: FontDeliveryStrategy::OnDemandScriptChunk,
+            },
+            FontFamily::NotoSansHebrew => FontBundleSpec {
+                family: self,
+                family_name: "Noto Sans Hebrew",
+                license: FontLicense::SilOfl1_1,
+                compressed_kib: 58,
                 delivery: FontDeliveryStrategy::OnDemandScriptChunk,
             },
             FontFamily::NotoSansCjkSc => FontBundleSpec {
@@ -285,8 +299,8 @@ impl FontFamily {
 }
 
 impl Locale {
-    /// The 9 shipped UI locales required by M1 specifications.
-    pub const SHIPPED_UI: [Locale; 9] = [
+    /// The 12 shipped UI locales covering Latin, RTL (Arabic & Hebrew), CJK, Vietnamese, and Hindi.
+    pub const SHIPPED_UI: [Locale; 12] = [
         Locale::En,
         Locale::Es,
         Locale::Fr,
@@ -296,20 +310,17 @@ impl Locale {
         Locale::Ja,
         Locale::Ko,
         Locale::Ar,
-    ];
-
-    /// Complex-script shaping probe locales (Urdu RTL and Indic scripts).
-    pub const SHAPING_PROBES: [Locale; 6] = [
-        Locale::Ur,
+        Locale::He,
+        Locale::Vi,
         Locale::Hi,
-        Locale::Bn,
-        Locale::Mr,
-        Locale::Ta,
-        Locale::Te,
     ];
 
-    /// Every locale covered by M1 multilingual qualification.
-    pub const ALL: [Locale; 15] = [
+    /// Complex-script shaping probe locales (Urdu RTL and additional Indic scripts).
+    pub const SHAPING_PROBES: [Locale; 5] =
+        [Locale::Ur, Locale::Bn, Locale::Mr, Locale::Ta, Locale::Te];
+
+    /// Every locale covered by multilingual qualification.
+    pub const ALL: [Locale; 17] = [
         Locale::En,
         Locale::Es,
         Locale::Fr,
@@ -319,8 +330,10 @@ impl Locale {
         Locale::Ja,
         Locale::Ko,
         Locale::Ar,
-        Locale::Ur,
+        Locale::He,
+        Locale::Vi,
         Locale::Hi,
+        Locale::Ur,
         Locale::Bn,
         Locale::Mr,
         Locale::Ta,
@@ -340,6 +353,8 @@ impl Locale {
             "ja" | "ja-jp" => Ok(Self::Ja),
             "ko" | "ko-kr" => Ok(Self::Ko),
             "ar" | "ar-sa" | "ar-eg" | "ar-ae" => Ok(Self::Ar),
+            "he" | "he-il" | "iw" | "iw-il" => Ok(Self::He),
+            "vi" | "vi-vn" => Ok(Self::Vi),
             "ur" | "ur-pk" | "ur-in" => Ok(Self::Ur),
             "hi" | "hi-in" => Ok(Self::Hi),
             "bn" | "bn-bd" | "bn-in" => Ok(Self::Bn),
@@ -455,6 +470,28 @@ impl Locale {
                 primary_font: FontFamily::NotoSansArabic,
                 word_spacing: WordSpacingPolicy::SpaceDelimited,
             },
+            Self::He => LocaleMetadata {
+                locale: self,
+                bcp47: "he",
+                english_name: "Hebrew",
+                tier: LocaleTier::ShippedUi,
+                direction: TextDirection::Rtl,
+                script: WritingScript::Hebrew,
+                input_complexity: InputComplexity::RtlBidirectional,
+                primary_font: FontFamily::NotoSansHebrew,
+                word_spacing: WordSpacingPolicy::SpaceDelimited,
+            },
+            Self::Vi => LocaleMetadata {
+                locale: self,
+                bcp47: "vi",
+                english_name: "Vietnamese",
+                tier: LocaleTier::ShippedUi,
+                direction: TextDirection::Ltr,
+                script: WritingScript::Latin,
+                input_complexity: InputComplexity::DirectKeyboard,
+                primary_font: FontFamily::NotoSans,
+                word_spacing: WordSpacingPolicy::SpaceDelimited,
+            },
             Self::Ur => LocaleMetadata {
                 locale: self,
                 bcp47: "ur",
@@ -470,7 +507,7 @@ impl Locale {
                 locale: self,
                 bcp47: "hi",
                 english_name: "Hindi",
-                tier: LocaleTier::ShapingProbe,
+                tier: LocaleTier::ShippedUi,
                 direction: TextDirection::Ltr,
                 script: WritingScript::Devanagari,
                 input_complexity: InputComplexity::ComplexIndicShaping,
@@ -550,6 +587,10 @@ impl Locale {
             Self::Ja => "臨床経過メモ：血圧は118/76 mmHgで安定しています[1]。",
             Self::Ko => "임상 경과 요약: 혈압 118/76 mmHg로 안정적입니다 [1].",
             Self::Ar => "ملخص المتابعة السريرية: ضغط الدم مستقر عند 118/76 ملم زئبق [1].",
+            Self::He => "סיכום מעקב קליני: לחץ דם 118/76 מ״מ כספית, בדיקת HbA1c 6.8% [1].",
+            Self::Vi => {
+                "Tóm tắt theo dõi lâm sàng: huyết áp ổn định 118/76 mmHg, tiếp tục phác đồ [1]."
+            }
             Self::Ur => "طبی فالو اپ خلاصہ: بلڈ پریشر 118/76 پر مستحکم ہے اور نسخہ برقرار ہے [1]۔",
             Self::Hi => "नैदानिक सारांश: रक्तचाप और परीक्षण परिणाम सामान्य हैं [1]।",
             Self::Bn => "ক্লিনিক্যাল সারাংশ: রক্তচাপ ও পরীক্ষার ফলাফল স্বাভাবিক রয়েছে [1]।",
