@@ -10,9 +10,11 @@ on:
       - '.github/workflows/cross-platform.yml'
       - 'scripts/browser_e2e.py'
       - 'scripts/qa_multilingual_gui.py'
+      - 'scripts/qa_ux_accessibility.py'
       - 'scripts/verify_postgres_migrations.sh'
       - 'scripts/verify_pgwire_live.sh'
       - 'web/elysianfields/**'
+      - 'extension/**'
       - 'deploy/**'
       - 'platform/**'
 
@@ -1168,6 +1170,21 @@ jobs:
             echo "scripts/qa_multilingual_gui.py not present yet; skipping multilingual GUI QA."
           fi
 
+      - name: Run WCAG AA theme, 200% zoom, Privacy Cover & Dei UX QA across Chromium, Firefox, and WebKit
+        run: |
+          mkdir -p cross-platform-evidence
+          if [ -f scripts/qa_ux_accessibility.py ]; then
+            .venv-pw/bin/python scripts/qa_ux_accessibility.py \
+              --browsers chromium,firefox,webkit \
+              --clinic-bin target/debug/ef-clinic-server \
+              --mobile-bin target/debug/ef-mobile-server \
+              --public-bin target/debug/ef-public-site \
+              --report cross-platform-evidence/ux-accessibility-qa-report.json \
+              --screenshot-dir cross-platform-evidence/ux-screenshots
+          else
+            echo "scripts/qa_ux_accessibility.py not present yet; skipping UX/accessibility QA."
+          fi
+
       - name: Upload 3-browser E2E evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -1178,6 +1195,8 @@ jobs:
             cross-platform-evidence/wasm-brotli-report.json
             cross-platform-evidence/multilingual-gui-qa-report.json
             cross-platform-evidence/multilingual-screenshots/
+            cross-platform-evidence/ux-accessibility-qa-report.json
+            cross-platform-evidence/ux-screenshots/
           if-no-files-found: warn
           retention-days: 30
 
@@ -1414,53 +1433,104 @@ jobs:
           retention-days: 30
 
   oci-container-build:
-    name: Rootless OCI Container Build & Smoke (public-site)
+    name: Rootless OCI Container Builds & Smoke (public, clinic, mobile)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      DOCKER_BUILDKIT: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Build and verify rootless Containerfile.public OCI image
+      - name: Build and smoke-test all 3 rootless OCI images (public, clinic, mobile)
         run: |
           mkdir -p cross-platform-evidence
-          image_tag="elysian-public-site:ci-${GITHUB_RUN_ID}"
-          build_start=$(python3 -c 'import time; print(time.time())')
-          docker build -f deploy/Containerfile.public -t "$image_tag" .
-          build_end=$(python3 -c 'import time; print(time.time())')
-          build_secs=$(python3 -c "print(round(float('$build_end') - float('$build_start'), 2))")
-          image_bytes=$(docker image inspect --format '{{.Size}}' "$image_tag")
+          public_tag="elysian-public:ci-${GITHUB_RUN_ID}"
+          clinic_tag="elysian-clinic:ci-${GITHUB_RUN_ID}"
+          mobile_tag="elysian-mobile:ci-${GITHUB_RUN_ID}"
 
-          container_uid=$(docker run --rm --entrypoint /usr/bin/id "$image_tag" -u)
-          container_gid=$(docker run --rm --entrypoint /usr/bin/id "$image_tag" -g)
-          echo "Container runtime identity: uid=${container_uid}, gid=${container_gid}, size=${image_bytes} B"
-          if [ "$container_uid" != "10001" ] || [ "$container_gid" != "10001" ]; then
-            echo "ERROR: expected rootless UID/GID 10001:10001, got ${container_uid}:${container_gid}" >&2
-            exit 1
-          fi
+          public_cid=""
+          clinic_cid=""
+          mobile_cid=""
+          cleanup_containers() {
+            for cid in "$public_cid" "$clinic_cid" "$mobile_cid"; do
+              [ -n "$cid" ] && docker rm -f "$cid" >/dev/null 2>&1 || true
+            done
+          }
+          trap cleanup_containers EXIT
 
-          cid=$(docker run -d \
+          build_and_check_identity() {
+            local cf="$1"
+            local tag="$2"
+            local out_var_secs="$3"
+            local out_var_bytes="$4"
+            local start_ts end_ts secs bytes uid gid
+            start_ts=$(python3 -c 'import time; print(time.time())')
+            docker build -f "$cf" -t "$tag" .
+            end_ts=$(python3 -c 'import time; print(time.time())')
+            secs=$(python3 -c "print(round(float('$end_ts') - float('$start_ts'), 2))")
+            bytes=$(docker image inspect --format '{{.Size}}' "$tag")
+            uid=$(docker run --rm --entrypoint /usr/bin/id "$tag" -u)
+            gid=$(docker run --rm --entrypoint /usr/bin/id "$tag" -g)
+            echo "${cf} (${tag}): build=${secs}s size=${bytes}B uid=${uid} gid=${gid}"
+            if [ "$uid" != "10001" ] || [ "$gid" != "10001" ]; then
+              echo "ERROR: ${cf} expected rootless UID/GID 10001:10001, got ${uid}:${gid}" >&2
+              exit 1
+            fi
+            printf -v "$out_var_secs" '%s' "$secs"
+            printf -v "$out_var_bytes" '%s' "$bytes"
+          }
+
+          build_and_check_identity deploy/Containerfile.public "$public_tag" public_secs public_bytes
+          build_and_check_identity deploy/Containerfile.clinic "$clinic_tag" clinic_secs clinic_bytes
+          build_and_check_identity deploy/Containerfile.mobile "$mobile_tag" mobile_secs mobile_bytes
+
+          public_cid=$(docker run -d \
             --name "elysian-public-ci-${GITHUB_RUN_ID}" \
             --read-only \
+            --user 10001:10001 \
             --security-opt no-new-privileges:true \
             --cap-drop ALL \
             -p 127.0.0.1:18082:8082 \
-            "$image_tag")
+            "$public_tag")
 
-          cleanup_container() {
-            docker rm -f "$cid" >/dev/null 2>&1 || true
-          }
-          trap cleanup_container EXIT
+          clinic_cid=$(docker run -d \
+            --name "elysian-clinic-ci-${GITHUB_RUN_ID}" \
+            --read-only \
+            --tmpfs /var/lib/elysian/clinic:uid=10001,gid=10001 \
+            --user 10001:10001 \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            -p 127.0.0.1:18088:8088 \
+            "$clinic_tag")
 
-          python3 - "$image_tag" "$build_secs" "$image_bytes" "$container_uid" "$container_gid" <<'PY'
-          import json, os, sys, time, urllib.error, urllib.request
+          mobile_cid=$(docker run -d \
+            --name "elysian-mobile-ci-${GITHUB_RUN_ID}" \
+            --read-only \
+            --tmpfs /var/lib/elysian/mobile-data:uid=10001,gid=10001 \
+            --tmpfs /var/lib/elysian/mobile-journal:uid=10001,gid=10001 \
+            --user 10001:10001 \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            -p 127.0.0.1:18089:8089 \
+            "$mobile_tag")
+
+          python3 - \
+            "$public_tag" "$public_secs" "$public_bytes" \
+            "$clinic_tag" "$clinic_secs" "$clinic_bytes" \
+            "$mobile_tag" "$mobile_secs" "$mobile_bytes" <<'PY'
+          import http.client
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
           from pathlib import Path
 
-          base = "http://127.0.0.1:18082"
-
-          def fetch(path: str, timeout: float = 15.0) -> tuple[int, dict[str, str], str]:
+          def fetch(base: str, path: str, timeout: float = 15.0) -> tuple[int, dict[str, str], str]:
               deadline = time.monotonic() + timeout
               last_err = None
               while time.monotonic() < deadline:
@@ -1476,12 +1546,24 @@ jobs:
                       time.sleep(0.15)
               raise RuntimeError(f"timed out waiting for {base}{path}: {last_err}")
 
-          health_code, _, _ = fetch("/health")
-          readyz_code, _, _ = fetch("/readyz")
-          root_code, _, _ = fetch("/")
-          dei_code, _, dei_body = fetch("/dei")
-          invite_code, invite_headers, invite_body = fetch("/invite")
-          grafana_code, grafana_headers, _ = fetch("/grafana/")
+          def fetch_raw_path(host: str, port: int, raw_path: str) -> int:
+              conn = http.client.HTTPConnection(host, port, timeout=2.0)
+              try:
+                  conn.request("GET", raw_path)
+                  resp = conn.getresponse()
+                  resp.read()
+                  return resp.status
+              finally:
+                  conn.close()
+
+          # 1. Public site container (`deploy/Containerfile.public`)
+          pub_base = "http://127.0.0.1:18082"
+          health_code, _, _ = fetch(pub_base, "/health")
+          readyz_code, _, _ = fetch(pub_base, "/readyz")
+          root_code, _, _ = fetch(pub_base, "/")
+          dei_code, _, dei_body = fetch(pub_base, "/dei")
+          invite_code, invite_headers, invite_body = fetch(pub_base, "/invite")
+          grafana_code, grafana_headers, _ = fetch(pub_base, "/grafana/")
 
           assert health_code == 200, f"/health expected 200, got {health_code}"
           assert readyz_code == 200, f"/readyz expected 200, got {readyz_code}"
@@ -1506,30 +1588,90 @@ jobs:
           assert grafana_code == 404, f"/grafana/ expected 404, got {grafana_code}"
           assert "no-store" in grafana_headers.get("cache-control", "").lower(), "/grafana/ missing no-store"
 
+          # 2. Curie Clinic container (`deploy/Containerfile.clinic`)
+          clinic_base = "http://127.0.0.1:18088"
+          clinic_root_code, clinic_headers, clinic_body = fetch(clinic_base, "/elysianfields/")
+          clinic_js_code, _, _ = fetch(clinic_base, "/elysianfields/boot.js")
+          clinic_outside_code, _, _ = fetch(clinic_base, "/")
+          clinic_api_unauth_code, _, _ = fetch(clinic_base, "/elysianfields/api/patients")
+          clinic_health_code, _, _ = fetch(clinic_base, "/elysianfields/api/health")
+          clinic_traversal_code = fetch_raw_path("127.0.0.1", 18088, "/elysianfields/../Cargo.toml")
+
+          assert clinic_root_code == 200, f"clinic /elysianfields/ expected 200, got {clinic_root_code}"
+          clinic_csp = clinic_headers.get("content-security-policy", "")
+          assert "default-src 'self'" in clinic_csp and "'wasm-unsafe-eval'" in clinic_csp, f"clinic CSP mismatch: {clinic_csp!r}"
+          assert "/elysianfields" in clinic_body, "clinic HTML missing /elysianfields reference"
+          assert clinic_js_code == 200, f"clinic /elysianfields/boot.js expected 200, got {clinic_js_code}"
+          assert clinic_outside_code == 404, f"clinic / outside mount expected 404, got {clinic_outside_code}"
+          assert clinic_api_unauth_code == 401, f"clinic unauth API expected 401, got {clinic_api_unauth_code}"
+          assert clinic_traversal_code in (400, 404), f"clinic traversal expected 400/404, got {clinic_traversal_code}"
+
+          # 3. Curie Mobile container (`deploy/Containerfile.mobile`)
+          mobile_base = "http://127.0.0.1:18089"
+          mobile_readyz_code, _, mobile_readyz_body = fetch(mobile_base, "/elysianfields/mobile-api/readyz")
+          mobile_outside_code, _, _ = fetch(mobile_base, "/")
+          assert mobile_readyz_code == 200, f"mobile /readyz expected 200, got {mobile_readyz_code}"
+          mobile_readyz_json = json.loads(mobile_readyz_body)
+          assert mobile_readyz_json.get("ready") is True, f"mobile readyz not ready: {mobile_readyz_json}"
+          assert mobile_readyz_json.get("restore_replay_verified") is True, (
+              f"mobile readyz missing restore_replay_verified: {mobile_readyz_json}"
+          )
+          assert mobile_outside_code == 404, f"mobile / outside mount expected 404, got {mobile_outside_code}"
+
           report = {
               "job": "oci-container-build",
               "revision": os.environ.get("GITHUB_SHA", ""),
-              "containerfile": "deploy/Containerfile.public",
-              "image_tag": sys.argv[1],
-              "build_duration_secs": float(sys.argv[2]),
-              "image_bytes": int(sys.argv[3]),
-              "runtime_uid": int(sys.argv[4]),
-              "runtime_gid": int(sys.argv[5]),
+              "runtime_uid": 10001,
+              "runtime_gid": 10001,
               "hardening": {
                   "read_only": True,
                   "no_new_privileges": True,
                   "cap_drop": ["ALL"],
               },
-              "checks": {
-                  "health_status": health_code,
-                  "readyz_status": readyz_code,
-                  "root_status": root_code,
-                  "dei_status": dei_code,
-                  "dei_crisis_lines_before_facilities": True,
-                  "invite_status": invite_code,
-                  "invite_noindex_nofollow": True,
-                  "grafana_status": grafana_code,
-                  "grafana_no_store": True,
+              "services": {
+                  "public": {
+                      "containerfile": "deploy/Containerfile.public",
+                      "image_tag": sys.argv[1],
+                      "build_duration_secs": float(sys.argv[2]),
+                      "image_bytes": int(sys.argv[3]),
+                      "checks": {
+                          "health_status": health_code,
+                          "readyz_status": readyz_code,
+                          "root_status": root_code,
+                          "dei_status": dei_code,
+                          "dei_crisis_lines_before_facilities": True,
+                          "invite_status": invite_code,
+                          "invite_noindex_nofollow": True,
+                          "grafana_status": grafana_code,
+                          "grafana_no_store": True,
+                      },
+                  },
+                  "clinic": {
+                      "containerfile": "deploy/Containerfile.clinic",
+                      "image_tag": sys.argv[4],
+                      "build_duration_secs": float(sys.argv[5]),
+                      "image_bytes": int(sys.argv[6]),
+                      "checks": {
+                          "subpath_status": clinic_root_code,
+                          "strict_csp": True,
+                          "boot_js_status": clinic_js_code,
+                          "outside_mount_status": clinic_outside_code,
+                          "unauth_api_status": clinic_api_unauth_code,
+                          "api_health_probe_status": clinic_health_code,
+                          "traversal_rejected_status": clinic_traversal_code,
+                      },
+                  },
+                  "mobile": {
+                      "containerfile": "deploy/Containerfile.mobile",
+                      "image_tag": sys.argv[7],
+                      "build_duration_secs": float(sys.argv[8]),
+                      "image_bytes": int(sys.argv[9]),
+                      "checks": {
+                          "readyz_status": mobile_readyz_code,
+                          "readyz_payload": mobile_readyz_json,
+                          "outside_mount_status": mobile_outside_code,
+                      },
+                  },
               },
               "status": "passed",
           }
@@ -1538,10 +1680,12 @@ jobs:
           print(out.read_text(encoding="utf-8"))
           PY
 
-          docker stop "$cid" >/dev/null
-          docker rm -f "$cid" >/dev/null 2>&1 || true
+          for cid in "$public_cid" "$clinic_cid" "$mobile_cid"; do
+            docker stop "$cid" >/dev/null
+            docker rm -f "$cid" >/dev/null 2>&1 || true
+          done
           trap - EXIT
-          echo "Container torn down cleanly."
+          echo "All 3 rootless OCI containers verified and torn down cleanly."
 
       - name: Upload OCI container qualification evidence
         if: always()
