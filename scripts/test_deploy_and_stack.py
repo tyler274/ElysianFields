@@ -61,6 +61,20 @@ class DeployAndLocalStackTests(unittest.TestCase):
         bad_res = subprocess.run(["bash", str(LAUNCHER), "--bogus"], capture_output=True, text=True, check=False)
         self.assertEqual(bad_res.returncode, 2)
 
+    def test_cross_platform_workflow_covers_wave9_proofs(self) -> None:
+        wf = (REPO_ROOT / ".github" / "workflows" / "cross-platform.yml").read_text(encoding="utf-8")
+        for needle in (
+            "scripts/verify_pgwire_live.sh",
+            "swift test --package-path platform/ios",
+            "kotlin_test_execution",
+            "--clinic-wasm",
+            "--mobile-wasm",
+            "oci-container-build:",
+            "deploy/Containerfile.public",
+            'container_uid" != "10001"',
+        ):
+            self.assertIn(needle, wf)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,9 @@ on:
       - '.github/workflows/cross-platform.yml'
       - 'scripts/browser_e2e.py'
       - 'scripts/verify_postgres_migrations.sh'
+      - 'scripts/verify_pgwire_live.sh'
+      - 'deploy/**'
+      - 'platform/**'
 
 permissions:
   contents: read
@@ -124,11 +127,23 @@ jobs:
             swift_status="passed"
           fi
 
-          python3 - "$start_ts" "$end_ts" "$swift_status" "${swift_files[*]}" <<'PY'
+          swift_test_status="not-present"
+          swift_test_secs="0"
+          swift_test_files=(platform/ios/Tests/*/*.swift platform/ios/Tests/*.swift)
+          if [ -d platform/ios/Tests ] && [ "${#swift_test_files[@]}" -gt 0 ]; then
+            st_start=$(python3 -c 'import time; print(time.time())')
+            swift test --package-path platform/ios
+            st_end=$(python3 -c 'import time; print(time.time())')
+            swift_test_secs=$(python3 -c "print(round(float('$st_end') - float('$st_start'), 2))")
+            swift_test_status="passed"
+          fi
+
+          python3 - "$start_ts" "$end_ts" "$swift_status" "${swift_files[*]}" "$swift_test_status" "$swift_test_secs" "${swift_test_files[*]}" <<'PY'
           import json, sys
           from pathlib import Path
           elapsed = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
           swift_list = sys.argv[4].split() if sys.argv[4].strip() else []
+          test_list = sys.argv[7].split() if sys.argv[7].strip() else []
           Path("cross-platform-evidence/macos-ios-sim.json").write_text(
               json.dumps(
                   {
@@ -145,6 +160,12 @@ jobs:
                       "swift_typecheck": {
                           "status": sys.argv[3],
                           "files": swift_list,
+                      },
+                      "swift_test": {
+                          "status": sys.argv[5],
+                          "duration_secs": float(sys.argv[6]),
+                          "package_path": "platform/ios",
+                          "files": test_list,
                       },
                   },
                   indent=2,
@@ -444,6 +465,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client
 
+      - name: Cache Linux Rust build artifacts (when live pgwire verifier is present)
+        if: hashFiles('scripts/verify_pgwire_live.sh') != ''
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-pg18-linux
+          shared-key: native
+          cache-on-failure: true
+
       - name: Verify PostgreSQL 18 migrations and constraints
         run: |
           mkdir -p cross-platform-evidence
@@ -457,6 +486,18 @@ jobs:
             verifier_mode="scripts/verify_postgres_migrations.sh"
           else
             verifier_mode="inline-sql-and-constraint-checks"
+          fi
+
+          pgwire_live_status="not-present"
+          pgwire_live_secs="0"
+          if [ -f scripts/verify_pgwire_live.sh ]; then
+            echo "Running live PostgreSQL 18 ef-pgwire durability proof (scripts/verify_pgwire_live.sh)"
+            rustup show active-toolchain
+            pgw_start=$(python3 -c 'import time; print(time.time())')
+            bash scripts/verify_pgwire_live.sh
+            pgw_end=$(python3 -c 'import time; print(time.time())')
+            pgwire_live_secs=$(python3 -c "print(round(float('$pgw_end') - float('$pgw_start'), 2))")
+            pgwire_live_status="passed"
           fi
 
           # Always verify isolated Clinic and Mobile schemas, idempotency, and constraints on Postgres 18.
@@ -570,7 +611,7 @@ jobs:
           clinic_tables=$(psql -d ef_clinic_ci -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
           mobile_tables=$(psql -d ef_mobile_ci -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
 
-          python3 - "$pg_version" "$verifier_mode" "$clinic_tables" "$mobile_tables" "${clinic_files[*]}" "${mobile_files[*]}" <<'PY'
+          python3 - "$pg_version" "$verifier_mode" "$clinic_tables" "$mobile_tables" "${clinic_files[*]}" "${mobile_files[*]}" "$pgwire_live_status" "$pgwire_live_secs" <<'PY'
           import json, os, sys
           from pathlib import Path
 
@@ -579,6 +620,11 @@ jobs:
               "revision": os.environ.get("GITHUB_SHA", ""),
               "postgres_version": sys.argv[1],
               "verifier_mode": sys.argv[2],
+              "pgwire_live": {
+                  "script": "scripts/verify_pgwire_live.sh",
+                  "status": sys.argv[7],
+                  "duration_secs": float(sys.argv[8]),
+              },
               "clinic_db": {
                   "migrations": sys.argv[5].split(),
                   "public_table_count": int(sys.argv[3]),
@@ -654,6 +700,20 @@ jobs:
             -p m1-web-delivery --lib --crate-type cdylib
           ls -lh target/wasm32-unknown-unknown/release/m1_web_delivery.wasm
 
+          if [ -f crates/ef-clinic-client/src/wasm_abi.rs ]; then
+            echo "Compiling release wasm32 cdylib module (ef-clinic-client)"
+            env -u RUSTFLAGS cargo rustc --locked --release --target wasm32-unknown-unknown \
+              -p ef-clinic-client --lib --crate-type cdylib
+            ls -lh target/wasm32-unknown-unknown/release/ef_clinic_client.wasm
+          fi
+
+          if [ -f crates/ef-mobile-client/src/wasm_abi.rs ]; then
+            echo "Compiling release wasm32 cdylib module (ef-mobile-client)"
+            env -u RUSTFLAGS cargo rustc --locked --release --target wasm32-unknown-unknown \
+              -p ef-mobile-client --lib --crate-type cdylib
+            ls -lh target/wasm32-unknown-unknown/release/ef_mobile_client.wasm
+          fi
+
       - name: Install Playwright (Chromium, Firefox, WebKit) and Brotli
         run: |
           python3 -m venv .venv-pw
@@ -665,6 +725,8 @@ jobs:
           mkdir -p cross-platform-evidence
           report_path="cross-platform-evidence/cross-platform-browser-report.json"
           wasm_file="target/wasm32-unknown-unknown/release/m1_web_delivery.wasm"
+          clinic_wasm="target/wasm32-unknown-unknown/release/ef_clinic_client.wasm"
+          mobile_wasm="target/wasm32-unknown-unknown/release/ef_mobile_client.wasm"
 
           if [ -f scripts/browser_e2e.py ]; then
             help_text="$(.venv-pw/bin/python scripts/browser_e2e.py --help 2>&1 || true)"
@@ -683,6 +745,12 @@ jobs:
             fi
             if [ -f "$wasm_file" ] && echo "$help_text" | grep -q -- '--wasm-file'; then
               extra_args+=(--wasm-file "$wasm_file")
+            fi
+            if [ -f "$clinic_wasm" ] && echo "$help_text" | grep -q -- '--clinic-wasm'; then
+              extra_args+=(--clinic-wasm "$clinic_wasm")
+            fi
+            if [ -f "$mobile_wasm" ] && echo "$help_text" | grep -q -- '--mobile-wasm'; then
+              extra_args+=(--mobile-wasm "$mobile_wasm")
             fi
             .venv-pw/bin/python scripts/browser_e2e.py \
               --browsers chromium,firefox,webkit \
@@ -1040,6 +1108,22 @@ jobs:
           finally:
               httpd.shutdown()
 
+          extra_wasm_sizes = {}
+          for label, rel in (
+              ("ef_clinic_client", "target/wasm32-unknown-unknown/release/ef_clinic_client.wasm"),
+              ("ef_mobile_client", "target/wasm32-unknown-unknown/release/ef_mobile_client.wasm"),
+          ):
+              p = Path(rel)
+              if p.is_file():
+                  raw = p.read_bytes()
+                  br = brotli.compress(raw, quality=11)
+                  extra_wasm_sizes[label] = {
+                      "artifact": rel,
+                      "raw_bytes": len(raw),
+                      "brotli_11_bytes": len(br),
+                      "brotli_11_kib": round(len(br) / 1024.0, 2),
+                  }
+
           report = {
               "job": "browsers-e2e-wasm-csp",
               "revision": os.environ.get("GITHUB_SHA", ""),
@@ -1047,6 +1131,7 @@ jobs:
               "raw_bytes": len(wasm_bytes),
               "brotli_11_bytes": len(brotli_bytes),
               "brotli_11_kib": round(len(brotli_bytes) / 1024.0, 2),
+              "client_wasm_artifacts": extra_wasm_sizes,
               "strict_csp": STRICT_CSP,
               "engines": engines,
               "status": "passed",
@@ -1139,20 +1224,27 @@ jobs:
           )
           PY
 
-      - name: Verify Android Kotlin shims (kotlinc or structural audit)
+      - name: Verify Android Kotlin shims & execute Kotlin EFSS tests (kotlinc + java)
         run: |
           mkdir -p cross-platform-evidence
           python3 - <<'PY'
-          import json, os, re, shutil, subprocess
+          import json, os, re, shutil, subprocess, tempfile, time
           from pathlib import Path
 
           android_dir = Path("platform/android")
+          main_dir = android_dir / "src" / "main" / "kotlin"
+          test_dir = android_dir / "src" / "test" / "kotlin"
           kt_files = sorted(android_dir.rglob("*.kt")) if android_dir.is_dir() else []
+          main_kt = sorted(main_dir.rglob("*.kt")) if main_dir.is_dir() else kt_files
+          test_kt = sorted(test_dir.rglob("*.kt")) if test_dir.is_dir() else []
+
           result: dict = {
               "platform_dir_present": android_dir.is_dir(),
               "kotlin_files": [p.as_posix() for p in kt_files],
+              "test_files": [p.as_posix() for p in test_kt],
               "mode": "not-present",
               "status": "not-present",
+              "kotlin_test_execution": {"status": "not-present"},
           }
 
           if kt_files:
@@ -1169,9 +1261,10 @@ jobs:
                   raise SystemExit("Android Kotlin structural audit failed:\n" + "\n".join(issues))
 
               kotlinc = shutil.which("kotlinc")
+              java = shutil.which("java")
               if kotlinc:
                   proc = subprocess.run(
-                      [kotlinc, "-nowarn", *[str(p) for p in kt_files]],
+                      [kotlinc, "-nowarn", *[str(p) for p in main_kt]],
                       capture_output=True,
                       text=True,
                       check=False,
@@ -1180,6 +1273,73 @@ jobs:
                   result["kotlinc_exit_code"] = proc.returncode
                   result["kotlinc_stderr_tail"] = proc.stderr.splitlines()[-20:]
                   result["status"] = "passed" if proc.returncode == 0 else "structural-only-sdk-needed"
+
+                  if test_kt:
+                      if not java:
+                          raise SystemExit("kotlinc found and Kotlin tests exist, but java runtime is missing")
+                      with tempfile.TemporaryDirectory() as tmp:
+                          jar_path = Path(tmp) / "elysian-mobile-shim-tests.jar"
+                          t0 = time.monotonic()
+                          compile_test = subprocess.run(
+                              [
+                                  kotlinc,
+                                  "-nowarn",
+                                  "-include-runtime",
+                                  "-d",
+                                  str(jar_path),
+                                  *[str(p) for p in main_kt],
+                                  *[str(p) for p in test_kt],
+                              ],
+                              capture_output=True,
+                              text=True,
+                              check=False,
+                          )
+                          if compile_test.returncode != 0:
+                              raise SystemExit(
+                                  "Kotlin test compilation failed:\n"
+                                  + compile_test.stdout
+                                  + "\n"
+                                  + compile_test.stderr
+                              )
+
+                          # Locate main class from test file (e.g. fields.elysian.mobile.ElysianMobileShimTestKt).
+                          run_proc = subprocess.run(
+                              [java, "-jar", str(jar_path)],
+                              capture_output=True,
+                              text=True,
+                              check=False,
+                          )
+                          if run_proc.returncode != 0 and "no main manifest attribute" in run_proc.stderr:
+                              primary = test_kt[0]
+                              pkg_match = re.search(
+                                  r"^\s*package\s+([A-Za-z0-9_.]+)\s*$",
+                                  primary.read_text(encoding="utf-8"),
+                                  flags=re.MULTILINE,
+                              )
+                              pkg = f"{pkg_match.group(1)}." if pkg_match else ""
+                              main_cls = f"{pkg}{primary.stem}Kt"
+                              run_proc = subprocess.run(
+                                  [java, "-cp", str(jar_path), main_cls],
+                                  capture_output=True,
+                                  text=True,
+                                  check=False,
+                              )
+
+                          elapsed = round(time.monotonic() - t0, 2)
+                          result["kotlin_test_execution"] = {
+                              "status": "passed" if run_proc.returncode == 0 else "failed",
+                              "exit_code": run_proc.returncode,
+                              "duration_secs": elapsed,
+                              "stdout_tail": run_proc.stdout.splitlines()[-20:],
+                              "stderr_tail": run_proc.stderr.splitlines()[-20:],
+                          }
+                          if run_proc.returncode != 0:
+                              raise SystemExit(
+                                  "Kotlin EFSS test execution failed:\n"
+                                  + run_proc.stdout
+                                  + "\n"
+                                  + run_proc.stderr
+                              )
               else:
                   result["mode"] = "structural-audit"
                   result["status"] = "passed"
@@ -1220,5 +1380,144 @@ jobs:
         with:
           name: qualification-mobile-android-${{ github.run_id }}-${{ github.run_attempt }}
           path: cross-platform-evidence/mobile-android-build.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  oci-container-build:
+    name: Rootless OCI Container Build & Smoke (public-site)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build and verify rootless Containerfile.public OCI image
+        run: |
+          mkdir -p cross-platform-evidence
+          image_tag="elysian-public-site:ci-${GITHUB_RUN_ID}"
+          build_start=$(python3 -c 'import time; print(time.time())')
+          docker build -f deploy/Containerfile.public -t "$image_tag" .
+          build_end=$(python3 -c 'import time; print(time.time())')
+          build_secs=$(python3 -c "print(round(float('$build_end') - float('$build_start'), 2))")
+          image_bytes=$(docker image inspect --format '{{.Size}}' "$image_tag")
+
+          container_uid=$(docker run --rm --entrypoint /usr/bin/id "$image_tag" -u)
+          container_gid=$(docker run --rm --entrypoint /usr/bin/id "$image_tag" -g)
+          echo "Container runtime identity: uid=${container_uid}, gid=${container_gid}, size=${image_bytes} B"
+          if [ "$container_uid" != "10001" ] || [ "$container_gid" != "10001" ]; then
+            echo "ERROR: expected rootless UID/GID 10001:10001, got ${container_uid}:${container_gid}" >&2
+            exit 1
+          fi
+
+          cid=$(docker run -d \
+            --name "elysian-public-ci-${GITHUB_RUN_ID}" \
+            --read-only \
+            --security-opt no-new-privileges:true \
+            --cap-drop ALL \
+            -p 127.0.0.1:18082:8082 \
+            "$image_tag")
+
+          cleanup_container() {
+            docker rm -f "$cid" >/dev/null 2>&1 || true
+          }
+          trap cleanup_container EXIT
+
+          python3 - "$image_tag" "$build_secs" "$image_bytes" "$container_uid" "$container_gid" <<'PY'
+          import json, os, sys, time, urllib.error, urllib.request
+          from pathlib import Path
+
+          base = "http://127.0.0.1:18082"
+
+          def fetch(path: str, timeout: float = 15.0) -> tuple[int, dict[str, str], str]:
+              deadline = time.monotonic() + timeout
+              last_err = None
+              while time.monotonic() < deadline:
+                  try:
+                      with urllib.request.urlopen(f"{base}{path}", timeout=2.0) as resp:
+                          headers = {k.lower(): v for k, v in resp.headers.items()}
+                          return resp.status, headers, resp.read().decode("utf-8", errors="replace")
+                  except urllib.error.HTTPError as exc:
+                      headers = {k.lower(): v for k, v in exc.headers.items()}
+                      return exc.code, headers, exc.read().decode("utf-8", errors="replace")
+                  except Exception as exc:
+                      last_err = exc
+                      time.sleep(0.15)
+              raise RuntimeError(f"timed out waiting for {base}{path}: {last_err}")
+
+          health_code, _, _ = fetch("/health")
+          readyz_code, _, _ = fetch("/readyz")
+          root_code, _, _ = fetch("/")
+          dei_code, _, dei_body = fetch("/dei")
+          invite_code, invite_headers, invite_body = fetch("/invite")
+          grafana_code, grafana_headers, _ = fetch("/grafana/")
+
+          assert health_code == 200, f"/health expected 200, got {health_code}"
+          assert readyz_code == 200, f"/readyz expected 200, got {readyz_code}"
+          assert root_code == 200, f"/ expected 200, got {root_code}"
+          assert dei_code == 200, f"/dei expected 200, got {dei_code}"
+          idx_988 = dei_body.find("988")
+          idx_911 = dei_body.find("911")
+          idx_samhsa = dei_body.find("SAMHSA")
+          markers = [
+              dei_body.find(m)
+              for m in ('id="facilities"', 'data-facility-id="', 'id="state-directory"', 'class="facility')
+              if dei_body.find(m) >= 0
+          ]
+          assert idx_988 >= 0 and idx_911 >= 0 and idx_samhsa >= 0, "missing crisis lines on /dei"
+          assert markers, "missing facility listing markers on /dei"
+          assert max(idx_988, idx_911, idx_samhsa) < min(markers), "crisis lines must precede facilities"
+
+          assert invite_code == 200, f"/invite expected 200, got {invite_code}"
+          robots = invite_headers.get("x-robots-tag", "").lower() + " " + invite_body.lower()
+          assert "noindex" in robots and "nofollow" in robots, "/invite missing noindex/nofollow"
+
+          assert grafana_code == 404, f"/grafana/ expected 404, got {grafana_code}"
+          assert "no-store" in grafana_headers.get("cache-control", "").lower(), "/grafana/ missing no-store"
+
+          report = {
+              "job": "oci-container-build",
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "containerfile": "deploy/Containerfile.public",
+              "image_tag": sys.argv[1],
+              "build_duration_secs": float(sys.argv[2]),
+              "image_bytes": int(sys.argv[3]),
+              "runtime_uid": int(sys.argv[4]),
+              "runtime_gid": int(sys.argv[5]),
+              "hardening": {
+                  "read_only": True,
+                  "no_new_privileges": True,
+                  "cap_drop": ["ALL"],
+              },
+              "checks": {
+                  "health_status": health_code,
+                  "readyz_status": readyz_code,
+                  "root_status": root_code,
+                  "dei_status": dei_code,
+                  "dei_crisis_lines_before_facilities": True,
+                  "invite_status": invite_code,
+                  "invite_noindex_nofollow": True,
+                  "grafana_status": grafana_code,
+                  "grafana_no_store": True,
+              },
+              "status": "passed",
+          }
+          out = Path("cross-platform-evidence/oci-container-build.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+          docker stop "$cid" >/dev/null
+          docker rm -f "$cid" >/dev/null 2>&1 || true
+          trap - EXIT
+          echo "Container torn down cleanly."
+
+      - name: Upload OCI container qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-oci-container-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/oci-container-build.json
           if-no-files-found: warn
           retention-days: 30
