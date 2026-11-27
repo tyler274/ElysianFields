@@ -60,7 +60,7 @@ REQ_ID_RE = re.compile(
     r"^EF-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-([0-9]{4})$"
 )
 SCN_ID_RE = re.compile(
-    r"^SCN-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-([0-9]{4})$"
+    r"^SCN-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC|M[0-9]+)-([0-9]{4})$"
 )
 
 REQUIRED_REQ_FIELDS = (
@@ -325,9 +325,14 @@ def validate_ledger(
             scn_match = SCN_ID_RE.match(scenario_id)
             if not scn_match:
                 errors.append(
-                    f"{req_id}: scenario_id {scenario_id!r} does not match SCN-<DOMAIN>-<NNNN>"
+                    f"{req_id}: scenario_id {scenario_id!r} does not match "
+                    f"SCN-<DOMAIN|M#>-<NNNN>"
                 )
-            elif isinstance(domain, str) and scn_match.group(1) != domain:
+            elif (
+                isinstance(domain, str)
+                and scn_match.group(1) in VALID_DOMAINS
+                and scn_match.group(1) != domain
+            ):
                 errors.append(
                     f"{req_id}: scenario_id {scenario_id!r} domain {scn_match.group(1)!r} "
                     f"does not match requirement domain {domain!r}"

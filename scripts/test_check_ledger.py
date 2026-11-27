@@ -220,6 +220,21 @@ evidence = ""
             errors = check_ledger.validate_ledger(root)
             self.assertTrue(any("does not exist" in e for e in errors), errors)
 
+    def test_milestone_scenario_id_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_valid_fixture(root)
+            for rel in (
+                "specs/ledger.toml",
+                "specs/packages/sample-pkg/scenarios.toml",
+            ):
+                p = root / rel
+                p.write_text(
+                    p.read_text(encoding="utf-8").replace("SCN-CLINIC-0001", "SCN-M2-0001"),
+                    encoding="utf-8",
+                )
+            self.assertEqual(check_ledger.validate_ledger(root), [])
+
     def test_spec_missing_requirement_reference_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,0 +1,264 @@
+schema_version = 1
+package = "specs/packages/m2-physician-vertical-slice"
+authority_note = "Gatekeeper-approved implementation-neutral executable behavioral scenarios for the M2 physician vertical slice. Zero secrets, PHI, or reference internals."
+
+[[scenarios]]
+id = "SCN-M2-0001"
+requirement_id = "EF-CLINIC-0002"
+title = "Invite-only sign-in, single-use link verification, and anti-enumeration"
+area = "auth-sessions"
+platforms = [
+  "browser-wasm-desktop",
+  "desktop-linux",
+  "desktop-macos",
+  "desktop-windows",
+  "android-native",
+  "ios-native",
+]
+preconditions = [
+  "Backend running with required authentication and deterministic mail capture (proof mode or local SMTP sink).",
+  "One active invited physician account and one deactivated account exist in Practice A; an unknown email does not exist.",
+]
+steps = [
+  "Submit POST /auth/sign-in for the unknown email, deactivated email, and active email.",
+  "Verify all three return identical 200 OK anti-enumeration responses in hosted mode (and zero mail sent for unknown/deactivated).",
+  "Submit POST /auth/verify with the issued one-time token for the active physician.",
+  "Replay the exact same POST /auth/verify request a second time.",
+]
+expected = [
+  "First verify returns 200 OK with Cache-Control: no-store and a live session token; client lands on Today.",
+  "Replayed verify returns 401 Unauthorized (reason: session_ended) with Cache-Control: no-store.",
+  "Deactivated account verify returns 403 Forbidden (reason: access_removed).",
+]
+
+[[scenarios]]
+id = "SCN-M2-0002"
+requirement_id = "EF-CLINIC-0003"
+title = "Two-tab sign-out, expiry clearing, and KeepsWork race protection"
+area = "auth-sessions"
+platforms = ["browser-wasm-desktop"]
+preconditions = [
+  "Tab A and Tab B are both open in the same browser profile, signed in to Practice A and viewing a patient workspace.",
+]
+steps = [
+  "Expire Session 1 on the server while Tab A has a clinical read in flight.",
+  "Confirm Tab A transitions to SessionEndedPrompt with zero patient content rendered (PromptIsEmpty & Expiry).",
+  "Sign in freshly in Tab B (minting Session 2) while an old Session 1 401 refusal resolves in Tab A.",
+  "Confirm Tab A adopts Session 2 and opens Today rather than being kicked back to sign-in (KeepsWork & TodayFirst).",
+  "Sign out in Tab A and verify Tab B clears all patient content and closes its open SSE stream immediately (OnceOut, ServerRefusesSignedOut, CatchesUp).",
+]
+expected = [
+  "All 11 formal sign-in invariants hold across both tabs.",
+  "Server rejects any subsequent request presenting Session 1 or Session 2 after sign-out with 401 (reason: session_ended).",
+]
+
+[[scenarios]]
+id = "SCN-M2-0003"
+requirement_id = "EF-CLINIC-0004"
+title = "Deep-link patient landing across unauthenticated boot"
+area = "auth-sessions"
+platforms = ["browser-wasm-desktop"]
+preconditions = [
+  "Browser has no stored session.",
+  "Synthetic patient workspace pw-flagship-1 belongs to the physician's panel.",
+]
+steps = [
+  "Open /elysianfields/?patient=pw-flagship-1 in Tab A.",
+  "Confirm Tab A lands on SignInPage with zero patient content while preserving the deep-link target.",
+  "Complete direct sign-in in Tab B (or Tab A).",
+]
+expected = [
+  "Tab A transitions to Workspace opened directly on pw-flagship-1 (Lands invariant).",
+  "Opening an emailed sign-in link in Tab A instead resets target and lands on Today (TodayFirst invariant).",
+]
+
+[[scenarios]]
+id = "SCN-M2-0004"
+requirement_id = "EF-CLINIC-0005"
+title = "Practice-scoped patient access and cross-practice non-disclosure"
+area = "workspace-access"
+platforms = ["hosted-services", "browser-wasm-desktop"]
+preconditions = [
+  "Physician 1 is signed in to Practice A with Allowed access to pw-A1 and ClinicDemographic access to pw-A2.",
+  "Patient pw-B1 belongs solely to Practice B.",
+]
+steps = [
+  "Fetch GET /patient-workspaces as Physician 1.",
+  "Attempt GET /patient-workspaces/pw-B1, GET /patient-workspaces/pw-B1/chats/c1/snapshot, and POST /commands targeting pw-B1.",
+  "Attempt to inspect clinical chart/citations for ClinicDemographic patient pw-A2.",
+]
+expected = [
+  "Patient list contains only authorized Practice A entries (never pw-B1).",
+  "Every cross-practice request for pw-B1 returns 404 Not Found with Cache-Control: no-store.",
+  "ClinicDemographic access never discloses clinical chart content or chat transcripts.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0005"
+requirement_id = "EF-CLINIC-0006"
+title = "Evidence reading, inline citation inspection, and stale/withdrawn redaction"
+area = "evidence-citations"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+preconditions = [
+  "Patient workspace pw-flagship-1 has a completed answer citing a multi-section progress note [1] and a 5,000-row structured lab record [12].",
+]
+steps = [
+  "Click inline citation [1] to open the non-modal cited-source reading panel.",
+  "Verify verbatim quote highlighting, clinical date, settled/flagged status badge, and original-language provenance.",
+  "Click citation [12] (5,000-row lab panel) and scroll through the virtualized lab table.",
+  "Withdraw source [1] on the server and re-open citation [1].",
+  "Attempt to fetch a source_key belonging to another patient through pw-flagship-1's citation route.",
+]
+expected = [
+  "Citation [1] opens within budget (<= 100 ms browser / <= 50 ms desktop) showing verbatim source text.",
+  "Citation [12] opens within budget (<= 150 ms browser) with virtualized rows and zero >50 ms main-thread stalls.",
+  "Withdrawn source [1] transitions panel to Unavailable and clears prior clinical text immediately.",
+  "Cross-patient source lookup returns 404 Not Found.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0006"
+requirement_id = "EF-CLINIC-0007"
+title = "Streamed clinical chat with tool trace, inline citations, and concurrent interaction"
+area = "streaming-chat"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+preconditions = [
+  "Deterministic provider stub configured with 2 tool rounds (search_chart, read_records) followed by a 40 tokens/sec streamed markdown answer citing exact read records.",
+  "Conversation preloaded with 80 synthetic turns (~40k chars).",
+]
+steps = [
+  "Submit a clinical question via composer (POST /commands message.submit with client idempotency_key).",
+  "Observe live tool steps appearing in order and incremental markdown chunks appending smoothly.",
+  "Simultaneously type in the composer at 6 keys/sec, scroll the transcript, and open a citation chip.",
+  "Verify completed answer transitions to Finished with clickable citations matching the read records.",
+]
+expected = [
+  "Duplicate POST /commands with the same idempotency_key produces no second turn.",
+  "Frame time p95 <= 16.7 ms, typing latency p95 <= 35 ms (browser) / <= 16.7 ms (desktop), 0 long tasks > 50 ms.",
+  "Idle phase after completion produces 0 frames/sec redraw and < 1% CPU.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0007"
+requirement_id = "EF-CLINIC-0008"
+title = "Mid-stream cancellation (Stop) and explicit Resume with expected_run_id fencing"
+area = "cancel-recovery"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Deterministic provider stub configured with slow streaming cadence (delay_ms = 200) so an exchange stays Working.",
+]
+steps = [
+  "Submit a prompt and wait for partial steps/text to stream into the UI.",
+  "Activate Stop (POST /commands work.stop).",
+  "Verify active execution terminates promptly, partial kept work remains visible, and Resume action is shown.",
+  "Trigger Resume (POST /commands work.resume with expected_run_id) and confirm completion.",
+  "Replay the stale work.resume with the old expected_run_id.",
+]
+expected = [
+  "Turn transitions Working -> Stopped -> Working -> Finished with zero lost steps.",
+  "Stale work.resume returns 409 Conflict without starting a duplicate run.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0008"
+requirement_id = "EF-CLINIC-0009"
+title = "Bounded 5-failure retry exhaustion to couldnt_finish and explicit Try again recovery"
+area = "error-recovery"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Deterministic provider stub configured with failures = 5 and test-mode immediate backoff.",
+]
+steps = [
+  "Submit a clinical prompt.",
+  "Observe the worker retry automatically up to 5 counted failures and then stop retrying.",
+  "Confirm the UI displays CouldntFinish with an explicit Try again action and zero background retry churn.",
+  "Click Try again (POST /commands work.resume) now that the stub failure counter is 0.",
+]
+expected = [
+  "Exactly 5 failed attempts are recorded before transitioning to CouldntFinish.",
+  "Clicking Try again executes attempt 6 and settles cleanly to Finished.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0009"
+requirement_id = "EF-HARNESS-0001"
+title = "Reload, worker restart, bus resync, and durable draft/transcript readback"
+area = "durability"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Hosted-shape stack running (2 API instances, worker, PostgreSQL, Valkey/Redis bus).",
+]
+steps = [
+  "Type an unsaved draft in the composer and wait for autosave confirmation; submit a chat turn on Instance A.",
+  "Restart Valkey/Redis mid-run and restart the worker while a lease is active (or let lease expire).",
+  "Reload the browser tab pointing at Instance B.",
+  "Simulate a concurrent draft save conflict (409 Conflict) from a second tab.",
+]
+expected = [
+  "Bus restart emits resync; client refetches authoritative PostgreSQL snapshot with zero lost turns or steps.",
+  "Reloading against Instance B reads back the exact persisted transcript, citations, and saved draft.",
+  "Draft conflict pauses autosave and presents explicit Retry (keep mine) and Use newer text options without silently overwriting local typing.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0010"
+requirement_id = "EF-PLATFORM-0001"
+title = "Subpath mounting under /elysianfields/, Nix cache hygiene, and strict CSP"
+area = "subpath-csp"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+preconditions = [
+  "Replacement web client and API mounted at /elysianfields/ alongside sibling routes on the shared host domain.",
+]
+steps = [
+  "Request GET /elysianfields?patient=pw-flagship-1 without trailing slash.",
+  "Inspect HTTP response headers on /elysianfields/, static Wasm/JS assets, and clinical API responses.",
+  "Attempt to boot with a non-loopback ?api=https://attacker.example override.",
+  "Verify zero CSP violations in browser console during Wasm boot, WebGL2 init, and SSE streaming.",
+]
+expected = [
+  "Bare /elysianfields redirects 308 Permanent Redirect to /elysianfields/?patient=pw-flagship-1.",
+  "HTML returns Cache-Control: no-cache with Last-Modified stripped; hashed assets return immutable; APIs return Cache-Control: no-store.",
+  "Non-loopback ?api= override is ignored; API calls stay strictly under /elysianfields.",
+  "Zero CSP violations under script-src 'self' 'wasm-unsafe-eval'; frame-ancestors 'none'.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0011"
+requirement_id = "EF-PLATFORM-0002"
+title = "Keyboard-only navigation, global privacy screen cover, and focus restoration"
+area = "accessibility"
+platforms = ["browser-wasm-desktop", "desktop-linux", "desktop-macos", "desktop-windows"]
+preconditions = [
+  "Physician signed in to Workspace on Today with focus inside the multiline composer.",
+]
+steps = [
+  "Press '/' and 'j' while editing in the composer and confirm literal characters are inserted (shortcuts paused).",
+  "Press Cmd+Shift+L / Ctrl+Shift+L while still editing and confirm Privacy Screen Cover immediately hides all clinical content.",
+  "Press Cmd+Shift+L / Ctrl+Shift+L again to reveal workspace and verify focus is restored.",
+  "Blur composer, press '/' to open Patient Finder, navigate with ArrowDown/Enter to open a patient, open a citation chip via keyboard, and dismiss with Escape.",
+]
+expected = [
+  "Global privacy cover works regardless of editing or modal state.",
+  "Every workflow step succeeds without a mouse; Escape restores focus to the triggering element.",
+  "Screen-reader accessibility tree exposes one authoritative node per control with zero duplicate DOM/AccessKit inputs.",
+]
+
+[[scenarios]]
+id = "SCN-M2-0012"
+requirement_id = "EF-PLATFORM-0003"
+title = "Nine-language UI switching, Arabic RTL layout mirroring, and verbatim source language"
+area = "i18n"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+preconditions = [
+  "Physician signed in to a patient workspace with English clinical records and citations.",
+]
+steps = [
+  "Cycle through all 9 shipped locales (en, es, fr, pt, de, zh-Hans, ja, ko, ar) via language switcher and ?lang= query parameter.",
+  "Inspect layout direction, BiDi rendering of mixed Arabic UI + numeric lab values, and persistence across reload (curie.locale.v1).",
+  "Open a cited clinical record while UI locale is ar.",
+]
+expected = [
+  "All 51 core UI keys render translated with zero missing/fallback glyphs.",
+  "Arabic switches document/layout direction to RTL, mirrors chrome cleanly, and keeps mixed numeric lab units legible.",
+  "Verbatim clinical source text remains in its original language with the Arabic OriginalRecordLanguageNote displayed.",
+]
