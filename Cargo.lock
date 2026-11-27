@@ -1642,6 +1642,9 @@ dependencies = [
  "accesskit",
  "bevy",
  "ef-clinic-domain",
+ "ef-clinic-server",
+ "ef-clinic-workflows",
+ "ef-connected-care",
  "ef-core",
  "ef-harness",
  "ef-ui-catalog",
@@ -1665,6 +1668,8 @@ name = "ef-clinic-server"
 version = "0.1.0"
 dependencies = [
  "ef-clinic-domain",
+ "ef-clinic-workflows",
+ "ef-connected-care",
  "ef-core",
  "ef-harness",
  "serde",

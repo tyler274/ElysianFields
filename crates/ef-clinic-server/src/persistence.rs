@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use ef_clinic_domain::auth::{EmailAddress, PhysicianAccount, VerificationTokenKind};
 use ef_clinic_domain::chat::{CommandEnvelope, ExchangeStep};
 use ef_clinic_domain::workspace::{AnswerSegment, CitedSourcePayload};
+use ef_clinic_workflows::matching::MoveDestination;
+use ef_clinic_workflows::memory::{MemoryAuthority, RoundsObservation};
+use ef_clinic_workflows::today::{ChannelHealthStatus, ScheduledVisitEntry, TodayQueueItem};
+use ef_connected_care::{CreateInvitationRequest, PairKey};
 use ef_core::{
     AttemptId, ChatId, PhysicianId, PracticeId, ResponseId, SessionId, SourceKey, WorkItemId,
     WorkspaceId,
@@ -25,6 +29,43 @@ use thiserror::Error;
 
 /// WAL file name created inside the configured durable data directory.
 pub const WAL_FILE_NAME: &str = "clinic-wal.jsonl";
+
+/// Serializable mirror of [`ef_clinic_workflows::matching::AutomatedMatchSignal`] for WAL frames.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "signal", rename_all = "snake_case")]
+pub enum WalAutoMatchSignal {
+    UnambiguousSingle { patient: WorkspaceId },
+    AmbiguousOrContradicted { suggested: Option<WorkspaceId> },
+    LikelyNonPatient,
+}
+
+/// JSON-safe mirror of [`MoveDestination`] for HTTP wire & WAL frames.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WalMoveDestination {
+    Patient { workspace_id: WorkspaceId },
+    NotPatient,
+}
+
+impl From<WalMoveDestination> for MoveDestination {
+    fn from(dest: WalMoveDestination) -> Self {
+        match dest {
+            WalMoveDestination::Patient { workspace_id } => Self::Patient(workspace_id),
+            WalMoveDestination::NotPatient => Self::NotPatient,
+        }
+    }
+}
+
+impl From<&MoveDestination> for WalMoveDestination {
+    fn from(dest: &MoveDestination) -> Self {
+        match dest {
+            MoveDestination::Patient(workspace_id) => Self::Patient {
+                workspace_id: workspace_id.clone(),
+            },
+            MoveDestination::NotPatient => Self::NotPatient,
+        }
+    }
+}
 
 /// Serializable mirror of [`VerificationTokenKind`] for WAL frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +188,103 @@ pub enum WalEntry {
         chat_id: ChatId,
         text: String,
         expected_revision: u64,
+    },
+    AddTodayItem {
+        item: TodayQueueItem,
+    },
+    AddScheduledVisit {
+        visit: ScheduledVisitEntry,
+    },
+    SetChannelHealth {
+        channel_id: String,
+        status: ChannelHealthStatus,
+    },
+    MarkTodaySeen {
+        physician_id: PhysicianId,
+        item_id: String,
+        version_id: u64,
+    },
+    MarkTodayDone {
+        physician_id: PhysicianId,
+        item: TodayQueueItem,
+    },
+    IngestChannelMessage {
+        channel_id: String,
+        cursor_seq: u64,
+        conversation_id: Option<String>,
+        message_id: Option<String>,
+        body: Option<String>,
+        unreadable_reason: Option<String>,
+        auto_signal: Option<WalAutoMatchSignal>,
+        now_secs: u64,
+    },
+    DecideMessageMove {
+        physician_id: PhysicianId,
+        practice_id: PracticeId,
+        conversation_id: String,
+        destination: WalMoveDestination,
+        now_secs: u64,
+    },
+    UndoMessageMove {
+        conversation_id: String,
+    },
+    ReplyCompleteReview {
+        conversation_id: String,
+        for_patient: WorkspaceId,
+        proposed_reply_text: Option<String>,
+        basis_citations: Vec<SourceKey>,
+        flagged_concern: Option<String>,
+        answered_by_human_reply: bool,
+    },
+    ReplyEditDraft {
+        physician_id: PhysicianId,
+        practice_id: PracticeId,
+        conversation_id: String,
+        draft_text: String,
+    },
+    ReplyRestoreSystem {
+        physician_id: PhysicianId,
+        practice_id: PracticeId,
+        conversation_id: String,
+    },
+    ReplyClose {
+        physician_id: PhysicianId,
+        practice_id: PracticeId,
+        conversation_id: String,
+    },
+    ReplyUndoClose {
+        physician_id: PhysicianId,
+        practice_id: PracticeId,
+        conversation_id: String,
+    },
+    MemoryRecordEntry {
+        workspace_id: WorkspaceId,
+        topic: String,
+        statement: String,
+        observed_at: String,
+        authority: MemoryAuthority,
+    },
+    MemoryRunRounds {
+        workspace_id: WorkspaceId,
+        observations: Vec<RoundsObservation>,
+        abort_mid_run: bool,
+    },
+    MemoryRetireEntry {
+        workspace_id: WorkspaceId,
+        entry_id: String,
+        resolved_at: String,
+        reason: String,
+    },
+    CreateConnectedCareInvitation {
+        request: CreateInvitationRequest,
+    },
+    ResendConnectedCareInvitation {
+        pair: PairKey,
+        resent_at: String,
+    },
+    CancelConnectedCareInvitation {
+        pair: PairKey,
+        cancelled_at: String,
     },
 }
 

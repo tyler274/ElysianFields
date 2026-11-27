@@ -95,6 +95,9 @@ enum ParseOutcome {
 fn handle_tcp_connection(mut stream: TcpStream, service: &Arc<Mutex<ClinicService>>) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
+    let peer_ip = stream
+        .peer_addr()
+        .map_or_else(|_| "127.0.0.1".to_owned(), |addr| addr.ip().to_string());
 
     let parse_result = read_http_request(&stream);
     let (response, is_head) = match parse_result {
@@ -103,7 +106,7 @@ fn handle_tcp_connection(mut stream: TcpStream, service: &Arc<Mutex<ClinicServic
         ParseOutcome::Request(req) => {
             let is_head = req.method == HttpMethod::Head;
             let resp = match service.lock() {
-                Ok(mut guard) => guard.handle_request(&req),
+                Ok(mut guard) => guard.handle_request_from_ip(&req, &peer_ip),
                 Err(_) => HttpResponse::json_clinical(
                     500,
                     &serde_json::json!({ "error": "service_lock_poisoned" }),

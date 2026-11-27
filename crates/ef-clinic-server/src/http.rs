@@ -112,6 +112,35 @@ impl HttpResponse {
         resp
     }
 
+    /// Constructs a static file asset response carrying strict CSP, explicit cache policy,
+    /// and zero `Last-Modified` header.
+    #[must_use]
+    pub fn static_asset(
+        content_type: &'static str,
+        cache_policy: CachePolicy,
+        body: impl Into<Vec<u8>>,
+    ) -> Self {
+        let mut resp = Self::base(200, cache_policy);
+        resp.set_header("Content-Type", content_type);
+        resp.body = body.into();
+        resp
+    }
+
+    /// Constructs a `429 Too Many Requests` response with `Retry-After` and `ClinicalNoStore` headers.
+    #[must_use]
+    pub fn too_many_requests(retry_after_secs: u64) -> Self {
+        let retry = retry_after_secs.max(1);
+        let mut resp = Self::json_clinical(
+            429,
+            &serde_json::json!({
+                "error": "rate_limit_exceeded",
+                "retry_after_secs": retry,
+            }),
+        );
+        resp.set_header("Retry-After", retry.to_string());
+        resp
+    }
+
     /// Constructs a `308 Permanent Redirect` preserving the requested location.
     #[must_use]
     pub fn permanent_redirect(location: String) -> Self {

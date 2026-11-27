@@ -3,11 +3,15 @@
 //! Built on `ef-ui-catalog`, `ef-clinic-domain`, `ef-harness`, and `ef-core` with zero
 //! client-side secrets and zero duplicate authoritative clinical stores.
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http_transport;
 pub mod plugin;
 pub mod state;
 pub mod transport;
 pub mod wire;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use http_transport::{LiveHttpClinicTransport, LiveHttpResponse};
 pub use plugin::{
     ClientFrameReport, ClinicAction, ClinicActionMessage, ClinicTransportResource,
     CurieClinicClientPlugin, DraftConflictChoice, ManagedClinicA11yNode, SignInEntryMethod,
