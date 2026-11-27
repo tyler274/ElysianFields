@@ -12,6 +12,7 @@ ef-clinic-workflows = { workspace = true }
 ef-connected-care = { workspace = true }
 ef-core = { workspace = true }
 ef-harness = { workspace = true }
+ef-pgwire = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -129,6 +129,7 @@ HEADLESS_SERVER_CRATES: frozenset[str] = frozenset(
         "ef-extension",
         "ef-public-site",
         "ef-migration-rehearsal",
+        "ef-pgwire",
     }
 )
 

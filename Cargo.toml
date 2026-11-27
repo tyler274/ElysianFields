@@ -26,6 +26,7 @@ members = [
     "crates/ef-extension",
     "crates/ef-public-site",
     "crates/ef-migration-rehearsal",
+    "crates/ef-pgwire",
 ]
 
 [workspace.package]
@@ -51,6 +52,7 @@ ef-encoder = { path = "crates/ef-encoder" }
 ef-patient-bank = { path = "crates/ef-patient-bank" }
 ef-mobile-domain = { path = "crates/ef-mobile-domain" }
 ef-migration-rehearsal = { path = "crates/ef-migration-rehearsal" }
+ef-pgwire = { path = "crates/ef-pgwire" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

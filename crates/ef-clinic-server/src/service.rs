@@ -39,7 +39,7 @@ use crate::http::{
     format_sse_event, query_param, stream_event_id,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use crate::persistence::DurableClinicStore;
+use crate::persistence::{DurableClinicStore, PgClinicStore};
 use crate::persistence::{InMemoryWal, WalEntry, WalError, WalSink, WalTokenKind};
 use crate::rate_limit::{IpSlidingWindowLimiter, RateLimitConfig, RateLimitDecision};
 #[cfg(not(target_arch = "wasm32"))]
@@ -192,6 +192,46 @@ impl ClinicService {
         initial_clock_secs: u64,
     ) -> Result<Self, ClinicServiceError> {
         let (store, entries) = DurableClinicStore::open(data_dir)?;
+        let mut service = Self {
+            auth: AuthAuthority::new(sign_in_mode),
+            evidence: WorkspaceEvidenceStore::new(),
+            chats: BTreeMap::new(),
+            drafts: DraftStore::new(),
+            retry_mode,
+            agent_loop: AgentLoop::new(),
+            default_cited_source,
+            queued_providers: VecDeque::new(),
+            clock_secs: initial_clock_secs,
+            wal: Box::new(store),
+            rate_limiter: IpSlidingWindowLimiter::new(RateLimitConfig::default()),
+            web_dir: None,
+            today_engine: TodayQueueEngine::new(),
+            today_candidates: Vec::new(),
+            scheduled_visits: Vec::new(),
+            today_also_reviewed: 0,
+            matching_engine: MessageMatchingEngine::new(),
+            reply_engine: MessageReplyEngine::new(),
+            patient_memories: BTreeMap::new(),
+            connected_care: ConnectedCareBridge::new(),
+            invitation_pairs: BTreeMap::new(),
+        };
+        for entry in entries {
+            service.replay_wal_entry(entry);
+        }
+        Ok(service)
+    }
+
+    /// Opens a PostgreSQL-backed durable [`ClinicService`] via `ef-pgwire`, applying
+    /// `0001_m2_clinic_slice.sql` idempotently and replaying all persisted mutations.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_postgres(
+        config: &ef_pgwire::PgConnectionConfig,
+        sign_in_mode: SignInMode,
+        retry_mode: RetryBackoffMode,
+        default_cited_source: SourceKey,
+        initial_clock_secs: u64,
+    ) -> Result<Self, ClinicServiceError> {
+        let (store, entries) = PgClinicStore::open(config)?;
         let mut service = Self {
             auth: AuthAuthority::new(sign_in_mode),
             evidence: WorkspaceEvidenceStore::new(),

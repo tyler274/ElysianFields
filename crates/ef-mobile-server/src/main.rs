@@ -20,7 +20,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .duration_since(UNIX_EPOCH)
         .map_or(1_760_000_000, |d| d.as_secs());
     let journal = FileReceiptJournal::open(&journal_dir)?;
-    let mut service = MobileService::open_durable(&data_dir, Box::new(journal), now_secs, true)?;
+    let pg_url = std::env::var("EF_MOBILE_DATABASE_URL")
+        .ok()
+        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .filter(|s| !s.trim().is_empty());
+    let mut service = if let Some(ref url) = pg_url {
+        let pg_cfg = ef_pgwire::PgConnectionConfig::parse_url(url)?;
+        MobileService::open_postgres(&pg_cfg, Box::new(journal), now_secs, true)?
+    } else {
+        MobileService::open_durable(&data_dir, Box::new(journal), now_secs, true)?
+    };
     let report = service.execute_restore_replay_gate(10_000)?;
     eprintln!(
         "ef-mobile-server restore replay verified: applied={}",

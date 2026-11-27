@@ -10,6 +10,7 @@ description = "Headless Curie Mobile M3 HTTP/1.1 + WAL service under /elysianfie
 ef-connected-care = { workspace = true }
 ef-core = { workspace = true }
 ef-mobile-domain = { workspace = true }
+ef-pgwire = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

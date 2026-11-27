@@ -44,13 +44,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .duration_since(UNIX_EPOCH)
         .map_or(1_760_000_000, |d| d.as_secs());
     let default_source = SourceKey::new("src-note-1")?;
-    let mut service = ClinicService::open_durable(
-        &data_dir,
-        SignInMode::Hosted,
-        RetryBackoffMode::Hosted,
-        default_source,
-        now_secs,
-    )?;
+    let pg_url = std::env::var("EF_CLINIC_DATABASE_URL")
+        .ok()
+        .or_else(|| std::env::var("DATABASE_URL").ok())
+        .filter(|s| !s.trim().is_empty());
+    let mut service = if let Some(ref url) = pg_url {
+        let pg_cfg = ef_pgwire::PgConnectionConfig::parse_url(url)?;
+        ClinicService::open_postgres(
+            &pg_cfg,
+            SignInMode::Hosted,
+            RetryBackoffMode::Hosted,
+            default_source,
+            now_secs,
+        )?
+    } else {
+        ClinicService::open_durable(
+            &data_dir,
+            SignInMode::Hosted,
+            RetryBackoffMode::Hosted,
+            default_source,
+            now_secs,
+        )?
+    };
 
     if let Some(dir) = web_dir.clone() {
         service.set_web_dir(dir);
