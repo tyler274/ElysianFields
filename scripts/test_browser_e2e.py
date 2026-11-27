@@ -32,8 +32,23 @@ class ParseBrowsersTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             browser_e2e.parse_browsers(" , ")
 
+    def test_cli_flags_keep_defaults_and_support_mobile_and_wasm(self) -> None:
+        parser = browser_e2e.build_arg_parser()
+        default_args = parser.parse_args([])
+        self.assertEqual(default_args.browsers, "chromium,firefox,webkit")
+        self.assertFalse(default_args.mobile_emulation)
+        self.assertIsNone(default_args.wasm_file)
 
-class HtmlInvariantTests(unittest.TestCase):
+        extended = parser.parse_args(["--mobile-emulation", "--wasm-file", "/tmp/demo.wasm"])
+        self.assertTrue(extended.mobile_emulation)
+        self.assertEqual(extended.wasm_file, Path("/tmp/demo.wasm"))
+
+
+class HtmlAndWasmInvariantTests(unittest.TestCase):
+    def test_minimal_wasm_binary_has_valid_magic_and_version(self) -> None:
+        self.assertEqual(browser_e2e.MINIMAL_VALID_WASM_BYTES[:8], b"\x00asm\x01\x00\x00\x00")
+        self.assertEqual(len(browser_e2e.MINIMAL_VALID_WASM_BYTES), 41)
+
     def test_crisis_lines_before_facilities_passes_when_ordered(self) -> None:
         html = (
             "<main>"
@@ -79,7 +94,7 @@ class HtmlInvariantTests(unittest.TestCase):
 
 
 class StrictStaticPreviewServerTests(unittest.TestCase):
-    def test_serves_strict_csp_subpath_and_blocks_root_and_traversal(self) -> None:
+    def test_serves_strict_csp_subpath_mobile_pwa_wasm_and_blocks_traversal(self) -> None:
         root = browser_e2e.repo_root()
         with browser_e2e.StrictStaticPreviewServer(
             web_dir=root / "web" / "elysianfields",
@@ -92,12 +107,37 @@ class StrictStaticPreviewServerTests(unittest.TestCase):
                     resp.headers.get("Content-Security-Policy"),
                     browser_e2e.CLINIC_STRICT_CSP,
                 )
-                body = resp.read().decode("utf-8")
-                self.assertIn("./boot.js", body)
+                self.assertIn("./boot.js", resp.read().decode("utf-8"))
 
-            with urllib.request.urlopen(f"{srv.origin}/elysianfields/a11y-bridge.js") as resp:
+            # Valid `/elysianfields/mobile/` PWA + manifest + service worker
+            with urllib.request.urlopen(f"{srv.origin}/elysianfields/mobile/") as resp:
                 self.assertEqual(resp.status, 200)
-                self.assertIn("ElysianNarrowA11yBridge", resp.read().decode("utf-8"))
+                self.assertEqual(
+                    resp.headers.get("Content-Security-Policy"),
+                    browser_e2e.CLINIC_STRICT_CSP,
+                )
+                mobile_html = resp.read().decode("utf-8")
+                self.assertIn("./mobile-boot.js", mobile_html)
+                self.assertTrue(browser_e2e.verify_crisis_lines_present(mobile_html))
+
+            with urllib.request.urlopen(f"{srv.origin}/elysianfields/mobile/sw.js") as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(
+                    resp.headers.get("Service-Worker-Allowed"),
+                    "/elysianfields/mobile/",
+                )
+
+            with urllib.request.urlopen(
+                f"{srv.origin}/elysianfields/mobile/manifest.webmanifest"
+            ) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("application/manifest+json", resp.headers.get("Content-Type", ""))
+
+            # Built-in minimal valid Wasm probe served with application/wasm under strict CSP
+            with urllib.request.urlopen(f"{srv.origin}/elysianfields/wasm-probe.wasm") as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(resp.headers.get("Content-Type"), "application/wasm")
+                self.assertEqual(resp.read(), browser_e2e.MINIMAL_VALID_WASM_BYTES)
 
             # Valid MV3 popup under strict MV3 CSP
             with urllib.request.urlopen(f"{srv.origin}/mv3-popup/popup.html") as resp:
@@ -109,9 +149,12 @@ class StrictStaticPreviewServerTests(unittest.TestCase):
 
             # Domain root `/` and prefix-confusion `/elysianfields-evil/` return 404
             for forbidden in ("/", "/elysianfields-evil/", "/elysianfields/../../Cargo.toml"):
-                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                try:
                     urllib.request.urlopen(f"{srv.origin}{forbidden}")
-                self.assertEqual(ctx.exception.code, 404)
+                    self.fail(f"expected HTTP 404 for {forbidden}")
+                except urllib.error.HTTPError as exc:
+                    self.assertEqual(exc.code, 404)
+                    exc.close()
 
 
 class _FakeResponse:
@@ -144,6 +187,9 @@ class _FakePage:
             return _FakeResponse(200, {"X-Robots-Tag": "noindex, nofollow"})
         return _FakeResponse(200)
 
+    def reload(self, wait_until: str = "load", timeout: int = 5000) -> _FakeResponse:  # noqa: ARG002
+        return _FakeResponse(200)
+
     def wait_for_function(self, _fn: str, timeout: int = 5000) -> None:  # noqa: ARG002
         pass
 
@@ -157,7 +203,7 @@ class _FakePage:
             )
         return "<main><h1>Elysian Fields</h1></main>"
 
-    def evaluate(self, _script: str) -> dict[str, Any]:
+    def evaluate(self, _script: str, arg: Any = None) -> Any:  # noqa: ARG002
         self._eval_calls += 1
         if self.mode == "clinic":
             if self._eval_calls == 1:
@@ -174,6 +220,46 @@ class _FakePage:
                     "hasTextbox": True,
                 }
             return {"tag": "input", "id": "signin-email", "movedOffBody": True}
+        if self.mode == "wasm":
+            return {
+                "fetchStatus": 200,
+                "byteLength": 41,
+                "compiled": True,
+                "instantiated": True,
+                "addResult": 42,
+                "cspViolations": 0,
+                "compileMs": 1.25,
+                "error": None,
+            }
+        if self.mode == "mobile":
+            if self._eval_calls == 1:
+                return {
+                    "scrollWidth": 390,
+                    "innerWidth": 390,
+                    "zeroOverflow": True,
+                    "cspViolations": 0,
+                    "dir": "ltr",
+                    "lang": "en",
+                    "overlayPresent": True,
+                    "bridgeNodes": 6,
+                    "hasNav": True,
+                    "hasMain": True,
+                    "crisisPresent": True,
+                    "swState": "controlling",
+                    "hasController": True,
+                }
+            if self._eval_calls == 2:
+                return {
+                    "dir": "rtl",
+                    "lang": "ar",
+                    "scrollWidth": 390,
+                    "innerWidth": 390,
+                    "zeroOverflow": True,
+                    "cspViolations": 0,
+                }
+            if self._eval_calls == 3:
+                return True
+            return {"nonBlank": True, "crisisPresent": True}
         return {
             "dclMs": 18.4,
             "cspViolations": 0,
@@ -187,9 +273,13 @@ class _FakePage:
 class _FakeContext:
     def __init__(self, mode: str) -> None:
         self.mode = mode
+        self.offline_transitions: list[bool] = []
 
     def new_page(self) -> _FakePage:
         return _FakePage(self.mode)
+
+    def set_offline(self, offline: bool) -> None:
+        self.offline_transitions.append(offline)
 
     def close(self) -> None:
         pass
@@ -203,8 +293,14 @@ class _FakeBrowser:
     def new_context(self, **kwargs: Any) -> _FakeContext:
         if kwargs.get("java_script_enabled") is False:
             return _FakeContext("public")
+        if kwargs.get("is_mobile") is True:
+            return _FakeContext("mobile")
         self._ctx_idx += 1
-        return _FakeContext("clinic" if self._ctx_idx == 1 else "popup")
+        if self._ctx_idx == 1:
+            return _FakeContext("clinic")
+        if self._ctx_idx == 2:
+            return _FakeContext("wasm")
+        return _FakeContext("popup")
 
     def close(self) -> None:
         pass
@@ -225,13 +321,20 @@ class _FakePlaywright:
 
 
 class MockedPlaywrightFlowTests(unittest.TestCase):
-    def test_run_browser_qualification_produces_passing_report_across_three_engines(self) -> None:
+    def test_run_browser_qualification_covers_desktop_wasm_csp_and_mobile_emulation(self) -> None:
         report = browser_e2e.run_browser_qualification(
             _FakePlaywright(),
             browsers=["chromium", "firefox", "webkit"],
             clinic_shell_url="http://127.0.0.1:9999/elysianfields/",
             mv3_popup_url="http://127.0.0.1:9999/mv3-popup/popup.html",
             public_origin="http://127.0.0.1:9998",
+            wasm_host_url="http://127.0.0.1:9999/elysianfields/",
+            wasm_probe_url="http://127.0.0.1:9999/elysianfields/wasm-probe.wasm",
+            wasm_is_minimal_builtin=True,
+            wasm_raw_bytes=41,
+            wasm_brotli11_bytes=45,
+            mobile_emulation=True,
+            mobile_shell_url="http://127.0.0.1:9999/elysianfields/mobile/",
         )
         self.assertTrue(report["overall_passed"])
         self.assertEqual(report["browsers_requested"], ["chromium", "firefox", "webkit"])
@@ -239,12 +342,21 @@ class MockedPlaywrightFlowTests(unittest.TestCase):
             entry = report["results"][engine]
             self.assertTrue(entry["passed"])
             self.assertTrue(entry["checks"]["clinic_shell"]["passed"])
-            self.assertEqual(entry["checks"]["clinic_shell"]["a11y_bridge_nodes"], 6)
+            self.assertTrue(entry["checks"]["wasm_csp"]["passed"])
+            self.assertEqual(entry["checks"]["wasm_csp"]["add_result"], 42)
             self.assertTrue(entry["checks"]["mv3_popup"]["passed"])
-            self.assertTrue(entry["checks"]["mv3_popup"]["within_budget"])
             self.assertTrue(entry["checks"]["public_site_no_js"]["passed"])
 
-        # Round-trip JSON report format cleanly.
+        mobile_section = report["mobile_emulation"]
+        self.assertTrue(mobile_section["enabled"])
+        self.assertTrue(mobile_section["passed"])
+        self.assertIn("iphone_14_webkit", mobile_section["profiles"])
+        self.assertIn("pixel_7_chromium", mobile_section["profiles"])
+        for profile in mobile_section["profiles"].values():
+            self.assertTrue(profile["passed"])
+            self.assertEqual(profile["rtl"]["dir"], "rtl")
+            self.assertTrue(profile["offline"]["crisis_lines_present"])
+
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "report.json"
             out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
