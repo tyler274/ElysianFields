@@ -1,0 +1,23 @@
+[package]
+name = "m1-web-delivery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "M1 web delivery qualification crate: graphics backend fallback, context-loss recovery, strict /elysianfields subpath resolution, and CSP verification."
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+
+[lints]
+workspace = true

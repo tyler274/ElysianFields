@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Elysian Fields M1 Connector Popup",
+  "version": "0.1.0",
+  "description": "Read-only M1 Manifest V3 popup harness validating strict CSP without inline scripts or unsafe-eval.",
+  "action": {
+    "default_title": "Elysian Fields",
+    "default_popup": "popup.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; object-src 'self'"
+  }
+}

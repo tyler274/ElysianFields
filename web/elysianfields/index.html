@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Elysian Fields — M1 Web Delivery Harness</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="elysian-app" class="app-shell" data-mount-prefix="/elysianfields">
+    <header class="app-header">
+      <h1>Elysian Fields M1 Web Delivery</h1>
+      <p id="status-banner" class="status-banner" role="status" aria-live="polite">
+        Initializing browser delivery probe...
+      </p>
+    </header>
+
+    <section class="diagnostics-grid" aria-label="Delivery diagnostics">
+      <dl class="metric-list">
+        <dt>Mount Subpath</dt>
+        <dd id="metric-subpath">pending</dd>
+        <dt>Graphics Backend</dt>
+        <dd id="metric-backend">probing</dd>
+        <dt>Context State</dt>
+        <dd id="metric-context">initializing</dd>
+        <dt>CSP Violations</dt>
+        <dd id="metric-csp-violations">0</dd>
+        <dt>Wasm Cold Start</dt>
+        <dd id="metric-cold-start">pending</dd>
+        <dt>Wasm Probe Code</dt>
+        <dd id="metric-probe-code">pending</dd>
+      </dl>
+    </section>
+
+    <section id="fallback-panel" class="fallback-panel" hidden>
+      <h2>Hardware-accelerated browser graphics unavailable</h2>
+      <p id="fallback-detail">
+        Elysian Fields requires WebGL2 (or WebGPU) to render interactive workspaces.
+      </p>
+    </section>
+
+    <section class="workspace-panel">
+      <label for="composer-draft">Draft composer state (preserved across context loss):</label>
+      <textarea id="composer-draft" rows="3">Order follow-up metabolic panel in 2 weeks.</textarea>
+      <canvas id="elysian-canvas" width="640" height="240" aria-label="Elysian Fields WebGL2/WebGPU surface"></canvas>
+    </section>
+  </main>
+
+  <script type="module" src="./bootstrap.js"></script>
+</body>
+</html>
