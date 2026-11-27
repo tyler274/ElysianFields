@@ -14,6 +14,7 @@ members = [
     "crates/ef-harness",
     "crates/ef-boundaries",
     "crates/ef-clinic-server",
+    "crates/ef-clinic-client",
 ]
 
 [workspace.package]
@@ -31,6 +32,7 @@ elysian-smoke = { path = "crates/elysian-smoke" }
 ef-core = { path = "crates/ef-core" }
 ef-clinic-domain = { path = "crates/ef-clinic-domain" }
 ef-harness = { path = "crates/ef-harness" }
+ef-ui-catalog = { path = "crates/ef-ui-catalog" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
