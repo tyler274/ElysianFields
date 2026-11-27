@@ -720,13 +720,19 @@ def run_playwright_ux_qa(
                         timeout=20_000,
                     )
                     metrics = page.evaluate(_clinic_theme_probe_js())
-                    if screenshot_dir is not None:
-                        shot = screenshot_dir / _shot_name(engine, multi_engine, f"clinic_{theme}")
-                        page.screenshot(path=str(shot), full_page=True)
                     toggle_res = page.evaluate(_clinic_theme_toggle_probe_js()) if theme == "dark" else None
                     checks[f"clinic_theme_{theme}"] = evaluate_clinic_theme_check(
                         theme, metrics, status, console_errors, page_errors, toggle_res
                     )
+                    if screenshot_dir is not None:
+                        if theme == "dark":
+                            page.goto(f"{clinic_base_url}?theme=dark", wait_until="networkidle")
+                            page.wait_for_function(
+                                "() => document.documentElement.dataset.efReady === 'true'",
+                                timeout=20_000,
+                            )
+                        shot = screenshot_dir / _shot_name(engine, multi_engine, f"clinic_{theme}")
+                        page.screenshot(path=str(shot), full_page=True)
                 finally:
                     ctx.close()
 
@@ -747,12 +753,12 @@ def run_playwright_ux_qa(
                     timeout=20_000,
                 )
                 zoom_metrics = page.evaluate(_clinic_zoom200_probe_js())
-                if screenshot_dir is not None:
-                    shot = screenshot_dir / _shot_name(engine, multi_engine, "clinic_zoom200")
-                    page.screenshot(path=str(shot), full_page=True)
                 checks["clinic_zoom_200"] = evaluate_zoom200_check(
                     zoom_metrics, console_errors, page_errors
                 )
+                if screenshot_dir is not None:
+                    shot = screenshot_dir / _shot_name(engine, multi_engine, "clinic_zoom200")
+                    page.screenshot(path=str(shot), full_page=True)
             finally:
                 ctx.close()
 
@@ -778,9 +784,6 @@ def run_playwright_ux_qa(
                 if after_open_privacy.get("privacyHidden") is True:
                     page.keyboard.press("Control+Shift+L")
                     after_open_privacy = page.evaluate(_privacy_state_js())
-                if screenshot_dir is not None:
-                    shot = screenshot_dir / _shot_name(engine, multi_engine, "clinic_privacy_cover")
-                    page.screenshot(path=str(shot), full_page=False)
                 page.keyboard.press("Escape")
                 after_escape_privacy = page.evaluate(_privacy_state_js())
                 page.click("#btn-shortcuts")
@@ -795,6 +798,10 @@ def run_playwright_ux_qa(
                     console_errors,
                     page_errors,
                 )
+                if screenshot_dir is not None:
+                    page.click("#btn-privacy-cover")
+                    shot = screenshot_dir / _shot_name(engine, multi_engine, "clinic_privacy_cover")
+                    page.screenshot(path=str(shot), full_page=False)
             finally:
                 ctx.close()
 
@@ -823,12 +830,12 @@ def run_playwright_ux_qa(
                         timeout=20_000,
                     )
                     metrics = page.evaluate(_mobile_theme_probe_js())
-                    if screenshot_dir is not None and theme == "light":
-                        shot = screenshot_dir / _shot_name(engine, multi_engine, "mobile_light")
-                        page.screenshot(path=str(shot), full_page=True)
                     checks[f"mobile_theme_{theme}"] = evaluate_mobile_theme_check(
                         theme, metrics, status, console_errors, page_errors
                     )
+                    if screenshot_dir is not None and theme == "light":
+                        shot = screenshot_dir / _shot_name(engine, multi_engine, "mobile_light")
+                        page.screenshot(path=str(shot), full_page=True)
                 finally:
                     ctx.close()
 
@@ -856,12 +863,12 @@ def run_playwright_ux_qa(
                     )
                     metrics = page.evaluate(_extension_popup_probe_js())
                     csp_violations = int(page.evaluate("() => window.__efCspViolations || 0"))
-                    if screenshot_dir is not None and theme == "light":
-                        shot = screenshot_dir / _shot_name(engine, multi_engine, "extension_popup")
-                        page.screenshot(path=str(shot), full_page=True)
                     checks[f"extension_popup_{theme}"] = evaluate_extension_popup_check(
                         metrics, status, csp_violations, console_errors, page_errors
                     )
+                    if screenshot_dir is not None and theme == "light":
+                        shot = screenshot_dir / _shot_name(engine, multi_engine, "extension_popup")
+                        page.screenshot(path=str(shot), full_page=True)
                 finally:
                     ctx.close()
 
@@ -1029,7 +1036,7 @@ def run_cdp_chromium_ux_qa(
                 cdp.last_doc_status = 0
                 _set_viewport(DESKTOP_VIEWPORT["width"], DESKTOP_VIEWPORT["height"])
                 cdp.call("Page.navigate", {"url": f"{clinic_base_url}?theme={theme}"})
-                cdp.wait_for_ready("document.documentElement.dataset.efReady === 'true'")
+                cdp.wait_for_ready("Boolean(document.documentElement && document.documentElement.dataset.efReady === 'true')")
                 metrics = cdp.evaluate(_clinic_theme_probe_js())
                 status = cdp.last_doc_status or 200
                 _capture(f"clinic_{theme}.png", full_page=True)
@@ -1044,7 +1051,7 @@ def run_cdp_chromium_ux_qa(
             cdp.last_doc_status = 0
             _set_viewport(DESKTOP_VIEWPORT["width"], DESKTOP_VIEWPORT["height"])
             cdp.call("Page.navigate", {"url": f"{clinic_base_url}?theme=light"})
-            cdp.wait_for_ready("document.documentElement.dataset.efReady === 'true'")
+            cdp.wait_for_ready("Boolean(document.documentElement && document.documentElement.dataset.efReady === 'true')")
             zoom_metrics = cdp.evaluate(_clinic_zoom200_probe_js())
             _capture("clinic_zoom200.png", full_page=True)
             checks["clinic_zoom_200"] = evaluate_zoom200_check(
@@ -1057,7 +1064,7 @@ def run_cdp_chromium_ux_qa(
             cdp.last_doc_status = 0
             _set_viewport(DESKTOP_VIEWPORT["width"], DESKTOP_VIEWPORT["height"])
             cdp.call("Page.navigate", {"url": f"{clinic_base_url}?theme=dark"})
-            cdp.wait_for_ready("document.documentElement.dataset.efReady === 'true'")
+            cdp.wait_for_ready("Boolean(document.documentElement && document.documentElement.dataset.efReady === 'true')")
             # Modifiers: Ctrl=2, Shift=8 -> 10
             _cdp_press_key(cdp, "L", "KeyL", 76, modifiers=10)
             after_open_privacy = cdp.evaluate(_privacy_state_js())
@@ -1084,7 +1091,7 @@ def run_cdp_chromium_ux_qa(
                 cdp.last_doc_status = 0
                 _set_viewport(MOBILE_VIEWPORT["width"], MOBILE_VIEWPORT["height"], mobile=True, scale=2)
                 cdp.call("Page.navigate", {"url": f"{mobile_base_url}?theme={theme}"})
-                cdp.wait_for_ready("document.documentElement.dataset.efMobileReady === 'true'")
+                cdp.wait_for_ready("Boolean(document.documentElement && document.documentElement.dataset.efMobileReady === 'true')")
                 metrics = cdp.evaluate(_mobile_theme_probe_js())
                 status = cdp.last_doc_status or 200
                 if theme == "light":
