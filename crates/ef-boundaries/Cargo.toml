@@ -1,0 +1,13 @@
+[package]
+name = "ef-boundaries"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Automated workspace architecture boundary enforcement tests verifying headless crate purity, product isolation, and zero client secrets."
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

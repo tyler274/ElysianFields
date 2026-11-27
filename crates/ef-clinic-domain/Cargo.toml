@@ -1,0 +1,16 @@
+[package]
+name = "ef-clinic-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Headless Curie Clinic M2 domain state machines and invariants: auth/sessions, 11-invariant multi-tab sync, 3-tier patient access, citation panel, durable streaming chat, bounded retry, and optimistic draft autosave."
+
+[dependencies]
+ef-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
