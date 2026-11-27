@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elysianfields.invalid/contracts/m2-physician-vertical-slice/chat-command-and-answer.schema.json",
+  "title": "M2 Physician Chat Command Envelope and Answer State Contract",
+  "description": "Implementation-neutral wire contract for typed clinical chat commands, AnswerState variants, and ExchangeSteps.",
+  "$defs": {
+    "CommandEnvelope": {
+      "type": "object",
+      "required": ["type", "idempotency_key", "payload"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["message.submit", "work.stop", "work.resume"]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "message.submit" } } },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["patient_workspace_id", "chat_id", "text"],
+                "properties": {
+                  "patient_workspace_id": { "type": "string", "minLength": 1 },
+                  "chat_id": { "type": "string", "minLength": 1 },
+                  "text": { "type": "string", "minLength": 1 },
+                  "physician_time_zone": { "type": "string", "default": "UTC" },
+                  "delivery": { "type": "string", "enum": ["send_now", "send_next"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "work.stop" } } },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["patient_workspace_id", "chat_id", "work_item_id"],
+                "properties": {
+                  "patient_workspace_id": { "type": "string", "minLength": 1 },
+                  "chat_id": { "type": "string", "minLength": 1 },
+                  "work_item_id": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "work.resume" } } },
+          "then": {
+            "properties": {
+              "payload": {
+                "type": "object",
+                "required": ["patient_workspace_id", "chat_id", "work_item_id", "expected_run_id"],
+                "properties": {
+                  "patient_workspace_id": { "type": "string", "minLength": 1 },
+                  "chat_id": { "type": "string", "minLength": 1 },
+                  "work_item_id": { "type": "string", "minLength": 1 },
+                  "expected_run_id": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "AnswerState": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "stop", "writing"],
+          "properties": {
+            "kind": { "const": "working" },
+            "stop": {
+              "type": "object",
+              "required": ["work_item_id"],
+              "properties": { "work_item_id": { "type": "string", "minLength": 1 } },
+              "additionalProperties": false
+            },
+            "writing": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "response_id", "attempt_id", "finished_at", "text", "segments"],
+          "properties": {
+            "kind": { "const": "finished" },
+            "response_id": { "type": "string", "minLength": 1 },
+            "attempt_id": { "type": "string", "minLength": 1 },
+            "finished_at": { "type": "string", "minLength": 1 },
+            "text": { "type": "string" },
+            "segments": { "type": "array" }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": ["kind", "resume"],
+          "properties": {
+            "kind": { "const": "stopped" },
+            "resume": {
+              "type": ["object", "null"],
+              "required": ["work_item_id", "expected_run_id"],
+              "properties": {
+                "work_item_id": { "type": "string", "minLength": 1 },
+                "expected_run_id": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "try_again"],
+          "properties": {
+            "kind": { "enum": ["cut_off", "couldnt_finish"] },
+            "try_again": {
+              "type": ["object", "null"],
+              "required": ["work_item_id", "expected_run_id"],
+              "properties": {
+                "work_item_id": { "type": "string", "minLength": 1 },
+                "expected_run_id": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ExchangeSteps": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "steps"],
+          "properties": {
+            "kind": { "const": "read" },
+            "steps": { "type": "array" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "unavailable" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

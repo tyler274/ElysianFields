@@ -152,7 +152,7 @@ Traceability runs continuously across six links: **Requirement -> Specification 
 
 ### Requirement and Scenario IDs
 
-Requirement identifiers follow `EF-<DOMAIN>-<NNNN>` (four-digit zero-padded sequence). Executable acceptance scenarios follow `SCN-<DOMAIN>-<NNNN>` with the matching domain code.
+Requirement identifiers follow `EF-<DOMAIN>-<NNNN>` (four-digit zero-padded sequence). Executable acceptance scenarios follow either `SCN-<DOMAIN>-<NNNN>` (matching the requirement's domain code) or `SCN-M<N>-<NNNN>` for milestone-slice acceptance scenarios (for example, `SCN-M2-0001`).
 
 | Domain Code | Example Requirement ID | Owning Surface |
 | --- | --- | --- |

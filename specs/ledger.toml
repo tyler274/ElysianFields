@@ -3,7 +3,7 @@ schema_version = 1
 [metadata]
 program = "Elysian Fields"
 id_pattern = "^EF-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-[0-9]{4}$"
-scenario_id_pattern = "^SCN-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC)-[0-9]{4}$"
+scenario_id_pattern = "^SCN-(CLINIC|MOBILE|CONN|HARNESS|PLATFORM|EXT|PUBLIC|M[0-9]+)-[0-9]{4}$"
 
 [[requirements]]
 id = "EF-CLINIC-0001"
@@ -42,6 +42,303 @@ revision = ""
 evidence = ""
 
 [requirements.coverage.desktop-windows]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0002"
+title = "Invite-only sign-in, single-use link verification, and anti-enumeration"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = [
+  "browser-wasm-desktop",
+  "desktop-linux",
+  "desktop-macos",
+  "desktop-windows",
+  "android-native",
+  "ios-native",
+]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0001"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-macos]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-windows]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0003"
+title = "Two-tab sign-out, expiry clearing, and concurrent-session race protection"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0002"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0004"
+title = "Deep-link patient landing across unauthenticated boot"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0003"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0005"
+title = "Practice-scoped three-tier patient access control and cross-practice non-disclosure"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["hosted-services", "browser-wasm-desktop"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0004"
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0006"
+title = "Evidence reading, inline citation inspection panel, and stale/withdrawn redaction"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0005"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0007"
+title = "Streamed clinical chat with incremental delta delivery, tool trace, and concurrent interaction"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+status = "accepted-difference"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0006"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0008"
+title = "Mid-stream cancellation (Stop) and explicit Resume with expected_run_id fencing"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0007"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-CLINIC-0009"
+title = "Bounded 5-failure retry exhaustion to CouldntFinish and explicit Try again recovery"
+domain = "CLINIC"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0008"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-HARNESS-0001"
+title = "Reload, worker lease reclaim, lossy bus resync, durable draft/transcript readback, and deterministic provider fixture"
+domain = "HARNESS"
+product = "curie-clinic"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0009"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PLATFORM-0001"
+title = "Subpath mounting under /elysianfields/, static cache hygiene, clinical no-store headers, and strict Wasm CSP"
+domain = "PLATFORM"
+product = "shared-platform"
+platforms = ["browser-wasm-desktop", "hosted-services"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0010"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.hosted-services]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PLATFORM-0002"
+title = "Keyboard-only navigation, global privacy screen cover, single-owner accessibility, and focus restoration"
+domain = "PLATFORM"
+product = "shared-platform"
+platforms = ["browser-wasm-desktop", "desktop-linux", "desktop-macos", "desktop-windows"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0011"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-macos]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-windows]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[[requirements]]
+id = "EF-PLATFORM-0003"
+title = "Nine-language UI switching, Arabic RTL layout mirroring, bundled fonts, and verbatim source language"
+domain = "PLATFORM"
+product = "shared-platform"
+platforms = ["browser-wasm-desktop", "desktop-linux", "android-native", "ios-native"]
+status = "observed-and-required"
+package = "specs/packages/m2-physician-vertical-slice"
+scenario_id = "SCN-M2-0012"
+
+[requirements.coverage.browser-wasm-desktop]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.desktop-linux]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.android-native]
+state = "unknown"
+revision = ""
+evidence = ""
+
+[requirements.coverage.ios-native]
 state = "unknown"
 revision = ""
 evidence = ""
