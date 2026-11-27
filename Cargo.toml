@@ -4,6 +4,7 @@ members = [
     "crates/elysian-smoke",
     "crates/elysian-bevy-probe",
     "crates/m1-accessibility",
+    "crates/m1-streaming-perf",
 ]
 
 [workspace.package]
