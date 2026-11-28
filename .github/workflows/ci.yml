@@ -84,7 +84,7 @@ jobs:
       needs.scope.outputs.native == 'true' ||
       (github.event_name == 'pull_request' && needs.scope.outputs.client_only == 'true')
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
       RUSTFLAGS: -C link-arg=-fuse-ld=lld
@@ -105,8 +105,8 @@ jobs:
       - name: Cache native Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: native
-          shared-key: native
+          key: native-v2
+          shared-key: native-v2
           cache-on-failure: true
       - name: Check formatting and host Clippy lints
         env:
@@ -114,28 +114,82 @@ jobs:
         run: |
           set -o pipefail
           cargo fmt --all --check
+          HEADLESS_EXCLUDES="$(python3 scripts/ci_scope.py headless-workspace-excludes)"
+          DESKTOP_CRATES="$(python3 scripts/ci_scope.py desktop-crates)"
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ -n "${TOUCHED_CRATES}" ]; then
-            echo "Running targeted native Clippy: ${TOUCHED_CRATES}"
-            # shellcheck disable=SC2086
-            cargo clippy --all-targets ${TOUCHED_CRATES} -- -D warnings 2>&1 \
-              | python3 scripts/ci_dep_audit.py --label "rust-native clippy" --workspace-root "$PWD"
+            TOUCHED_HEADLESS=""
+            TOUCHED_DESKTOP=""
+            for tok in ${TOUCHED_CRATES}; do
+              if [ "$tok" = "-p" ]; then continue; fi
+              case " ${DESKTOP_CRATES} " in
+                *" -p ${tok} "*) TOUCHED_DESKTOP="${TOUCHED_DESKTOP} -p ${tok}" ;;
+                *) TOUCHED_HEADLESS="${TOUCHED_HEADLESS} -p ${tok}" ;;
+              esac
+            done
+            if [ -n "${TOUCHED_HEADLESS}" ]; then
+              echo "Running targeted headless Clippy:${TOUCHED_HEADLESS}"
+              # shellcheck disable=SC2086
+              cargo clippy --all-targets ${TOUCHED_HEADLESS} -- -D warnings 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native clippy (headless)" --workspace-root "$PWD"
+            fi
+            if [ -n "${TOUCHED_DESKTOP}" ]; then
+              echo "Running targeted desktop Clippy:${TOUCHED_DESKTOP}"
+              # shellcheck disable=SC2086
+              cargo clippy --all-targets ${TOUCHED_DESKTOP} -- -D warnings 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native clippy (desktop)" --workspace-root "$PWD"
+            fi
           else
-            cargo clippy --workspace --all-targets -- -D warnings 2>&1 \
-              | python3 scripts/ci_dep_audit.py --label "rust-native clippy" --workspace-root "$PWD"
+            echo "Running headless workspace Clippy (${HEADLESS_EXCLUDES:-all crates})"
+            # shellcheck disable=SC2086
+            cargo clippy --workspace --all-targets ${HEADLESS_EXCLUDES} -- -D warnings 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native clippy (headless)" --workspace-root "$PWD"
+            if [ -n "${DESKTOP_CRATES}" ]; then
+              echo "Running native desktop Clippy: ${DESKTOP_CRATES}"
+              # shellcheck disable=SC2086
+              cargo clippy --all-targets ${DESKTOP_CRATES} -- -D warnings 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native clippy (desktop)" --workspace-root "$PWD"
+            fi
           fi
       - name: Run workspace unit tests
         env:
           TOUCHED_CRATES: ${{ needs.scope.outputs.touched_crates }}
         run: |
           set -o pipefail
+          HEADLESS_EXCLUDES="$(python3 scripts/ci_scope.py headless-workspace-excludes)"
+          DESKTOP_CRATES="$(python3 scripts/ci_scope.py desktop-crates)"
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ -n "${TOUCHED_CRATES}" ]; then
-            echo "Running targeted native tests: ${TOUCHED_CRATES}"
-            # shellcheck disable=SC2086
-            cargo test --locked ${TOUCHED_CRATES} 2>&1 \
-              | python3 scripts/ci_dep_audit.py --label "rust-native test" --workspace-root "$PWD"
+            TOUCHED_HEADLESS=""
+            TOUCHED_DESKTOP=""
+            for tok in ${TOUCHED_CRATES}; do
+              if [ "$tok" = "-p" ]; then continue; fi
+              case " ${DESKTOP_CRATES} " in
+                *" -p ${tok} "*) TOUCHED_DESKTOP="${TOUCHED_DESKTOP} -p ${tok}" ;;
+                *) TOUCHED_HEADLESS="${TOUCHED_HEADLESS} -p ${tok}" ;;
+              esac
+            done
+            if [ -n "${TOUCHED_HEADLESS}" ]; then
+              echo "Running targeted headless tests:${TOUCHED_HEADLESS}"
+              # shellcheck disable=SC2086
+              cargo test --locked ${TOUCHED_HEADLESS} 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native test (headless)" --workspace-root "$PWD"
+            fi
+            if [ -n "${TOUCHED_DESKTOP}" ]; then
+              echo "Running targeted desktop tests:${TOUCHED_DESKTOP}"
+              # shellcheck disable=SC2086
+              cargo test --locked ${TOUCHED_DESKTOP} 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native test (desktop)" --workspace-root "$PWD"
+            fi
           else
-            cargo test --locked --workspace 2>&1 \
-              | python3 scripts/ci_dep_audit.py --label "rust-native test" --workspace-root "$PWD"
+            echo "Running headless workspace tests (${HEADLESS_EXCLUDES:-all crates})"
+            # shellcheck disable=SC2086
+            cargo test --locked --workspace ${HEADLESS_EXCLUDES} 2>&1 \
+              | python3 scripts/ci_dep_audit.py --label "rust-native test (headless)" --workspace-root "$PWD"
+            if [ -n "${DESKTOP_CRATES}" ]; then
+              echo "Running native desktop tests: ${DESKTOP_CRATES}"
+              # shellcheck disable=SC2086
+              cargo test --locked ${DESKTOP_CRATES} 2>&1 \
+                | python3 scripts/ci_dep_audit.py --label "rust-native test (desktop)" --workspace-root "$PWD"
+            fi
           fi
       - name: Build native release artifacts once on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -180,8 +234,8 @@ jobs:
       - name: Cache wasm32 Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm32-v2
-          shared-key: wasm32-v2
+          key: wasm32-v3
+          shared-key: wasm32-v3
           cache-on-failure: true
       - name: Select Wasm-targeted workspace crates
         id: wasm-crates

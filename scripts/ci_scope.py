@@ -391,6 +391,32 @@ def native_release_crates(workspace_root: Path | None = None) -> list[str]:
     return selected
 
 
+def desktop_workspace_crates(workspace_root: Path | None = None) -> list[str]:
+    """Return workspace package names classified as native desktop GUI crates.
+
+    Splitting native desktop GUI crates from `--workspace` Clippy/test invocations
+    prevents Cargo feature unification from pulling desktop GPU/render Bevy
+    features (`wgpu`, `naga`, `bevy_render`) into headless workspace crates.
+    """
+    root = workspace_root or Path(__file__).resolve().parent.parent
+    manifest = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    members = manifest.get("workspace", {}).get("members", [])
+
+    selected: list[str] = []
+    for member in members:
+        probe_path = member.rstrip("/") + "/Cargo.toml"
+        if not is_desktop_path(probe_path):
+            continue
+        crate_toml = root / member / "Cargo.toml"
+        if not crate_toml.is_file():
+            continue
+        pkg = tomllib.loads(crate_toml.read_text(encoding="utf-8")).get("package", {})
+        name = pkg.get("name")
+        if isinstance(name, str) and name:
+            selected.append(name)
+    return selected
+
+
 def parse_name_status_z(raw: bytes) -> list[str]:
     """Parse `git diff --name-status -z -M`, preserving old and new paths on renames."""
     if not raw:
@@ -722,6 +748,20 @@ def cmd_native_release_crates(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_headless_workspace_excludes(_args: argparse.Namespace) -> int:
+    crates = desktop_workspace_crates()
+    if crates:
+        print(" ".join(f"--exclude {name}" for name in crates))
+    return 0
+
+
+def cmd_desktop_crates(_args: argparse.Namespace) -> int:
+    crates = desktop_workspace_crates()
+    if crates:
+        print(" ".join(f"-p {name}" for name in crates))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ci_scope.py",
@@ -738,6 +778,14 @@ def build_parser() -> argparse.ArgumentParser:
         "native-release-crates",
         help="Emit Cargo `-p <crate>` arguments for headless native release binaries.",
     )
+    sub.add_parser(
+        "headless-workspace-excludes",
+        help="Emit Cargo `--exclude <crate>` arguments for native desktop GUI crates.",
+    )
+    sub.add_parser(
+        "desktop-crates",
+        help="Emit Cargo `-p <crate>` arguments for native desktop GUI crates.",
+    )
     return parser
 
 
@@ -752,6 +800,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_wasm_crates(args)
     if args.command == "native-release-crates":
         return cmd_native_release_crates(args)
+    if args.command == "headless-workspace-excludes":
+        return cmd_headless_workspace_excludes(args)
+    if args.command == "desktop-crates":
+        return cmd_desktop_crates(args)
     parser.error(f"unknown command: {args.command}")
     return 2
 

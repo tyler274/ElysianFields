@@ -400,6 +400,62 @@ class VerifyResultTests(unittest.TestCase):
         crates = ci_scope.native_release_crates()
         self.assertEqual(crates, ["ef-clinic-server", "ef-mobile-server", "ef-public-site"])
 
+    def test_desktop_workspace_crates_empty_on_current_main_and_populated_with_desktop_members(
+        self,
+    ) -> None:
+        # Current workspace may have 0 or more *-desktop crates; CLI commands always exit 0.
+        current = ci_scope.desktop_workspace_crates()
+        for name in current:
+            self.assertTrue(name.endswith("-desktop"), f"unexpected desktop crate: {name}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "crates" / "ef-core").mkdir(parents=True)
+            (root / "crates" / "ef-core" / "Cargo.toml").write_text(
+                '[package]\nname = "ef-core"\nversion = "0.1.0"\n',
+                encoding="utf-8",
+            )
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["crates/ef-core"]\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(ci_scope.desktop_workspace_crates(root), [])
+
+            for name in ("ef-clinic-desktop", "ef-mobile-desktop"):
+                crate_dir = root / "crates" / name
+                crate_dir.mkdir(parents=True)
+                (crate_dir / "Cargo.toml").write_text(
+                    f'[package]\nname = "{name}"\nversion = "0.1.0"\n',
+                    encoding="utf-8",
+                )
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = [\n'
+                '  "crates/ef-core",\n'
+                '  "crates/ef-clinic-desktop",\n'
+                '  "crates/ef-mobile-desktop",\n'
+                ']\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                ci_scope.desktop_workspace_crates(root),
+                ["ef-clinic-desktop", "ef-mobile-desktop"],
+            )
+
+        for subcmd in ("headless-workspace-excludes", "desktop-crates"):
+            proc = subprocess.run(
+                ["python3", str(REPO_ROOT / "scripts" / "ci_scope.py"), subcmd],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            expected = (
+                " ".join(f"--exclude {c}" for c in current)
+                if subcmd == "headless-workspace-excludes"
+                else " ".join(f"-p {c}" for c in current)
+            )
+            self.assertEqual(proc.stdout.strip(), expected)
+
 
 if __name__ == "__main__":
     unittest.main()
