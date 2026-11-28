@@ -16,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("./target/ef-clinic-data"));
     let mut web_dir = std::env::var("EF_CLINIC_WEB_DIR").ok().map(PathBuf::from);
+    let mut seed_demo = std::env::var("EF_CLINIC_SEED_DEMO").as_deref() == Ok("1");
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -37,6 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             && let Some(val) = args.next()
         {
             data_dir = PathBuf::from(val);
+        } else if arg == "--seed-demo" {
+            seed_demo = true;
         }
     }
 
@@ -69,6 +72,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(dir) = web_dir.clone() {
         service.set_web_dir(dir);
+    }
+
+    if seed_demo {
+        use ef_clinic_domain::auth::{
+            AccountStanding, EmailAddress, PhysicianAccount, PhysicianRole,
+        };
+        use ef_core::{PhysicianId, PracticeId, WorkspaceId};
+
+        let practice_id = PracticeId::new("prac-demo")?;
+        let physician_id = PhysicianId::new("phys-demo")?;
+        let workspace_id = WorkspaceId::new("ws-demo-1")?;
+        service.seed_account(PhysicianAccount {
+            physician_id: physician_id.clone(),
+            practice_id: practice_id.clone(),
+            email: EmailAddress::parse("demo@clinic.example")?,
+            display_name: "Dr. Demo Clinician".to_owned(),
+            role: PhysicianRole::Standard,
+            standing: AccountStanding::Active,
+            sessions_ended_before: None,
+        })?;
+        service.seed_workspace(
+            workspace_id.clone(),
+            practice_id,
+            "Elena Vance (Demo)",
+            vec![physician_id],
+        )?;
+        service.seed_demo_workflows(&workspace_id, "Elena Vance (Demo)")?;
     }
 
     if let (Ok(max_raw), Ok(win_raw)) = (

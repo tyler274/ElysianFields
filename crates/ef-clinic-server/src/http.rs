@@ -344,6 +344,7 @@ fn format_sse_frame(event_id: u64, event_name: &str, event: &ChatStreamEvent) ->
 const fn status_reason(status: u16) -> &'static str {
     match status {
         200 => "OK",
+        201 => "Created",
         308 => "Permanent Redirect",
         400 => "Bad Request",
         401 => "Unauthorized",

@@ -27,6 +27,7 @@ use crate::service::{ClinicService, wal_failure_response, workspace_error_respon
 #[derive(Debug, Deserialize)]
 struct TodayStandingBody {
     item_id: String,
+    #[serde(alias = "standing")]
     action: TodayStandingAction,
     #[serde(default)]
     version_id: Option<u64>,
@@ -170,6 +171,37 @@ struct DobInput {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ExpectedDobField {
+    Iso(String),
+    Parts(DobInput),
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceCreateInvitationBody {
+    #[serde(default)]
+    patient_id: Option<PatientId>,
+    #[serde(default)]
+    expected_dob: Option<ExpectedDobField>,
+    #[serde(default)]
+    practice_name: Option<String>,
+    #[serde(default)]
+    physician_name: Option<String>,
+    #[serde(default)]
+    created_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkspaceIssuedInvitationResponse {
+    invitation_id: InvitationId,
+    invite_code: ef_connected_care::InviteShortCode,
+    short_code: ef_connected_care::InviteShortCode,
+    link_token: ef_connected_care::InviteToken,
+    workspace_id: WorkspaceId,
+    standing: ConnectionStanding,
+}
+
+#[derive(Debug, Deserialize)]
 struct CreateInvitationBody {
     patient_id: PatientId,
     #[serde(default)]
@@ -268,7 +300,23 @@ impl ClinicService {
             self.today_also_reviewed,
             Vec::new(),
         );
-        HttpResponse::json_clinical(200, &view)
+        match view {
+            ef_clinic_workflows::today::TodayViewState::Quiet {
+                also_reviewed,
+                scheduled_visits,
+                channel_banners,
+            } => HttpResponse::json_clinical(
+                200,
+                &serde_json::json!({
+                    "mode": "quiet",
+                    "items": [],
+                    "also_reviewed": also_reviewed,
+                    "scheduled_visits": scheduled_visits,
+                    "channel_banners": channel_banners,
+                }),
+            ),
+            actionable => HttpResponse::json_clinical(200, &actionable),
+        }
     }
 
     /// Routes `POST /elysianfields/api/today/standing` (`seen` or `done`).
@@ -304,29 +352,54 @@ impl ClinicService {
         match body.action {
             TodayStandingAction::Seen => {
                 let version_id = body.version_id.unwrap_or(item.version_id);
+                let item_id = item.item_id;
                 self.today_engine
-                    .mark_seen(&whoami.physician_id, &item.item_id, version_id);
+                    .mark_seen(&whoami.physician_id, &item_id, version_id);
                 if let Err(err) = self.wal.append(&WalEntry::MarkTodaySeen {
                     physician_id: whoami.physician_id,
-                    item_id: item.item_id,
+                    item_id: item_id.clone(),
                     version_id,
                 }) {
                     return wal_failure_response(&err);
                 }
-                HttpResponse::json_clinical(200, &serde_json::json!({ "status": "seen" }))
+                HttpResponse::json_clinical(
+                    200,
+                    &serde_json::json!({
+                        "item_id": item_id,
+                        "status": "seen",
+                        "standing": "seen",
+                        "version_id": version_id,
+                    }),
+                )
             }
             TodayStandingAction::Done => {
-                let updated = self.today_engine.mark_done(&whoami.physician_id, &item);
+                let mut effective_item = item;
+                if let Some(version_id) = body.version_id {
+                    effective_item.version_id = version_id;
+                }
+                let updated = self
+                    .today_engine
+                    .mark_done(&whoami.physician_id, &effective_item);
                 if !updated {
                     return HttpResponse::bad_request("item cannot be marked done");
                 }
+                let item_id = effective_item.item_id.clone();
+                let version_id = effective_item.version_id;
                 if let Err(err) = self.wal.append(&WalEntry::MarkTodayDone {
                     physician_id: whoami.physician_id,
-                    item,
+                    item: effective_item,
                 }) {
                     return wal_failure_response(&err);
                 }
-                HttpResponse::json_clinical(200, &serde_json::json!({ "status": "done" }))
+                HttpResponse::json_clinical(
+                    200,
+                    &serde_json::json!({
+                        "item_id": item_id,
+                        "status": "done",
+                        "standing": "done",
+                        "version_id": version_id,
+                    }),
+                )
             }
         }
     }
@@ -906,6 +979,120 @@ impl ClinicService {
         }
     }
 
+    /// Routes `POST /elysianfields/api/workspaces/:workspace_id/connected-care/invitations`.
+    pub(crate) fn route_workspace_connected_care_create_invitation(
+        &mut self,
+        req: &HttpRequest,
+        raw_workspace_id: &str,
+    ) -> HttpResponse {
+        if req.method != HttpMethod::Post {
+            return HttpResponse::method_not_allowed();
+        }
+        let whoami = match self.authenticate_request(req) {
+            Ok(w) => w,
+            Err(resp) => return resp,
+        };
+        let workspace_id = match WorkspaceId::new(raw_workspace_id) {
+            Ok(id) => id,
+            Err(err) => return HttpResponse::bad_request(err.to_string()),
+        };
+        if let Err(err) = self.evidence.require_clinical_access(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            &workspace_id,
+        ) {
+            return workspace_error_response(err);
+        }
+
+        let body: WorkspaceCreateInvitationBody = if req.body.is_empty() {
+            WorkspaceCreateInvitationBody {
+                patient_id: None,
+                expected_dob: None,
+                practice_name: None,
+                physician_name: None,
+                created_at: None,
+            }
+        } else {
+            match serde_json::from_slice(&req.body) {
+                Ok(parsed) => parsed,
+                Err(err) => return HttpResponse::bad_request(err.to_string()),
+            }
+        };
+
+        let patient_id = match body.patient_id {
+            Some(pid) => pid,
+            None => match PatientId::new(format!("pat-{}", workspace_id.as_str())) {
+                Ok(pid) => pid,
+                Err(err) => return HttpResponse::bad_request(err.to_string()),
+            },
+        };
+        let dob = match body.expected_dob {
+            Some(ExpectedDobField::Iso(raw)) => match parse_iso_dob(&raw) {
+                Ok(d) => d,
+                Err(msg) => return HttpResponse::bad_request(msg),
+            },
+            Some(ExpectedDobField::Parts(parts)) => {
+                match DateOfBirth::new(parts.year, parts.month, parts.day) {
+                    Ok(d) => d,
+                    Err(err) => return bridge_error_response(err),
+                }
+            }
+            None => match DateOfBirth::new(1985, 4, 12) {
+                Ok(d) => d,
+                Err(err) => return bridge_error_response(err),
+            },
+        };
+
+        let practice_name = body
+            .practice_name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "Elysian Clinic".to_owned());
+        let physician_name = body
+            .physician_name
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| whoami.physician_id.as_str().to_owned());
+        let created_at = body
+            .created_at
+            .unwrap_or_else(|| format!("epoch:{}", self.clock_secs));
+
+        let pair = PairKey::new(whoami.practice_id, patient_id);
+        let request = CreateInvitationRequest {
+            pair: pair.clone(),
+            issued_by: whoami.physician_id,
+            practice_name,
+            physician_name,
+            expected_dob: dob,
+            created_at,
+        };
+
+        let issued = match self.connected_care.create_invitation(request.clone()) {
+            Ok(issued) => issued,
+            Err(err) => return bridge_error_response(err),
+        };
+        self.invitation_pairs
+            .insert(issued.invitation_id.clone(), pair.clone());
+
+        if let Err(err) = self
+            .wal
+            .append(&WalEntry::CreateConnectedCareInvitation { request })
+        {
+            return wal_failure_response(&err);
+        }
+
+        let standing = self.connected_care.clinic_standing(&pair);
+        HttpResponse::json_clinical(
+            201,
+            &WorkspaceIssuedInvitationResponse {
+                invitation_id: issued.invitation_id,
+                invite_code: issued.short_code.clone(),
+                short_code: issued.short_code,
+                link_token: issued.link_token,
+                workspace_id,
+                standing,
+            },
+        )
+    }
+
     /// Routes `POST /elysianfields/api/connected-care/invitations`.
     pub(crate) fn route_connected_care_create_invitation(
         &mut self,
@@ -1224,6 +1411,23 @@ impl ClinicService {
         }
         Ok(())
     }
+}
+
+fn parse_iso_dob(raw: &str) -> Result<DateOfBirth, String> {
+    let parts: Vec<&str> = raw.trim().split('-').collect();
+    if parts.len() != 3 || parts[0].len() != 4 || parts[1].len() != 2 || parts[2].len() != 2 {
+        return Err("expected_dob must be formatted as YYYY-MM-DD".to_owned());
+    }
+    let year: u16 = parts[0]
+        .parse()
+        .map_err(|err| format!("invalid year in expected_dob: {err}"))?;
+    let month: u8 = parts[1]
+        .parse()
+        .map_err(|err| format!("invalid month in expected_dob: {err}"))?;
+    let day: u8 = parts[2]
+        .parse()
+        .map_err(|err| format!("invalid day in expected_dob: {err}"))?;
+    DateOfBirth::new(year, month, day).map_err(|err| err.to_string())
 }
 
 fn parse_optional_occurred_at(body: &[u8], clock_secs: u64) -> String {

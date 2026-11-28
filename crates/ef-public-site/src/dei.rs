@@ -124,6 +124,7 @@ pub struct VersionedShardPayload {
 /// Filter query shared by the zero-JS HTML `<form>` fallback and progressive interactive finder.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeiSearchQuery {
+    pub state: Option<String>,
     pub city: Option<String>,
     pub service: Option<String>,
     pub text: Option<String>,
@@ -496,13 +497,193 @@ pub fn render_crisis_lines_banner() -> String {
         .to_owned()
 }
 
-/// Renders the Dei recovery finder index page with crisis lines strictly before state links.
+/// Renders the Dei recovery finder index page with crisis lines strictly before the search form,
+/// filtered facility listing, and state directory links.
 #[must_use]
 pub fn render_dei_index_html(shards: &[DeiStateShard]) -> String {
+    render_dei_finder_html(shards, &DeiSearchQuery::default())
+}
+
+/// Renders the zero-JS server-filtered Dei Recovery Finder (`/dei`) with:
+/// - Crisis support banner (`988`, `911`, `SAMHSA National Helpline`) ALWAYS pinned first.
+/// - Accessible `<form method="get" action="/dei">` with `state`, `service`, and `q` controls.
+/// - Strict HTML escaping on all reflected query values (zero XSS).
+/// - Filtered facility cards or a helpful empty-state message preserving crisis resources.
+#[must_use]
+pub fn render_dei_finder_html(shards: &[DeiStateShard], query: &DeiSearchQuery) -> String {
+    let state_filter = query
+        .state
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let service_filter = query
+        .service
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let text_filter = query
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let city_filter = query
+        .city
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let has_active_filter = state_filter.is_some()
+        || service_filter.is_some()
+        || text_filter.is_some()
+        || city_filter.is_some();
+
+    let mut matching_facilities: Vec<&RecoveryFacility> = Vec::new();
+    for shard in shards {
+        if let Some(st) = state_filter {
+            let st_lower = st.to_ascii_lowercase();
+            let matches_code = shard.state_code.to_ascii_lowercase() == st_lower;
+            let matches_name = shard.state_name.to_ascii_lowercase() == st_lower;
+            if !(matches_code || matches_name) {
+                continue;
+            }
+        }
+        matching_facilities.extend(shard.filter(query));
+    }
+
     let mut main = String::new();
     main.push_str("    <h1>Dei Recovery Facility Finder</h1>\n");
+    // Mandatory invariant: crisis lines ALWAYS render first regardless of filter/empty state.
     main.push_str(&render_crisis_lines_banner());
-    main.push_str("\n    <section id=\"state-directory\" aria-label=\"Browse by state\">\n");
+    main.push('\n');
+
+    // Accessible zero-JS GET filter form.
+    main.push_str(
+        "    <section id=\"finder-controls\" aria-label=\"Filter recovery facilities\">\n\
+      <h2>Find Recovery Facilities (Works Without JavaScript)</h2>\n\
+      <form method=\"get\" action=\"/dei\">\n\
+        <label for=\"filter-state\">State</label>\n\
+        <select id=\"filter-state\" name=\"state\">\n\
+          <option value=\"\">All states</option>\n",
+    );
+    let mut state_matched_option = false;
+    for shard in shards {
+        let selected = state_filter.is_some_and(|st| {
+            let low = st.to_ascii_lowercase();
+            shard.state_code.to_ascii_lowercase() == low
+                || shard.state_name.to_ascii_lowercase() == low
+        });
+        if selected {
+            state_matched_option = true;
+        }
+        let sel_attr = if selected { " selected" } else { "" };
+        main.push_str(&format!(
+            "          <option value=\"{}\"{sel_attr}>{} ({})</option>\n",
+            escape_html(&shard.state_code),
+            escape_html(&shard.state_name),
+            escape_html(&shard.state_code),
+        ));
+    }
+    if let Some(st) = state_filter
+        && !state_matched_option
+    {
+        let st_esc = escape_html(st);
+        main.push_str(&format!(
+            "          <option value=\"{st_esc}\" selected>{st_esc}</option>\n"
+        ));
+    }
+    main.push_str(
+        "        </select>\n\
+        <label for=\"filter-service\">Service</label>\n\
+        <select id=\"filter-service\" name=\"service\">\n\
+          <option value=\"\">All services</option>\n",
+    );
+    let known_services = [
+        ("crisis", "Crisis"),
+        ("detox", "Detox"),
+        ("outpatient", "Outpatient"),
+        ("residential", "Residential"),
+        ("mat", "MAT"),
+    ];
+    let mut service_matched_option = false;
+    for (val, label) in known_services {
+        let selected = service_filter.is_some_and(|svc| svc.eq_ignore_ascii_case(val));
+        if selected {
+            service_matched_option = true;
+        }
+        let sel_attr = if selected { " selected" } else { "" };
+        main.push_str(&format!(
+            "          <option value=\"{val}\"{sel_attr}>{label}</option>\n"
+        ));
+    }
+    if let Some(svc) = service_filter
+        && !service_matched_option
+    {
+        let svc_esc = escape_html(svc);
+        main.push_str(&format!(
+            "          <option value=\"{svc_esc}\" selected>{svc_esc}</option>\n"
+        ));
+    }
+    let q_esc = escape_html(text_filter.unwrap_or(""));
+    main.push_str(&format!(
+        "        </select>\n\
+        <label for=\"filter-q\">Keyword</label>\n\
+        <input id=\"filter-q\" name=\"q\" type=\"search\" value=\"{q_esc}\" placeholder=\"City, facility, or program\">\n\
+        <button type=\"submit\">Filter facilities</button>\n\
+        <a href=\"/dei\">Reset filters</a>\n\
+      </form>\n\
+    </section>\n"
+    ));
+
+    // Filtered facility listing (or helpful empty state with safely escaped reflected filters).
+    main.push_str(
+        "    <section id=\"facilities\" aria-label=\"Recovery facility listing\">\n\
+      <h2>Matching Recovery Facilities</h2>\n",
+    );
+    if has_active_filter {
+        let mut active_parts = Vec::new();
+        if let Some(st) = state_filter {
+            active_parts.push(format!("state: {}", escape_html(st)));
+        }
+        if let Some(svc) = service_filter {
+            active_parts.push(format!("service: {}", escape_html(svc)));
+        }
+        if let Some(city) = city_filter {
+            active_parts.push(format!("city: {}", escape_html(city)));
+        }
+        if let Some(q) = text_filter {
+            active_parts.push(format!("query: {}", escape_html(q)));
+        }
+        main.push_str(&format!(
+            "      <p id=\"active-filters\">Showing {} result(s) for {}.</p>\n",
+            matching_facilities.len(),
+            active_parts.join(", ")
+        ));
+    }
+    if matching_facilities.is_empty() {
+        main.push_str(
+            "      <p id=\"empty-results\">No recovery facilities matched your current filters. \
+Try broadening your search, <a href=\"/dei\">resetting all filters</a>, or calling 988 or SAMHSA \
+(1-800-662-4357) above for immediate 24/7 referral help.</p>\n",
+        );
+    } else {
+        main.push_str("      <ul>\n");
+        for facility in &matching_facilities {
+            let services_joined = facility.services.join(", ");
+            main.push_str(&format!(
+                "        <li data-facility-id=\"{}\"><h3>{}</h3><p>{}, {} — <a href=\"tel:{}\">{}</a></p><p>Services: {}</p></li>\n",
+                escape_html(&facility.id),
+                escape_html(&facility.name),
+                escape_html(&facility.city),
+                escape_html(&facility.state_code),
+                escape_html(&facility.phone),
+                escape_html(&facility.phone),
+                escape_html(&services_joined)
+            ));
+        }
+        main.push_str("      </ul>\n");
+    }
+    main.push_str("    </section>\n");
+
+    main.push_str("    <section id=\"state-directory\" aria-label=\"Browse by state\">\n");
     main.push_str("      <h2>Browse Recovery Facilities by State</h2>\n      <ul>\n");
     for shard in shards {
         let code_lower = shard.state_code.to_ascii_lowercase();
@@ -519,7 +700,7 @@ pub fn render_dei_index_html(shards: &[DeiStateShard]) -> String {
     render_semantic_page(
         "Dei Recovery Facility Finder",
         "Find SAMHSA substance-use and mental-health recovery facilities with immediate 988, 911, and SAMHSA helpline access.",
-        "/recovery",
+        "/dei",
         RobotsPolicy::IndexFollow,
         &main,
     )
@@ -688,6 +869,44 @@ pub fn sample_dei_shards() -> Vec<DeiStateShard> {
                     state_code: "OR".to_owned(),
                     phone: "541-555-0188".to_owned(),
                     services: vec!["Residential".to_owned(), "Family Therapy".to_owned()],
+                },
+            ],
+        },
+        DeiStateShard {
+            state_code: "CA".to_owned(),
+            state_name: "California".to_owned(),
+            facilities: vec![
+                RecoveryFacility {
+                    id: "ca-001".to_owned(),
+                    name: "Bay Area Crisis Stabilization & Detox".to_owned(),
+                    city: "San Francisco".to_owned(),
+                    state_code: "CA".to_owned(),
+                    phone: "415-555-0148".to_owned(),
+                    services: vec![
+                        "Crisis".to_owned(),
+                        "Detox".to_owned(),
+                        "Outpatient".to_owned(),
+                    ],
+                },
+                RecoveryFacility {
+                    id: "ca-002".to_owned(),
+                    name: "Pacific Coast Outpatient Recovery Clinic".to_owned(),
+                    city: "Los Angeles".to_owned(),
+                    state_code: "CA".to_owned(),
+                    phone: "213-555-0162".to_owned(),
+                    services: vec![
+                        "Outpatient".to_owned(),
+                        "MAT".to_owned(),
+                        "Counseling".to_owned(),
+                    ],
+                },
+                RecoveryFacility {
+                    id: "ca-003".to_owned(),
+                    name: "Harborview Behavioral Crisis Center".to_owned(),
+                    city: "San Diego".to_owned(),
+                    state_code: "CA".to_owned(),
+                    phone: "619-555-0194".to_owned(),
+                    services: vec!["Crisis".to_owned(), "Residential".to_owned()],
                 },
             ],
         },
