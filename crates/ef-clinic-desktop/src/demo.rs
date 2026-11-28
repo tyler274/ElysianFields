@@ -90,6 +90,7 @@ pub enum DesktopInputFocus {
     #[default]
     Composer,
     PatientSearch,
+    ReplyDraft,
 }
 
 /// Typed status banner state rendered reactively in the active 12-locale catalog.

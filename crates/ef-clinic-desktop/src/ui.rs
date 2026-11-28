@@ -62,6 +62,9 @@ pub enum DesktopActionButton {
     TodayMarkSeen(usize),
     TodayMarkDone(usize),
     OpenScheduledVisit(usize),
+    FocusReplyDraft,
+    MessagesSaveDraft,
+    MessagesRestoreSystem,
     MessagesCopyReply,
     MessagesCloseReply,
     MessagesUndoClose,
@@ -138,7 +141,13 @@ pub enum DesktopUiSlot {
     MessagesPanel,
     MessagesHeading,
     MessagesCardBody,
+    MessagesDraftBox,
+    MessagesDraftText,
     MessagesActionRow,
+    MessagesSaveDraftBtn,
+    MessagesSaveDraftLabel,
+    MessagesRestoreSystemBtn,
+    MessagesRestoreSystemLabel,
     MessagesCopyReplyBtn,
     MessagesCopyReplyLabel,
     MessagesCloseReplyBtn,
@@ -198,6 +207,10 @@ pub enum DesktopUiEvent {
     TodayMarkSeen(usize),
     TodayMarkDone(usize),
     OpenScheduledVisit(usize),
+    FocusReplyDraft,
+    UpdateReplyDraft(String),
+    MessagesSaveDraft,
+    MessagesRestoreSystem,
     MessagesCopyReply,
     MessagesCloseReply,
     MessagesUndoClose,
@@ -1382,6 +1395,38 @@ fn spawn_messages_panel(
             },
             TextColor(tokens.text_primary.to_bevy_color()),
         ));
+        let mut draft_a11y = accesskit::Node::new(accesskit::Role::MultilineTextInput);
+        draft_a11y.set_label("Personal Reply Draft");
+        panel
+            .spawn((
+                DesktopActionButton::FocusReplyDraft,
+                DesktopUiSlot::MessagesDraftBox,
+                Node {
+                    width: Val::Percent(100.0),
+                    min_height: Val::Px(56.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.input_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+                AccessibilityNode(draft_a11y),
+            ))
+            .with_children(|box_node| {
+                box_node.spawn((
+                    DesktopUiSlot::MessagesDraftText,
+                    Text::new(if workflows.reply_draft_editor.is_empty() {
+                        "Edit personal reply draft...".to_owned()
+                    } else {
+                        workflows.reply_draft_editor.clone()
+                    }),
+                    TextFont {
+                        font_size: FontSize::Px(13.0 * scale),
+                        ..default()
+                    },
+                    TextColor(tokens.input_fg.to_bevy_color()),
+                ));
+            });
         panel
             .spawn((
                 DesktopUiSlot::MessagesActionRow,
@@ -1394,6 +1439,24 @@ fn spawn_messages_panel(
                 },
             ))
             .with_children(|row| {
+                spawn_toolbar_button(
+                    row,
+                    DesktopActionButton::MessagesSaveDraft,
+                    DesktopUiSlot::MessagesSaveDraftBtn,
+                    DesktopUiSlot::MessagesSaveDraftLabel,
+                    "Save Draft".to_owned(),
+                    tokens,
+                    scale,
+                );
+                spawn_toolbar_button(
+                    row,
+                    DesktopActionButton::MessagesRestoreSystem,
+                    DesktopUiSlot::MessagesRestoreSystemBtn,
+                    DesktopUiSlot::MessagesRestoreSystemLabel,
+                    "Restore AI Draft".to_owned(),
+                    tokens,
+                    scale,
+                );
                 spawn_toolbar_button(
                     row,
                     DesktopActionButton::MessagesCopyReply,
@@ -1589,6 +1652,9 @@ fn handle_desktop_button_presses_system(
             DesktopActionButton::TodayMarkSeen(idx) => DesktopUiEvent::TodayMarkSeen(idx),
             DesktopActionButton::TodayMarkDone(idx) => DesktopUiEvent::TodayMarkDone(idx),
             DesktopActionButton::OpenScheduledVisit(idx) => DesktopUiEvent::OpenScheduledVisit(idx),
+            DesktopActionButton::FocusReplyDraft => DesktopUiEvent::FocusReplyDraft,
+            DesktopActionButton::MessagesSaveDraft => DesktopUiEvent::MessagesSaveDraft,
+            DesktopActionButton::MessagesRestoreSystem => DesktopUiEvent::MessagesRestoreSystem,
             DesktopActionButton::MessagesCopyReply => DesktopUiEvent::MessagesCopyReply,
             DesktopActionButton::MessagesCloseReply => DesktopUiEvent::MessagesCloseReply,
             DesktopActionButton::MessagesUndoClose => DesktopUiEvent::MessagesUndoClose,
@@ -1608,6 +1674,7 @@ fn handle_desktop_keyboard_input_system(
     router: Res<ShortcutRouter>,
     composer: Res<ComposerSurface>,
     ws_state: Res<DesktopWorkspaceState>,
+    workflows: Res<ClinicWorkflowState>,
     mut clinic_actions: MessageWriter<ClinicActionMessage>,
     mut desktop_events: MessageWriter<DesktopUiEvent>,
 ) {
@@ -1695,6 +1762,30 @@ fn handle_desktop_keyboard_input_system(
                 desktop_events.write(DesktopUiEvent::RedoComposer);
             } else {
                 desktop_events.write(DesktopUiEvent::UndoComposer);
+            }
+            continue;
+        }
+
+        if ws_state.input_focus == DesktopInputFocus::ReplyDraft {
+            match event.key_code {
+                KeyCode::Enter => {
+                    desktop_events.write(DesktopUiEvent::MessagesSaveDraft);
+                }
+                KeyCode::Backspace => {
+                    let mut next = workflows.reply_draft_editor.clone();
+                    let _ = next.pop();
+                    desktop_events.write(DesktopUiEvent::UpdateReplyDraft(next));
+                }
+                _ => {
+                    if !primary_down && let Some(ref text) = event.text {
+                        let printable: String = text.chars().filter(|c| !c.is_control()).collect();
+                        if !printable.is_empty() {
+                            let mut next = workflows.reply_draft_editor.clone();
+                            next.push_str(&printable);
+                            desktop_events.write(DesktopUiEvent::UpdateReplyDraft(next));
+                        }
+                    }
+                }
             }
             continue;
         }
@@ -1972,6 +2063,13 @@ fn process_desktop_events_system(
                         &citation_catalog,
                         &mut clinic_actions,
                     );
+                    if live_worker.is_enabled()
+                        && let Some(session_id) = session.view_state.held_session().cloned()
+                        && let Some(active_ws) =
+                            ws_state.active_patient().map(|p| p.workspace_id.clone())
+                    {
+                        let _ = live_worker.fetch_workflow_snapshot(session_id, active_ws);
+                    }
                 }
                 ws_state.input_focus = DesktopInputFocus::Composer;
                 gate.request_redraw(RedrawReason::FocusTransition);
@@ -1985,6 +2083,13 @@ fn process_desktop_events_system(
                         &citation_catalog,
                         &mut clinic_actions,
                     );
+                    if live_worker.is_enabled()
+                        && let Some(session_id) = session.view_state.held_session().cloned()
+                        && let Some(active_ws) =
+                            ws_state.active_patient().map(|p| p.workspace_id.clone())
+                    {
+                        let _ = live_worker.fetch_workflow_snapshot(session_id, active_ws);
+                    }
                     gate.request_redraw(RedrawReason::FocusTransition);
                 }
             }
@@ -2027,6 +2132,11 @@ fn process_desktop_events_system(
                             ws_state.patient_search_query.push_str(&clean);
                             ws_state.search_highlight_index = 0;
                             ws_state.clamp_search_highlight();
+                        }
+                        DesktopInputFocus::ReplyDraft => {
+                            let clean: String =
+                                pasted.chars().filter(|c| !c.is_control()).collect();
+                            workflows.reply_draft_editor.push_str(&clean);
                         }
                     }
                     gate.request_redraw(RedrawReason::UserInput);
@@ -2220,7 +2330,9 @@ fn process_desktop_events_system(
                 if live_worker.is_enabled()
                     && matches!(
                         tab,
-                        ClinicWorkspaceTab::Today | ClinicWorkspaceTab::MemoryCare
+                        ClinicWorkspaceTab::Today
+                            | ClinicWorkspaceTab::Messages
+                            | ClinicWorkspaceTab::MemoryCare
                     )
                     && let Some(session_id) = session.view_state.held_session().cloned()
                     && let Some(active_ws) =
@@ -2309,8 +2421,87 @@ fn process_desktop_events_system(
                     gate.request_redraw(RedrawReason::FocusTransition);
                 }
             }
+            DesktopUiEvent::FocusReplyDraft => {
+                ws_state.input_focus = DesktopInputFocus::ReplyDraft;
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::UpdateReplyDraft(text) => {
+                workflows.reply_draft_editor = text;
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            DesktopUiEvent::MessagesSaveDraft => {
+                let draft_text = workflows.reply_draft_editor.trim().to_owned();
+                if draft_text.is_empty() {
+                    continue;
+                }
+                let active_ws = ws_state.active_patient().map(|p| p.workspace_id.clone());
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ws_id) = active_ws
+                {
+                    let conv_id = workflows.active_reply_conversation_id(Some(&ws_id));
+                    ws_state.status_override = None;
+                    match live_worker.edit_reply_draft(session_id, ws_id, conv_id, draft_text) {
+                        Ok(()) => {
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(detail) => {
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else if workflows.edit_active_personal_draft(draft_text).is_ok() {
+                    ws_state.status_override = None;
+                    ws_state.status_banner =
+                        DesktopStatusBanner::Custom("PersonalDraft saved".to_owned());
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::MessagesRestoreSystem => {
+                let active_ws = ws_state.active_patient().map(|p| p.workspace_id.clone());
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ws_id) = active_ws
+                {
+                    let conv_id = workflows.active_reply_conversation_id(Some(&ws_id));
+                    ws_state.status_override = None;
+                    match live_worker.restore_system_reply(session_id, ws_id, conv_id) {
+                        Ok(()) => {
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(detail) => {
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else if workflows.restore_active_system_reply().is_ok() {
+                    if let Ok(card) = workflows.derive_active_reply_card() {
+                        workflows.reply_draft_editor = card.visible_reply_text.unwrap_or_default();
+                    }
+                    ws_state.status_override = None;
+                    ws_state.status_banner =
+                        DesktopStatusBanner::Custom("SystemReply restored".to_owned());
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
             DesktopUiEvent::MessagesCopyReply => {
-                if let Ok(reply_text) = workflows.copy_active_reply()
+                let active_ws = ws_state.active_patient().map(|p| p.workspace_id.clone());
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ws_id) = active_ws
+                {
+                    let conv_id = workflows.active_reply_conversation_id(Some(&ws_id));
+                    ws_state.status_override = None;
+                    match live_worker.copy_reply(session_id, ws_id, conv_id) {
+                        Ok(()) => {
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(detail) => {
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else if let Ok(reply_text) = workflows.copy_active_reply()
                     && clipboard.copy_text(&reply_text).is_ok()
                 {
                     ws_state.status_override = None;
@@ -2319,7 +2510,23 @@ fn process_desktop_events_system(
                 }
             }
             DesktopUiEvent::MessagesCloseReply => {
-                if workflows.close_active_reply().is_ok() {
+                let active_ws = ws_state.active_patient().map(|p| p.workspace_id.clone());
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ws_id) = active_ws
+                {
+                    let conv_id = workflows.active_reply_conversation_id(Some(&ws_id));
+                    ws_state.status_override = None;
+                    match live_worker.close_reply(session_id, ws_id, conv_id) {
+                        Ok(()) => {
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(detail) => {
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else if workflows.close_active_reply().is_ok() {
                     ws_state.status_override = None;
                     ws_state.status_banner = DesktopStatusBanner::Custom(
                         translate(ui_locale.current, UiKey::CloseReply).to_owned(),
@@ -2328,7 +2535,23 @@ fn process_desktop_events_system(
                 }
             }
             DesktopUiEvent::MessagesUndoClose => {
-                if workflows.undo_close_active_reply().is_ok() {
+                let active_ws = ws_state.active_patient().map(|p| p.workspace_id.clone());
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ws_id) = active_ws
+                {
+                    let conv_id = workflows.active_reply_conversation_id(Some(&ws_id));
+                    ws_state.status_override = None;
+                    match live_worker.undo_close_reply(session_id, ws_id, conv_id) {
+                        Ok(()) => {
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(detail) => {
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else if workflows.undo_close_active_reply().is_ok() {
                     ws_state.status_override = None;
                     ws_state.status_banner = DesktopStatusBanner::Custom(
                         translate(ui_locale.current, UiKey::UndoClose).to_owned(),
@@ -2453,6 +2676,7 @@ fn poll_live_worker_outcomes_system(
     mut ws_state: ResMut<DesktopWorkspaceState>,
     mut workflows: ResMut<ClinicWorkflowState>,
     mut active_workspace: ResMut<ActiveWorkspaceView>,
+    mut clipboard: ResMut<DesktopClipboard>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
     while let Some(outcome) = live_worker.try_recv() {
@@ -2569,6 +2793,7 @@ fn poll_live_worker_outcomes_system(
                 scheduled_visits,
                 channel_banners,
                 memory_entries,
+                reply_cards,
             } => {
                 workflows.apply_live_workflow_snapshot(
                     workspace_id,
@@ -2576,6 +2801,7 @@ fn poll_live_worker_outcomes_system(
                     scheduled_visits,
                     channel_banners,
                     memory_entries,
+                    reply_cards,
                 );
                 gate.request_redraw(RedrawReason::StreamDelta);
             }
@@ -2612,6 +2838,20 @@ fn poll_live_worker_outcomes_system(
                     translate(ui_locale.current, UiKey::ActiveInviteCode)
                 ));
                 gate.request_redraw(RedrawReason::UserInput);
+            }
+            LivePromptOutcome::ReplyCardUpdated { workspace_id, card } => {
+                let status_label = format!("{}: {}", card.conversation_id, card.reply_state_label);
+                workflows.apply_live_reply_card(workspace_id, card);
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Custom(status_label);
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            LivePromptOutcome::ReplyCopied { copied_text, .. } => {
+                if clipboard.copy_text(&copied_text).is_ok() {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Copied;
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
             }
             LivePromptOutcome::WorkflowFailed { detail } => {
                 ws_state.status_override = None;
@@ -2731,13 +2971,16 @@ fn sync_desktop_ui_visuals_system(
     let today_items = workflows.visible_today_items();
     let today_visits = workflows.scheduled_visits_list();
     let today_banner = workflows.format_channel_health_banner(locale);
-    let reply_card = workflows.derive_active_reply_card().ok();
-    let messages_body = workflows.format_messages_card(locale);
-    let has_ready_reply = reply_card
-        .as_ref()
-        .is_some_and(|c| c.visible_reply_text.is_some());
-    let can_undo_reply = reply_card.as_ref().is_some_and(|c| c.undo_available);
     let active_ws_id = ws_state.active_patient().map(|p| p.workspace_id.clone());
+    let messages_body = workflows.format_messages_card_for(active_ws_id.as_ref(), locale);
+    let (has_ready_reply, is_personal_draft, can_undo_reply) =
+        workflows.reply_card_action_flags(active_ws_id.as_ref());
+    let reply_draft_focused = ws_state.input_focus == DesktopInputFocus::ReplyDraft;
+    let reply_draft_display = if workflows.reply_draft_editor.is_empty() {
+        "Edit personal reply draft...".to_owned()
+    } else {
+        workflows.reply_draft_editor.clone()
+    };
     let memory_body = active_ws_id.as_ref().map_or_else(
         || translate(locale, UiKey::ClinicTranscriptEmpty).to_owned(),
         |ws| workflows.format_memory_entries(ws, locale),
@@ -3227,8 +3470,68 @@ fn sync_desktop_ui_visuals_system(
                 set_font(font, 14.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
+            DesktopUiSlot::MessagesDraftBox => {
+                node.display = if has_ready_reply {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                node.border = UiRect::all(Val::Px(if reply_draft_focused { 2.0 } else { 1.0 }));
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(
+                    border,
+                    if reply_draft_focused {
+                        tokens.focus_ring.to_bevy_color()
+                    } else {
+                        tokens.text_secondary.to_bevy_color()
+                    },
+                );
+                set_a11y_label(a11y, "Personal Reply Draft");
+            }
+            DesktopUiSlot::MessagesDraftText => {
+                set_text(text, &reply_draft_display);
+                set_font(font, 13.0 * scale);
+                set_color(
+                    text_color,
+                    if workflows.reply_draft_editor.is_empty() {
+                        tokens.text_secondary.to_bevy_color()
+                    } else {
+                        tokens.input_fg.to_bevy_color()
+                    },
+                );
+            }
             DesktopUiSlot::MessagesActionRow => {
                 node.flex_direction = locale.row_flex_direction();
+            }
+            DesktopUiSlot::MessagesSaveDraftBtn => {
+                node.display = if has_ready_reply {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.accent_fill.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, "Save Draft");
+            }
+            DesktopUiSlot::MessagesSaveDraftLabel => {
+                set_text(text, "Save Draft");
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.accent_label.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesRestoreSystemBtn => {
+                node.display = if is_personal_draft {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, "Restore AI Draft");
+            }
+            DesktopUiSlot::MessagesRestoreSystemLabel => {
+                set_text(text, "Restore AI Draft");
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::MessagesCopyReplyBtn => {
                 let lbl = translate(locale, UiKey::CopyReply);

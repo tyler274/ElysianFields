@@ -27,7 +27,7 @@ use ef_clinic_desktop::{
     ClinicDesktopUiPlugin, ClinicWorkflowState, ClinicWorkspaceTab, DesktopClipboard,
     DesktopInputFocus, DesktopLaunchConfig, DesktopStatusBanner, DesktopUiEvent, DesktopUiSlot,
     DesktopWorkspaceState, LaunchBackend, LivePromptOutcome, LivePromptRequest, LivePromptWorker,
-    LiveSubmissionState, TodayStandingUpdate, ZoomLevel, bootstrap_clinic_session,
+    LiveReplyOrigin, LiveSubmissionState, TodayStandingUpdate, ZoomLevel, bootstrap_clinic_session,
     create_transport_for_backend,
 };
 use ef_clinic_domain::auth::{
@@ -985,6 +985,373 @@ fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
         invite_slot_text.contains(&code),
         "MemoryActiveInviteCodeText must render live EF-XXXXXX code: {invite_slot_text}"
     );
+}
+
+#[test]
+fn live_clinic_messages_sync_draft_copy_restore_close_undo_and_wal_restart_over_tcp() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let wal_dir = std::env::temp_dir().join(format!(
+        "ef-clinic-live-messages-e2e-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&wal_dir).expect("create temp wal dir");
+
+    let now_secs = 1_760_500_000u64;
+    let src_key = SourceKey::new("src-msg-e2e-1").expect("src key");
+    let practice = PracticeId::new("prac-msg-e2e").expect("practice");
+    let doc = PhysicianId::new("phys-msg-e2e").expect("doc");
+    let email = "messages.e2e@example.invalid".to_owned();
+    let workspace_id = WorkspaceId::new("ws-msg-e2e").expect("ws");
+
+    let (server, addr) = {
+        let mut service = ClinicService::open_durable(
+            &wal_dir,
+            SignInMode::LocalProof,
+            RetryBackoffMode::DeterministicTest,
+            src_key.clone(),
+            now_secs,
+        )
+        .expect("open durable service");
+        service
+            .seed_account(PhysicianAccount {
+                physician_id: doc.clone(),
+                practice_id: practice.clone(),
+                email: EmailAddress::parse(&email).expect("email"),
+                display_name: "Dr. Messages E2E".to_owned(),
+                role: PhysicianRole::Standard,
+                standing: AccountStanding::Active,
+                sessions_ended_before: None,
+            })
+            .expect("seed account");
+        service
+            .seed_workspace(
+                workspace_id.clone(),
+                practice,
+                "Avery, Jordan (Messages E2E)",
+                vec![doc],
+            )
+            .expect("seed workspace");
+        service
+            .seed_demo_workflows(&workspace_id, "Avery, Jordan (Messages E2E)")
+            .expect("seed demo workflows");
+        let server = TcpClinicServer::bind("127.0.0.1:0", service).expect("bind server 1");
+        let addr = server.local_addr();
+        (server, addr)
+    };
+
+    let base_url = format!("http://{addr}");
+    let cfg = DesktopLaunchConfig {
+        backend: LaunchBackend::Server {
+            base_url,
+            socket_addr: addr,
+            email: Some(email.clone()),
+            token: None,
+        },
+        locale: Locale::En,
+        theme: ThemeMode::Dark,
+        zoom: ZoomLevel::Pct100,
+        ..DesktopLaunchConfig::default()
+    };
+    let (transport, conn_mode, boot_email, boot_token, patients, citation_catalog) =
+        create_transport_for_backend(&cfg.backend);
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(LivePromptWorker::spawn(addr, Duration::from_secs(10)))
+        .insert_resource(DesktopClipboard::in_memory())
+        .insert_resource(ClientClock {
+            now_secs,
+            now_ms: now_secs * 1_000,
+        })
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: Vec::new(),
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            streaming_draft: None,
+            last_failed_prompt: None,
+            status_message: String::new(),
+            status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("w21-ui-messages-tab").expect("tab"),
+            ClientBootConfig::from_location("/elysianfields/?lang=en").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, boot_email, boot_token);
+    app.update();
+    app.update();
+
+    // 1. Switch to Messages tab -> triggers live fetch of workspace replies over HTTP.
+    app.world_mut()
+        .write_message(DesktopUiEvent::SelectTab(ClinicWorkspaceTab::Messages));
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .is_none()
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+
+    let initial_card = app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .expect("live reply card fetched")
+        .clone();
+    assert_eq!(initial_card.conversation_id, "conv-ws-msg-e2e-msg-1");
+    assert_eq!(
+        initial_card.visible_reply_origin,
+        LiveReplyOrigin::SystemReply
+    );
+    let system_text = initial_card
+        .visible_reply_text
+        .clone()
+        .expect("system reply text");
+    assert!(initial_card.flagged_concern.is_some());
+
+    // 2. Edit personal draft (`YourDraft`) and save over HTTP `POST .../draft`.
+    let custom_draft =
+        "Please stay on Metformin 1000 mg twice daily and message me your 3-day log before Friday.";
+    app.world_mut()
+        .write_message(DesktopUiEvent::UpdateReplyDraft(custom_draft.to_owned()));
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesSaveDraft);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .map(|c| c.visible_reply_origin)
+        != Some(LiveReplyOrigin::PersonalDraft)
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+
+    assert_eq!(
+        app.world()
+            .resource::<ClinicWorkflowState>()
+            .active_live_reply_card(Some(&workspace_id))
+            .and_then(|c| c.visible_reply_text.as_deref()),
+        Some(custom_draft)
+    );
+
+    // 3. Copy Reply (`CopiesWhatYouSee`) returns exact personal draft text via `POST .../copy`.
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesCopyReply);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut copied_match = false;
+    while Instant::now() < deadline {
+        if let Ok(clip) = app
+            .world_mut()
+            .resource_mut::<DesktopClipboard>()
+            .paste_text()
+            && clip == custom_draft
+        {
+            copied_match = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    assert!(
+        copied_match,
+        "CopiesWhatYouSee must copy exact active PersonalDraft text into DesktopClipboard"
+    );
+
+    // 4. Restore AI System Draft (`POST .../restore`) switches back to `SystemReply`.
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesRestoreSystem);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .map(|c| c.visible_reply_origin)
+        != Some(LiveReplyOrigin::SystemReply)
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<ClinicWorkflowState>()
+            .active_live_reply_card(Some(&workspace_id))
+            .and_then(|c| c.visible_reply_text.as_deref()),
+        Some(system_text.as_str())
+    );
+
+    // 5. Close Reply (`POST .../close`) clears visible text while keeping flagged concern + enabling Undo.
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesCloseReply);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .is_some_and(|c| c.undo_available && c.visible_reply_text.is_none())
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ClinicWorkflowState>()
+            .active_live_reply_card(Some(&workspace_id))
+            .and_then(|c| c.flagged_concern.as_deref())
+            .is_some(),
+        "ConcernStays: flagged concern must remain visible after close"
+    );
+
+    // 6. Undo Close (`POST .../undo`) restores the exact system reply (`UndoBringsBack`).
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesUndoClose);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .is_some_and(|c| {
+            !c.undo_available && c.visible_reply_text.as_deref() == Some(system_text.as_str())
+        })
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+
+    // 7. Save a final personal draft, shut down server 1, restart server 2 from the SAME WAL directory,
+    // and verify WAL persistence across server restart via LivePromptWorker!
+    let persisted_draft =
+        "Persisted across WAL restart: hold Metformin 1000 mg BID and review readings Friday.";
+    app.world_mut()
+        .write_message(DesktopUiEvent::UpdateReplyDraft(persisted_draft.to_owned()));
+    app.world_mut()
+        .write_message(DesktopUiEvent::MessagesSaveDraft);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_live_reply_card(Some(&workspace_id))
+        .and_then(|c| c.visible_reply_text.as_deref())
+        != Some(persisted_draft)
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+
+    server.shutdown();
+
+    let replayed_service = ClinicService::open_durable(
+        &wal_dir,
+        SignInMode::LocalProof,
+        RetryBackoffMode::DeterministicTest,
+        src_key,
+        now_secs + 60,
+    )
+    .expect("reopen durable service after restart");
+    let server2 = TcpClinicServer::bind("127.0.0.1:0", replayed_service).expect("bind server 2");
+    let addr2 = server2.local_addr();
+
+    let mut transport2 = LiveHttpClinicTransport::new(addr2);
+    let init2 = transport2
+        .initiate_sign_in(
+            &SignInRequest {
+                email: email.clone(),
+            },
+            now_secs + 60,
+        )
+        .expect("init sign in after restart");
+    let token2 = match init2 {
+        ef_clinic_domain::auth::SignInInitiationResponse::TokenIssued { token, .. } => token,
+        other => panic!("expected TokenIssued, got {other:?}"),
+    };
+    let session2 = transport2
+        .verify_sign_in(
+            &VerifySignInRequest {
+                email,
+                token: token2,
+            },
+            now_secs + 60,
+        )
+        .expect("verify sign in after restart")
+        .session;
+
+    let worker2 = LivePromptWorker::spawn(addr2, Duration::from_secs(10));
+    worker2
+        .fetch_workflow_snapshot(session2, workspace_id.clone())
+        .expect("fetch snapshot after restart");
+    match worker2
+        .recv_timeout(Duration::from_secs(15))
+        .expect("timed out waiting for snapshot after restart")
+    {
+        LivePromptOutcome::WorkflowSnapshotLoaded { reply_cards, .. } => {
+            assert_eq!(reply_cards.len(), 1);
+            assert_eq!(
+                reply_cards[0].visible_reply_origin,
+                LiveReplyOrigin::PersonalDraft
+            );
+            assert_eq!(
+                reply_cards[0].visible_reply_text.as_deref(),
+                Some(persisted_draft)
+            );
+        }
+        other => panic!("expected WorkflowSnapshotLoaded after restart, got {other:?}"),
+    }
+
+    server2.shutdown();
+    let _ = fs::remove_dir_all(&wal_dir);
 }
 
 fn read_http_request(stream: &TcpStream) -> Option<(Vec<u8>, String, String)> {

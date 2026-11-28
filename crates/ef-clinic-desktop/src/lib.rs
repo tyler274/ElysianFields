@@ -31,8 +31,8 @@ pub use ui::{
     DesktopUiSlot,
 };
 pub use worker::{
-    LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState, LiveWorkerCommand,
-    TodayStandingUpdate,
+    LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveReplyCard, LiveReplyOrigin,
+    LiveSubmissionState, LiveWorkerCommand, TodayStandingUpdate,
 };
 pub use workflows::{ClinicWorkflowState, ClinicWorkspaceTab, LiveIssuedInvite, LiveTodaySnapshot};
 

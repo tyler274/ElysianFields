@@ -586,6 +586,70 @@ impl ClinicService {
         )
     }
 
+    /// Routes `GET /elysianfields/api/workspaces/:workspace_id/replies` returning all active
+    /// derived reply cards for conversations linked to `workspace_id` after verifying physician
+    /// clinical access.
+    pub(crate) fn route_workspace_replies(
+        &mut self,
+        req: &HttpRequest,
+        raw_workspace_id: &str,
+    ) -> HttpResponse {
+        if req.method != HttpMethod::Get {
+            return HttpResponse::method_not_allowed();
+        }
+        let whoami = match self.authenticate_request(req) {
+            Ok(w) => w,
+            Err(resp) => return resp,
+        };
+        let workspace_id = match WorkspaceId::new(raw_workspace_id) {
+            Ok(id) => id,
+            Err(err) => return HttpResponse::bad_request(err.to_string()),
+        };
+        if let Err(err) = self.evidence.require_clinical_access(
+            &whoami.practice_id,
+            &whoami.physician_id,
+            &workspace_id,
+        ) {
+            return workspace_error_response(err);
+        }
+
+        let practice_id = whoami.practice_id;
+        let physician_id = whoami.physician_id;
+        let conversation_ids: Vec<String> = self
+            .reply_conversation_workspaces
+            .iter()
+            .filter_map(|(conv_id, linked_ws)| {
+                if linked_ws == &workspace_id {
+                    Some(conv_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut replies = Vec::with_capacity(conversation_ids.len());
+        for conv_id in conversation_ids {
+            if let Ok(card) =
+                self.reply_engine
+                    .derive_reply_card(&physician_id, &conv_id, |phys, ws| {
+                        self.evidence
+                            .require_clinical_access(&practice_id, phys, ws)
+                            .is_ok()
+                    })
+            {
+                replies.push(ReplyCardResponse::from_card(conv_id, card));
+            }
+        }
+
+        HttpResponse::json_clinical(
+            200,
+            &serde_json::json!({
+                "workspace_id": workspace_id,
+                "replies": replies,
+            }),
+        )
+    }
+
     /// Routes `GET /elysianfields/api/replies/:conversation_id` and `POST /elysianfields/api/replies/:conversation_id/<action>`.
     pub(crate) fn route_replies(
         &mut self,
@@ -1363,6 +1427,8 @@ impl ClinicService {
             {
                 self.reply_engine
                     .register_conversation(conv_id.clone(), patient.clone(), true);
+                self.reply_conversation_workspaces
+                    .insert(conv_id.clone(), patient.clone());
                 let _ = self
                     .reply_engine
                     .receive_patient_message(&conv_id, msg_id, msg_body);
@@ -1392,21 +1458,32 @@ impl ClinicService {
         )?;
 
         // Sync MessageReplyEngine (`WithheldAfterMove` + register newly linked conversation).
-        if self
+        let moved_result = self
             .reply_engine
-            .on_conversation_moved(conversation_id, destination.clone())
-            .is_err()
-            && let MoveDestination::Patient(patient) = destination
-            && let Some(conv) = self.matching_engine.conversation(conversation_id)
-        {
-            self.reply_engine
-                .register_conversation(conversation_id.to_owned(), patient, true);
-            for msg in &conv.messages {
-                let _ = self.reply_engine.receive_patient_message(
-                    conversation_id,
-                    msg.message_id.clone(),
-                    msg.body.clone(),
-                );
+            .on_conversation_moved(conversation_id, destination.clone());
+        match destination {
+            MoveDestination::Patient(patient) => {
+                self.reply_conversation_workspaces
+                    .insert(conversation_id.to_owned(), patient.clone());
+                if moved_result.is_err()
+                    && let Some(conv) = self.matching_engine.conversation(conversation_id)
+                {
+                    self.reply_engine.register_conversation(
+                        conversation_id.to_owned(),
+                        patient,
+                        true,
+                    );
+                    for msg in &conv.messages {
+                        let _ = self.reply_engine.receive_patient_message(
+                            conversation_id,
+                            msg.message_id.clone(),
+                            msg.body.clone(),
+                        );
+                    }
+                }
+            }
+            MoveDestination::NotPatient => {
+                self.reply_conversation_workspaces.remove(conversation_id);
             }
         }
         Ok(())
