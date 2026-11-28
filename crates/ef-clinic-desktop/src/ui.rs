@@ -21,6 +21,8 @@ use bevy::prelude::*;
 use ef_clinic_client::{
     ActiveWorkspaceView, ClientClock, ClinicAction, ClinicActionMessage, ClinicSessionShell,
 };
+use ef_clinic_workflows::today::{TodayUrgency, TodayViewState};
+use ef_connected_care::ConnectedCareState;
 use ef_core::IdempotencyKey;
 use ef_ui_catalog::{
     ChromeProduct, ComposerAction, ComposerSurface, DesktopPreferences, DesktopPrefsStore,
@@ -35,6 +37,7 @@ use crate::demo::{
     DesktopWorkspaceState,
 };
 use crate::worker::{LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState};
+use crate::workflows::{ClinicWorkflowState, ClinicWorkspaceTab};
 
 /// Typed interactive button action component (zero string dispatch).
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +47,7 @@ pub enum DesktopActionButton {
     CycleZoom,
     TogglePrivacyCover,
     ToggleShortcuts,
+    SelectTab(ClinicWorkspaceTab),
     FocusPatientSearch,
     FocusComposer,
     SelectPatient(usize),
@@ -52,6 +56,13 @@ pub enum DesktopActionButton {
     SubmitPrompt,
     CancelPrompt,
     RetryPrompt,
+    TodayMarkSeen(usize),
+    TodayMarkDone(usize),
+    OpenScheduledVisit(usize),
+    MessagesCopyReply,
+    MessagesCloseReply,
+    MessagesUndoClose,
+    MemoryIssueInvite,
     DismissPrivacyCover,
     DismissShortcuts,
 }
@@ -72,6 +83,9 @@ pub enum DesktopUiSlot {
     PrivacyButtonLabel,
     ShortcutsButton,
     ShortcutsButtonLabel,
+    WorkspaceTabBar,
+    TabButton(ClinicWorkspaceTab),
+    TabButtonLabel(ClinicWorkspaceTab),
     WorkspaceColumns,
     RosterPanel,
     RosterHeading,
@@ -104,6 +118,37 @@ pub enum DesktopUiSlot {
     CitationButton(usize),
     CitationButtonLabel(usize),
     CitationDetailBody,
+    TodayPanel,
+    TodayQueueColumn,
+    TodayChannelHealthBanner,
+    TodayQueueHeading,
+    TodayItemRow(usize),
+    TodayItemText(usize),
+    TodayMarkSeenBtn(usize),
+    TodayMarkSeenLabel(usize),
+    TodayMarkDoneBtn(usize),
+    TodayMarkDoneLabel(usize),
+    TodayVisitsColumn,
+    TodayVisitsHeading,
+    TodayVisitButton(usize),
+    TodayVisitLabel(usize),
+    MessagesPanel,
+    MessagesHeading,
+    MessagesCardBody,
+    MessagesActionRow,
+    MessagesCopyReplyBtn,
+    MessagesCopyReplyLabel,
+    MessagesCloseReplyBtn,
+    MessagesCloseReplyLabel,
+    MessagesUndoCloseBtn,
+    MessagesUndoCloseLabel,
+    MemoryCarePanel,
+    MemoryHeading,
+    MemoryEntriesBody,
+    ConnectedCareStatusText,
+    MemoryIssueInviteBtn,
+    MemoryIssueInviteLabel,
+    MemoryActiveInviteCodeText,
     StatusBar,
     StatusText,
     PrivacyModalBackdrop,
@@ -129,6 +174,7 @@ pub enum DesktopUiEvent {
     SetTheme(ThemeMode),
     CycleZoom,
     SetZoom(ZoomLevel),
+    SelectTab(ClinicWorkspaceTab),
     FocusPatientSearch,
     FocusComposer,
     UpdatePatientSearch(String),
@@ -146,6 +192,13 @@ pub enum DesktopUiEvent {
     SubmitPrompt,
     CancelPrompt,
     RetryPrompt,
+    TodayMarkSeen(usize),
+    TodayMarkDone(usize),
+    OpenScheduledVisit(usize),
+    MessagesCopyReply,
+    MessagesCloseReply,
+    MessagesUndoClose,
+    MemoryIssueInvite,
     TogglePrivacyCover,
     ToggleShortcuts,
     DismissOverlays,
@@ -189,6 +242,7 @@ impl Plugin for ClinicDesktopUiPlugin {
         app.insert_resource(initial_ui_theme)
             .init_resource::<LivePromptWorker>()
             .init_resource::<DesktopClipboard>()
+            .init_resource::<ClinicWorkflowState>()
             .insert_resource(DesktopScreenshotConfig {
                 path: self.screenshot_path.clone(),
                 captured: false,
@@ -223,6 +277,7 @@ fn spawn_clinic_desktop_ui_system(
     ui_locale: Res<UiLocale>,
     ui_theme: Res<UiTheme>,
     ws_state: Res<DesktopWorkspaceState>,
+    workflows: Res<ClinicWorkflowState>,
 ) {
     let locale = ui_locale.current;
     let tokens = ui_theme.tokens;
@@ -333,7 +388,66 @@ fn spawn_clinic_desktop_ui_system(
                 });
             });
 
-            // 2. 3-Column Workspace (mirrors automatically via `locale.row_flex_direction()` for `he`/`ar`!)
+            // 1b. 4-Tab Physician Workstation Bar (mirrors automatically for RTL locales)
+            root.spawn((
+                DesktopUiSlot::WorkspaceTabBar,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: locale.row_flex_direction(),
+                    align_items: AlignItems::Center,
+                    column_gap: Val::Px(8.0),
+                    padding: UiRect::axes(Val::Px(12.0), Val::Px(6.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|tabs| {
+                for tab in ClinicWorkspaceTab::ALL {
+                    let active = workflows.active_tab == tab;
+                    let label = format!(
+                        "{} (Ctrl+{})",
+                        translate(locale, tab.ui_key()),
+                        tab.index() + 1
+                    );
+                    let mut tab_a11y = accesskit::Node::new(accesskit::Role::Tab);
+                    tab_a11y.set_label(label.clone());
+                    tabs.spawn((
+                        DesktopActionButton::SelectTab(tab),
+                        DesktopUiSlot::TabButton(tab),
+                        Node {
+                            padding: UiRect::axes(Val::Px(14.0), Val::Px(7.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BackgroundColor(if active {
+                            tokens.nav_selected_bg.to_bevy_color()
+                        } else {
+                            tokens.input_bg.to_bevy_color()
+                        }),
+                        BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                        AccessibilityNode(tab_a11y),
+                    ))
+                    .with_children(|btn| {
+                        btn.spawn((
+                            DesktopUiSlot::TabButtonLabel(tab),
+                            Text::new(label),
+                            TextFont {
+                                font_size: FontSize::Px(13.0 * scale),
+                                ..default()
+                            },
+                            TextColor(if active {
+                                tokens.nav_selected_fg.to_bevy_color()
+                            } else {
+                                tokens.text_primary.to_bevy_color()
+                            }),
+                        ));
+                    });
+                }
+            });
+
+            // 2. 3-Column Chat Workspace (mirrors automatically via `locale.row_flex_direction()` for `he`/`ar`!)
             root.spawn((
                 DesktopUiSlot::WorkspaceColumns,
                 Node {
@@ -342,6 +456,11 @@ fn spawn_clinic_desktop_ui_system(
                     flex_direction: locale.row_flex_direction(),
                     column_gap: Val::Px(12.0),
                     min_height: Val::Px(0.0),
+                    display: if workflows.active_tab == ClinicWorkspaceTab::Chat {
+                        Display::Flex
+                    } else {
+                        Display::None
+                    },
                     ..default()
                 },
             ))
@@ -812,6 +931,15 @@ fn spawn_clinic_desktop_ui_system(
                 });
             });
 
+            // 2b. Today Queue & Scheduled Visits Panel
+            spawn_today_panel(root, &workflows, locale, tokens, scale);
+
+            // 2c. Messages Review & Derived Reply Card Panel
+            spawn_messages_panel(root, &workflows, locale, tokens, scale);
+
+            // 2d. Longitudinal Memory & Connected Care Panel
+            spawn_memory_care_panel(root, &ws_state, &workflows, locale, tokens, scale);
+
             // 3. Status Bar
             root.spawn((
                 DesktopUiSlot::StatusBar,
@@ -1004,6 +1132,411 @@ fn spawn_clinic_desktop_ui_system(
         });
 }
 
+fn spawn_today_panel(
+    root: &mut ChildSpawnerCommands,
+    workflows: &ClinicWorkflowState,
+    locale: Locale,
+    tokens: ThemeTokens,
+    scale: f32,
+) {
+    let items = workflows.visible_today_items();
+    let visits = match workflows.build_today_view() {
+        TodayViewState::Actionable {
+            scheduled_visits, ..
+        }
+        | TodayViewState::Quiet {
+            scheduled_visits, ..
+        } => scheduled_visits,
+    };
+    let seen_label = translate(locale, UiKey::MarkSeen);
+    let done_label = translate(locale, UiKey::MarkDone);
+
+    root.spawn((
+        DesktopUiSlot::TodayPanel,
+        Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            min_height: Val::Px(0.0),
+            flex_direction: locale.row_flex_direction(),
+            column_gap: Val::Px(12.0),
+            display: if workflows.active_tab == ClinicWorkspaceTab::Today {
+                Display::Flex
+            } else {
+                Display::None
+            },
+            ..default()
+        },
+    ))
+    .with_children(|panel| {
+        panel
+            .spawn((
+                DesktopUiSlot::TodayQueueColumn,
+                Node {
+                    flex_grow: 1.0,
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(14.0)),
+                    row_gap: Val::Px(10.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|col| {
+                col.spawn((
+                    DesktopUiSlot::TodayChannelHealthBanner,
+                    Text::new(workflows.format_channel_health_banner(locale)),
+                    TextFont {
+                        font_size: FontSize::Px(13.0 * scale),
+                        ..default()
+                    },
+                    TextColor(tokens.alert_info_fg.to_bevy_color()),
+                ));
+                col.spawn((
+                    DesktopUiSlot::TodayQueueHeading,
+                    Text::new(translate(locale, UiKey::TabToday)),
+                    TextFont {
+                        font_size: FontSize::Px(17.0 * scale),
+                        ..default()
+                    },
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                ));
+
+                for idx in 0..3 {
+                    let row_text = items
+                        .get(idx)
+                        .map(format_today_item_line)
+                        .unwrap_or_default();
+                    let visible = idx < items.len();
+                    col.spawn((
+                        DesktopUiSlot::TodayItemRow(idx),
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_direction: locale.row_flex_direction(),
+                            justify_content: JustifyContent::SpaceBetween,
+                            align_items: AlignItems::Center,
+                            padding: UiRect::all(Val::Px(10.0)),
+                            column_gap: Val::Px(8.0),
+                            border: UiRect::all(Val::Px(1.0)),
+                            display: if visible {
+                                Display::Flex
+                            } else {
+                                Display::None
+                            },
+                            ..default()
+                        },
+                        BackgroundColor(tokens.input_bg.to_bevy_color()),
+                        BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                    ))
+                    .with_children(|row| {
+                        row.spawn((
+                            DesktopUiSlot::TodayItemText(idx),
+                            Node {
+                                flex_grow: 1.0,
+                                ..default()
+                            },
+                            Text::new(row_text),
+                            TextFont {
+                                font_size: FontSize::Px(13.0 * scale),
+                                ..default()
+                            },
+                            TextColor(tokens.text_primary.to_bevy_color()),
+                        ));
+                        spawn_toolbar_button(
+                            row,
+                            DesktopActionButton::TodayMarkSeen(idx),
+                            DesktopUiSlot::TodayMarkSeenBtn(idx),
+                            DesktopUiSlot::TodayMarkSeenLabel(idx),
+                            seen_label.to_owned(),
+                            tokens,
+                            scale,
+                        );
+                        spawn_toolbar_button(
+                            row,
+                            DesktopActionButton::TodayMarkDone(idx),
+                            DesktopUiSlot::TodayMarkDoneBtn(idx),
+                            DesktopUiSlot::TodayMarkDoneLabel(idx),
+                            done_label.to_owned(),
+                            tokens,
+                            scale,
+                        );
+                    });
+                }
+            });
+
+        panel
+            .spawn((
+                DesktopUiSlot::TodayVisitsColumn,
+                Node {
+                    width: Val::Percent(32.0),
+                    min_width: Val::Px(260.0),
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(14.0)),
+                    row_gap: Val::Px(10.0),
+                    border: UiRect::all(Val::Px(1.0)),
+                    overflow: Overflow::scroll_y(),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|col| {
+                col.spawn((
+                    DesktopUiSlot::TodayVisitsHeading,
+                    Text::new(translate(locale, UiKey::ScheduledVisits)),
+                    TextFont {
+                        font_size: FontSize::Px(16.0 * scale),
+                        ..default()
+                    },
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                ));
+                for idx in 0..3 {
+                    let visit_label = visits
+                        .get(idx)
+                        .map(|v| {
+                            let badge = if v.briefing_ready {
+                                "[Briefing Ready]"
+                            } else {
+                                "[Briefing Pending]"
+                            };
+                            format!("{} {badge}", v.display_name)
+                        })
+                        .unwrap_or_default();
+                    let mut visit_a11y = accesskit::Node::new(accesskit::Role::Button);
+                    visit_a11y.set_label(visit_label.clone());
+                    col.spawn((
+                        DesktopActionButton::OpenScheduledVisit(idx),
+                        DesktopUiSlot::TodayVisitButton(idx),
+                        Node {
+                            width: Val::Percent(100.0),
+                            padding: UiRect::all(Val::Px(10.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            display: if idx < visits.len() {
+                                Display::Flex
+                            } else {
+                                Display::None
+                            },
+                            ..default()
+                        },
+                        BackgroundColor(tokens.input_bg.to_bevy_color()),
+                        BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                        AccessibilityNode(visit_a11y),
+                    ))
+                    .with_children(|btn| {
+                        btn.spawn((
+                            DesktopUiSlot::TodayVisitLabel(idx),
+                            Text::new(visit_label),
+                            TextFont {
+                                font_size: FontSize::Px(13.0 * scale),
+                                ..default()
+                            },
+                            TextColor(tokens.text_primary.to_bevy_color()),
+                        ));
+                    });
+                }
+            });
+    });
+}
+
+fn spawn_messages_panel(
+    root: &mut ChildSpawnerCommands,
+    workflows: &ClinicWorkflowState,
+    locale: Locale,
+    tokens: ThemeTokens,
+    scale: f32,
+) {
+    root.spawn((
+        DesktopUiSlot::MessagesPanel,
+        Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            min_height: Val::Px(0.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(16.0)),
+            row_gap: Val::Px(12.0),
+            border: UiRect::all(Val::Px(1.0)),
+            overflow: Overflow::scroll_y(),
+            display: if workflows.active_tab == ClinicWorkspaceTab::Messages {
+                Display::Flex
+            } else {
+                Display::None
+            },
+            ..default()
+        },
+        BackgroundColor(tokens.surface_bg.to_bevy_color()),
+        BorderColor::all(tokens.text_secondary.to_bevy_color()),
+    ))
+    .with_children(|panel| {
+        panel.spawn((
+            DesktopUiSlot::MessagesHeading,
+            Text::new(translate(locale, UiKey::TabMessages)),
+            TextFont {
+                font_size: FontSize::Px(17.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.text_primary.to_bevy_color()),
+        ));
+        panel.spawn((
+            DesktopUiSlot::MessagesCardBody,
+            Text::new(workflows.format_messages_card(locale)),
+            TextFont {
+                font_size: FontSize::Px(14.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.text_primary.to_bevy_color()),
+        ));
+        panel
+            .spawn((
+                DesktopUiSlot::MessagesActionRow,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: locale.row_flex_direction(),
+                    column_gap: Val::Px(10.0),
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+            ))
+            .with_children(|row| {
+                spawn_toolbar_button(
+                    row,
+                    DesktopActionButton::MessagesCopyReply,
+                    DesktopUiSlot::MessagesCopyReplyBtn,
+                    DesktopUiSlot::MessagesCopyReplyLabel,
+                    translate(locale, UiKey::CopyReply).to_owned(),
+                    tokens,
+                    scale,
+                );
+                spawn_toolbar_button(
+                    row,
+                    DesktopActionButton::MessagesCloseReply,
+                    DesktopUiSlot::MessagesCloseReplyBtn,
+                    DesktopUiSlot::MessagesCloseReplyLabel,
+                    translate(locale, UiKey::CloseReply).to_owned(),
+                    tokens,
+                    scale,
+                );
+                spawn_toolbar_button(
+                    row,
+                    DesktopActionButton::MessagesUndoClose,
+                    DesktopUiSlot::MessagesUndoCloseBtn,
+                    DesktopUiSlot::MessagesUndoCloseLabel,
+                    translate(locale, UiKey::UndoClose).to_owned(),
+                    tokens,
+                    scale,
+                );
+            });
+    });
+}
+
+fn spawn_memory_care_panel(
+    root: &mut ChildSpawnerCommands,
+    ws_state: &DesktopWorkspaceState,
+    workflows: &ClinicWorkflowState,
+    locale: Locale,
+    tokens: ThemeTokens,
+    scale: f32,
+) {
+    let active_ws = ws_state.active_patient().map(|p| &p.workspace_id);
+    let mem_body = active_ws.map_or_else(
+        || translate(locale, UiKey::ClinicTranscriptEmpty).to_owned(),
+        |ws| workflows.format_memory_entries(ws, locale),
+    );
+    let care_state = active_ws.map_or(ConnectedCareState::NotInvited, |ws| {
+        workflows.connected_care_state_for(ws)
+    });
+    let invite_line = active_ws
+        .and_then(|ws| workflows.active_invite_for(ws))
+        .map_or_else(String::new, |inv| {
+            format!(
+                "{}: {}",
+                translate(locale, UiKey::ActiveInviteCode),
+                inv.short_code.as_str()
+            )
+        });
+
+    root.spawn((
+        DesktopUiSlot::MemoryCarePanel,
+        Node {
+            width: Val::Percent(100.0),
+            flex_grow: 1.0,
+            min_height: Val::Px(0.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(16.0)),
+            row_gap: Val::Px(12.0),
+            border: UiRect::all(Val::Px(1.0)),
+            overflow: Overflow::scroll_y(),
+            display: if workflows.active_tab == ClinicWorkspaceTab::MemoryCare {
+                Display::Flex
+            } else {
+                Display::None
+            },
+            ..default()
+        },
+        BackgroundColor(tokens.surface_bg.to_bevy_color()),
+        BorderColor::all(tokens.text_secondary.to_bevy_color()),
+    ))
+    .with_children(|panel| {
+        panel.spawn((
+            DesktopUiSlot::MemoryHeading,
+            Text::new(translate(locale, UiKey::TabMemoryCare)),
+            TextFont {
+                font_size: FontSize::Px(17.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.text_primary.to_bevy_color()),
+        ));
+        panel.spawn((
+            DesktopUiSlot::MemoryEntriesBody,
+            Text::new(mem_body),
+            TextFont {
+                font_size: FontSize::Px(14.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.text_primary.to_bevy_color()),
+        ));
+        panel.spawn((
+            DesktopUiSlot::ConnectedCareStatusText,
+            Text::new(format!("Connected Care: {care_state:?}")),
+            TextFont {
+                font_size: FontSize::Px(14.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.alert_info_fg.to_bevy_color()),
+        ));
+        spawn_toolbar_button(
+            panel,
+            DesktopActionButton::MemoryIssueInvite,
+            DesktopUiSlot::MemoryIssueInviteBtn,
+            DesktopUiSlot::MemoryIssueInviteLabel,
+            translate(locale, UiKey::IssueInvite).to_owned(),
+            tokens,
+            scale,
+        );
+        panel.spawn((
+            DesktopUiSlot::MemoryActiveInviteCodeText,
+            Text::new(invite_line),
+            TextFont {
+                font_size: FontSize::Px(15.0 * scale),
+                ..default()
+            },
+            TextColor(tokens.link_citation.to_bevy_color()),
+        ));
+    });
+}
+
+fn format_today_item_line(rendered: &ef_clinic_workflows::today::RenderedTodayItem) -> String {
+    let urgency = match rendered.item.urgency {
+        TodayUrgency::Now => "NOW",
+        TodayUrgency::Today => "TODAY",
+    };
+    let standing = if rendered.seen { "Seen" } else { "Unseen" };
+    format!(
+        "[{urgency} | {standing} | v{}] {}",
+        rendered.item.version_id, rendered.item.summary
+    )
+}
+
 fn spawn_toolbar_button(
     parent: &mut ChildSpawnerCommands,
     action: DesktopActionButton,
@@ -1052,6 +1585,7 @@ fn handle_desktop_button_presses_system(
             DesktopActionButton::CycleZoom => DesktopUiEvent::CycleZoom,
             DesktopActionButton::TogglePrivacyCover => DesktopUiEvent::TogglePrivacyCover,
             DesktopActionButton::ToggleShortcuts => DesktopUiEvent::ToggleShortcuts,
+            DesktopActionButton::SelectTab(tab) => DesktopUiEvent::SelectTab(tab),
             DesktopActionButton::FocusPatientSearch => DesktopUiEvent::FocusPatientSearch,
             DesktopActionButton::FocusComposer => DesktopUiEvent::FocusComposer,
             DesktopActionButton::SelectPatient(idx) => DesktopUiEvent::SelectPatient(idx),
@@ -1060,6 +1594,13 @@ fn handle_desktop_button_presses_system(
             DesktopActionButton::SubmitPrompt => DesktopUiEvent::SubmitPrompt,
             DesktopActionButton::CancelPrompt => DesktopUiEvent::CancelPrompt,
             DesktopActionButton::RetryPrompt => DesktopUiEvent::RetryPrompt,
+            DesktopActionButton::TodayMarkSeen(idx) => DesktopUiEvent::TodayMarkSeen(idx),
+            DesktopActionButton::TodayMarkDone(idx) => DesktopUiEvent::TodayMarkDone(idx),
+            DesktopActionButton::OpenScheduledVisit(idx) => DesktopUiEvent::OpenScheduledVisit(idx),
+            DesktopActionButton::MessagesCopyReply => DesktopUiEvent::MessagesCopyReply,
+            DesktopActionButton::MessagesCloseReply => DesktopUiEvent::MessagesCloseReply,
+            DesktopActionButton::MessagesUndoClose => DesktopUiEvent::MessagesUndoClose,
+            DesktopActionButton::MemoryIssueInvite => DesktopUiEvent::MemoryIssueInvite,
             DesktopActionButton::DismissPrivacyCover | DesktopActionButton::DismissShortcuts => {
                 DesktopUiEvent::DismissOverlays
             }
@@ -1121,6 +1662,21 @@ fn handle_desktop_keyboard_input_system(
         // Ignore workspace shortcuts/edits while privacy cover conceals PHI.
         if router.is_privacy_cover_active() {
             continue;
+        }
+
+        // Ctrl/Cmd+1..4 switch across the 4 workstation tabs (Chat, Today, Messages, Memory & Care).
+        if primary_down && !shift_down {
+            let maybe_tab = match event.key_code {
+                KeyCode::Digit1 => Some(ClinicWorkspaceTab::Chat),
+                KeyCode::Digit2 => Some(ClinicWorkspaceTab::Today),
+                KeyCode::Digit3 => Some(ClinicWorkspaceTab::Messages),
+                KeyCode::Digit4 => Some(ClinicWorkspaceTab::MemoryCare),
+                _ => None,
+            };
+            if let Some(tab) = maybe_tab {
+                desktop_events.write(DesktopUiEvent::SelectTab(tab));
+                continue;
+            }
         }
 
         // Ctrl/Cmd+K focuses Patient Roster Search.
@@ -1273,12 +1829,21 @@ fn handle_desktop_scroll_wheel_system(
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct DesktopEventState<'w> {
+    ws_state: ResMut<'w, DesktopWorkspaceState>,
+    workflows: ResMut<'w, ClinicWorkflowState>,
+    citation_catalog: Res<'w, DesktopCitationCatalog>,
+    clipboard: ResMut<'w, DesktopClipboard>,
+    gate: ResMut<'w, IdleRedrawGate>,
+    prefs_store: Option<Res<'w, DesktopPrefsStore>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn process_desktop_events_system(
     mut events: MessageReader<DesktopUiEvent>,
     mut clinic_actions: MessageWriter<ClinicActionMessage>,
-    mut ws_state: ResMut<DesktopWorkspaceState>,
-    citation_catalog: Res<DesktopCitationCatalog>,
+    state: DesktopEventState,
     mut ui_locale: ResMut<UiLocale>,
     mut ui_theme: ResMut<UiTheme>,
     mut composer: ResMut<ComposerSurface>,
@@ -1287,11 +1852,16 @@ fn process_desktop_events_system(
     active_workspace: Res<ActiveWorkspaceView>,
     clock: Option<Res<ClientClock>>,
     live_worker: Res<LivePromptWorker>,
-    mut clipboard: ResMut<DesktopClipboard>,
-    mut gate: ResMut<IdleRedrawGate>,
-    prefs_store: Option<Res<DesktopPrefsStore>>,
     mut scroll_areas: Query<(&DesktopUiSlot, &mut ScrollPosition)>,
 ) {
+    let DesktopEventState {
+        mut ws_state,
+        mut workflows,
+        citation_catalog,
+        mut clipboard,
+        mut gate,
+        prefs_store,
+    } = state;
     let persist_prefs = |locale: Locale, theme: ThemeMode, zoom_percent: u16| {
         if let Some(ref store) = prefs_store
             && store.is_enabled()
@@ -1649,6 +2219,92 @@ fn process_desktop_events_system(
                 }
                 gate.request_redraw(RedrawReason::UserInput);
             }
+            DesktopUiEvent::SelectTab(tab) => {
+                workflows.active_tab = tab;
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Custom(
+                    translate(ui_locale.current, tab.ui_key()).to_owned(),
+                );
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::TodayMarkSeen(idx) => {
+                if let Some(item_id) = workflows.mark_today_seen(idx) {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                        "{}: {item_id}",
+                        translate(ui_locale.current, UiKey::MarkSeen)
+                    ));
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::TodayMarkDone(idx) => {
+                if let Some(item_id) = workflows.mark_today_done(idx) {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                        "{}: {item_id}",
+                        translate(ui_locale.current, UiKey::MarkDone)
+                    ));
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::OpenScheduledVisit(idx) => {
+                if let Some(ws_id) = workflows.scheduled_visit_workspace(idx) {
+                    if let Some(real_idx) = ws_state
+                        .patients
+                        .iter()
+                        .position(|p| p.workspace_id == ws_id)
+                    {
+                        select_patient_by_real_index(
+                            real_idx,
+                            &mut ws_state,
+                            &citation_catalog,
+                            &mut clinic_actions,
+                        );
+                    }
+                    workflows.active_tab = ClinicWorkspaceTab::Chat;
+                    gate.request_redraw(RedrawReason::FocusTransition);
+                }
+            }
+            DesktopUiEvent::MessagesCopyReply => {
+                if let Ok(reply_text) = workflows.copy_active_reply()
+                    && clipboard.copy_text(&reply_text).is_ok()
+                {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Copied;
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::MessagesCloseReply => {
+                if workflows.close_active_reply().is_ok() {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Custom(
+                        translate(ui_locale.current, UiKey::CloseReply).to_owned(),
+                    );
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::MessagesUndoClose => {
+                if workflows.undo_close_active_reply().is_ok() {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Custom(
+                        translate(ui_locale.current, UiKey::UndoClose).to_owned(),
+                    );
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::MemoryIssueInvite => {
+                if let Some(active_ws) = ws_state.active_patient().map(|p| p.workspace_id.clone())
+                    && let Ok(issued) = workflows.issue_connected_care_invite(&active_ws)
+                {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                        "{}: {}",
+                        translate(ui_locale.current, UiKey::ActiveInviteCode),
+                        issued.short_code.as_str()
+                    ));
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
         }
     }
 }
@@ -1853,6 +2509,7 @@ fn sync_desktop_ui_visuals_system(
     composer: Res<ComposerSurface>,
     router: Res<ShortcutRouter>,
     mut ws_state: ResMut<DesktopWorkspaceState>,
+    workflows: Res<ClinicWorkflowState>,
     mut nodes: Query<(
         &DesktopUiSlot,
         &mut Node,
@@ -1951,6 +2608,43 @@ fn sync_desktop_ui_visuals_system(
     let can_retry = matches!(ws_state.live_submission, LiveSubmissionState::Failed { .. })
         && ws_state.last_failed_prompt.is_some();
 
+    let today_items = workflows.visible_today_items();
+    let today_visits = match workflows.build_today_view() {
+        TodayViewState::Actionable {
+            scheduled_visits, ..
+        }
+        | TodayViewState::Quiet {
+            scheduled_visits, ..
+        } => scheduled_visits,
+    };
+    let today_banner = workflows.format_channel_health_banner(locale);
+    let reply_card = workflows.derive_active_reply_card().ok();
+    let messages_body = workflows.format_messages_card(locale);
+    let has_ready_reply = reply_card
+        .as_ref()
+        .is_some_and(|c| c.visible_reply_text.is_some());
+    let can_undo_reply = reply_card.as_ref().is_some_and(|c| c.undo_available);
+    let active_ws_id = ws_state.active_patient().map(|p| p.workspace_id.clone());
+    let memory_body = active_ws_id.as_ref().map_or_else(
+        || translate(locale, UiKey::ClinicTranscriptEmpty).to_owned(),
+        |ws| workflows.format_memory_entries(ws, locale),
+    );
+    let care_state = active_ws_id
+        .as_ref()
+        .map_or(ConnectedCareState::NotInvited, |ws| {
+            workflows.connected_care_state_for(ws)
+        });
+    let active_invite_text = active_ws_id
+        .as_ref()
+        .and_then(|ws| workflows.active_invite_for(ws))
+        .map_or_else(String::new, |inv| {
+            format!(
+                "{}: {}",
+                translate(locale, UiKey::ActiveInviteCode),
+                inv.short_code.as_str()
+            )
+        });
+
     for (slot, mut node, bg, border, text, font, text_color, a11y) in &mut nodes {
         match *slot {
             DesktopUiSlot::RootContainer => {
@@ -2025,8 +2719,56 @@ fn sync_desktop_ui_visuals_system(
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
+            DesktopUiSlot::WorkspaceTabBar => {
+                node.flex_direction = locale.row_flex_direction();
+                set_bg(bg, tokens.surface_bg.to_bevy_color());
+                set_border(border, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::TabButton(tab) => {
+                let active = workflows.active_tab == tab;
+                let label = format!(
+                    "{} (Ctrl+{})",
+                    translate(locale, tab.ui_key()),
+                    tab.index() + 1
+                );
+                set_bg(
+                    bg,
+                    if active {
+                        tokens.nav_selected_bg.to_bevy_color()
+                    } else {
+                        tokens.input_bg.to_bevy_color()
+                    },
+                );
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, &label);
+            }
+            DesktopUiSlot::TabButtonLabel(tab) => {
+                let active = workflows.active_tab == tab;
+                set_text(
+                    text,
+                    &format!(
+                        "{} (Ctrl+{})",
+                        translate(locale, tab.ui_key()),
+                        tab.index() + 1
+                    ),
+                );
+                set_font(font, 13.0 * scale);
+                set_color(
+                    text_color,
+                    if active {
+                        tokens.nav_selected_fg.to_bevy_color()
+                    } else {
+                        tokens.text_primary.to_bevy_color()
+                    },
+                );
+            }
             DesktopUiSlot::WorkspaceColumns => {
                 node.flex_direction = locale.row_flex_direction();
+                node.display = if workflows.active_tab == ClinicWorkspaceTab::Chat {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
             }
             DesktopUiSlot::RosterPanel
             | DesktopUiSlot::TranscriptPanel
@@ -2266,6 +3008,206 @@ fn sync_desktop_ui_visuals_system(
                 set_text(text, &citation_detail);
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayPanel => {
+                node.flex_direction = locale.row_flex_direction();
+                node.display = if workflows.active_tab == ClinicWorkspaceTab::Today {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+            }
+            DesktopUiSlot::TodayQueueColumn | DesktopUiSlot::TodayVisitsColumn => {
+                set_bg(bg, tokens.surface_bg.to_bevy_color());
+                set_border(border, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayChannelHealthBanner => {
+                set_text(text, &today_banner);
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.alert_info_fg.to_bevy_color());
+            }
+            DesktopUiSlot::TodayQueueHeading => {
+                set_text(text, translate(locale, UiKey::TabToday));
+                set_font(font, 17.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayItemRow(idx) => {
+                node.flex_direction = locale.row_flex_direction();
+                node.display = if idx < today_items.len() {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+            }
+            DesktopUiSlot::TodayItemText(idx) => {
+                if let Some(rendered) = today_items.get(idx) {
+                    set_text(text, &format_today_item_line(rendered));
+                }
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayMarkSeenBtn(_) => {
+                let lbl = translate(locale, UiKey::MarkSeen);
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::TodayMarkSeenLabel(_) => {
+                set_text(text, translate(locale, UiKey::MarkSeen));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayMarkDoneBtn(_) => {
+                let lbl = translate(locale, UiKey::MarkDone);
+                set_bg(bg, tokens.accent_fill.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::TodayMarkDoneLabel(_) => {
+                set_text(text, translate(locale, UiKey::MarkDone));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.accent_label.to_bevy_color());
+            }
+            DesktopUiSlot::TodayVisitsHeading => {
+                set_text(text, translate(locale, UiKey::ScheduledVisits));
+                set_font(font, 16.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::TodayVisitButton(idx) => {
+                node.display = if idx < today_visits.len() {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                if let Some(v) = today_visits.get(idx) {
+                    set_a11y_label(a11y, &v.display_name);
+                }
+            }
+            DesktopUiSlot::TodayVisitLabel(idx) => {
+                if let Some(v) = today_visits.get(idx) {
+                    let badge = if v.briefing_ready {
+                        "[Briefing Ready]"
+                    } else {
+                        "[Briefing Pending]"
+                    };
+                    set_text(text, &format!("{} {badge}", v.display_name));
+                }
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesPanel => {
+                node.display = if workflows.active_tab == ClinicWorkspaceTab::Messages {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.surface_bg.to_bevy_color());
+                set_border(border, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesHeading => {
+                set_text(text, translate(locale, UiKey::TabMessages));
+                set_font(font, 17.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesCardBody => {
+                set_text(text, &messages_body);
+                set_font(font, 14.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesActionRow => {
+                node.flex_direction = locale.row_flex_direction();
+            }
+            DesktopUiSlot::MessagesCopyReplyBtn => {
+                let lbl = translate(locale, UiKey::CopyReply);
+                node.display = if has_ready_reply {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.accent_fill.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::MessagesCopyReplyLabel => {
+                set_text(text, translate(locale, UiKey::CopyReply));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.accent_label.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesCloseReplyBtn => {
+                let lbl = translate(locale, UiKey::CloseReply);
+                node.display = if has_ready_reply {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::MessagesCloseReplyLabel => {
+                set_text(text, translate(locale, UiKey::CloseReply));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::MessagesUndoCloseBtn => {
+                let lbl = translate(locale, UiKey::UndoClose);
+                node.display = if can_undo_reply {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.accent_fill.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::MessagesUndoCloseLabel => {
+                set_text(text, translate(locale, UiKey::UndoClose));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.accent_label.to_bevy_color());
+            }
+            DesktopUiSlot::MemoryCarePanel => {
+                node.display = if workflows.active_tab == ClinicWorkspaceTab::MemoryCare {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.surface_bg.to_bevy_color());
+                set_border(border, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::MemoryHeading => {
+                set_text(text, translate(locale, UiKey::TabMemoryCare));
+                set_font(font, 17.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::MemoryEntriesBody => {
+                set_text(text, &memory_body);
+                set_font(font, 14.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::ConnectedCareStatusText => {
+                set_text(text, &format!("Connected Care: {care_state:?}"));
+                set_font(font, 14.0 * scale);
+                set_color(text_color, tokens.alert_info_fg.to_bevy_color());
+            }
+            DesktopUiSlot::MemoryIssueInviteBtn => {
+                let lbl = translate(locale, UiKey::IssueInvite);
+                set_bg(bg, tokens.accent_fill.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, lbl);
+            }
+            DesktopUiSlot::MemoryIssueInviteLabel => {
+                set_text(text, translate(locale, UiKey::IssueInvite));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.accent_label.to_bevy_color());
+            }
+            DesktopUiSlot::MemoryActiveInviteCodeText => {
+                set_text(text, &active_invite_text);
+                set_font(font, 15.0 * scale);
+                set_color(text_color, tokens.link_citation.to_bevy_color());
             }
             DesktopUiSlot::StatusBar => {
                 set_bg(bg, tokens.alert_info_bg.to_bevy_color());

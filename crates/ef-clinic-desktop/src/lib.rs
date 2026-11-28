@@ -9,6 +9,7 @@ pub mod demo;
 pub mod smoke;
 pub mod ui;
 pub mod worker;
+pub mod workflows;
 
 pub use clipboard::{
     ClipboardError, ClipboardPort, DEFAULT_CLIPBOARD_HISTORY_LIMIT, DesktopClipboard,
@@ -32,6 +33,7 @@ pub use ui::{
 pub use worker::{
     LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState, LiveWorkerCommand,
 };
+pub use workflows::{ClinicWorkflowState, ClinicWorkspaceTab};
 
 use thiserror::Error;
 
@@ -190,6 +192,9 @@ fn run_windowed_gpu_app(
     .insert_resource(transport)
     .insert_resource(citation_catalog)
     .insert_resource(ws_state)
+    .insert_resource(ClinicWorkflowState::seeded_demo(
+        effective_config.initial_view,
+    ))
     .add_plugins(CurieClinicClientPlugin::new(
         tab_id,
         boot_config,

@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use ef_ui_catalog::{DesktopPreferences, DesktopZoom, Locale, TextScale, ThemeMode};
 use thiserror::Error;
 
+use crate::workflows::ClinicWorkspaceTab;
+
 /// Validated UI zoom factor (`100%`, `150%`, `200%`) mapped directly onto [`TextScale`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ZoomLevel {
@@ -144,6 +146,7 @@ pub struct DesktopLaunchConfig {
     pub cli_overrides: DesktopPrefOverrides,
     pub search_query: Option<String>,
     pub streaming_demo: bool,
+    pub initial_view: ClinicWorkspaceTab,
 }
 
 impl Default for DesktopLaunchConfig {
@@ -158,6 +161,7 @@ impl Default for DesktopLaunchConfig {
             cli_overrides: DesktopPrefOverrides::default(),
             search_query: None,
             streaming_demo: false,
+            initial_view: ClinicWorkspaceTab::Chat,
         }
     }
 }
@@ -177,6 +181,8 @@ pub enum DesktopConfigError {
     InvalidTheme { value: String },
     #[error("invalid zoom '{value}' (expected 100, 150, or 200)")]
     InvalidZoom { value: String },
+    #[error("invalid view '{value}' (expected chat, today, messages, or memory)")]
+    InvalidView { value: String },
     #[error("invalid search query (must not be empty)")]
     InvalidSearchQuery,
     #[error("invalid server URL '{url}': {reason}")]
@@ -204,6 +210,7 @@ impl DesktopLaunchConfig {
            --zoom <100|150|200>        Initial UI text zoom percent (default: 100)\n\
            --search <QUERY>            Pre-open Patient Roster Search with <QUERY> focused\n\
            --streaming-demo            Pre-seed progressive synthetic streaming draft and Cancel button\n\
+           --view <VIEW>               Initial workstation tab (chat, today, messages, memory; default: chat)\n\
            --headless-smoke            Run deterministic headless UI smoke suite and print JSON\n\
            --screenshot <PATH.PNG>     Capture rendered GPU window PNG after layout settles and exit\n\
            --no-prefs                  Bypass reading and writing OS-native saved preferences\n\
@@ -255,6 +262,7 @@ impl DesktopLaunchConfig {
         let mut cli_overrides = DesktopPrefOverrides::default();
         let mut search_query: Option<String> = None;
         let mut streaming_demo = false;
+        let mut initial_view = ClinicWorkspaceTab::Chat;
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -351,6 +359,15 @@ impl DesktopLaunchConfig {
                         })?;
                     screenshot_path = Some(PathBuf::from(val));
                 }
+                "--view" => {
+                    let val = iter
+                        .next()
+                        .ok_or_else(|| DesktopConfigError::MissingValue {
+                            flag: "--view".to_owned(),
+                        })?;
+                    initial_view = ClinicWorkspaceTab::parse_cli(&val)
+                        .ok_or(DesktopConfigError::InvalidView { value: val })?;
+                }
                 other => {
                     if let Some(val) = other.strip_prefix("--search=") {
                         let trimmed = val.trim();
@@ -358,6 +375,12 @@ impl DesktopLaunchConfig {
                             return Err(DesktopConfigError::InvalidSearchQuery);
                         }
                         search_query = Some(trimmed.to_owned());
+                    } else if let Some(val) = other.strip_prefix("--view=") {
+                        initial_view = ClinicWorkspaceTab::parse_cli(val).ok_or_else(|| {
+                            DesktopConfigError::InvalidView {
+                                value: val.to_owned(),
+                            }
+                        })?;
                     } else {
                         return Err(DesktopConfigError::UnknownFlag {
                             flag: other.to_owned(),
@@ -409,6 +432,7 @@ impl DesktopLaunchConfig {
             cli_overrides,
             search_query,
             streaming_demo,
+            initial_view,
         })
     }
 }
