@@ -39,6 +39,17 @@ impl HttpMethod {
             _ => None,
         }
     }
+
+    /// Returns the canonical uppercase HTTP method token.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Head => "HEAD",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+        }
+    }
 }
 
 /// Parsed HTTP/1.1 request passed into the headless clinic router.

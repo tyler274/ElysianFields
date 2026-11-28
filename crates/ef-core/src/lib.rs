@@ -14,6 +14,7 @@ pub mod locale;
 pub mod product;
 pub mod refusal;
 pub mod subpath;
+pub mod telemetry;
 pub mod theme;
 
 pub use error::{CoreError, IdError, SubpathError};
@@ -25,4 +26,9 @@ pub use locale::{LOCALE_STORAGE_KEY, Locale, TextDirection};
 pub use product::ProductBoundary;
 pub use refusal::{RefusalCode, StructuredRefusal};
 pub use subpath::{CachePolicy, LoopbackApiOverride, Subpath};
+pub use telemetry::{
+    ACCESS_LOG_JSON_ENV, AccessLogRingBuffer, DEFAULT_ACCESS_LOG_CAPACITY, HttpRequestId,
+    REQUEST_ID_HEADER, ShutdownSignal, TelemetryPhiViolation, ZeroPhiAccessEvent,
+    ZeroPhiRouteTemplate, assert_zero_phi, normalize_route_template,
+};
 pub use theme::{RgbColor, ThemeMode, ThemePalette};

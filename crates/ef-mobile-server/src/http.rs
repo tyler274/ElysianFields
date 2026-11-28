@@ -30,6 +30,15 @@ impl MobileHttpMethod {
             _ => None,
         }
     }
+
+    /// Returns the canonical uppercase HTTP method token.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Get => "GET",
+            Self::Post => "POST",
+        }
+    }
 }
 
 /// Parsed HTTP/1.1 request routed by [`crate::MobileService`].
@@ -161,6 +170,30 @@ impl MobileHttpResponse {
             headers,
             body: body.into_bytes(),
         }
+    }
+
+    /// Sets or replaces a response header case-insensitively.
+    pub fn set_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        let name = name.into();
+        let value = value.into();
+        if let Some((_, existing)) = self
+            .headers
+            .iter_mut()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&name))
+        {
+            *existing = value;
+        } else {
+            self.headers.push((name, value));
+        }
+    }
+
+    /// Looks up a response header value case-insensitively.
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
     }
 
     #[must_use]

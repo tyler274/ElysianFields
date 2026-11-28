@@ -5,49 +5,74 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use ef_core::{
+    AccessLogRingBuffer, DEFAULT_ACCESS_LOG_CAPACITY, HttpRequestId, REQUEST_ID_HEADER,
+    ShutdownSignal, ZeroPhiAccessEvent, ZeroPhiRouteTemplate,
+};
 
 use crate::router::{PUBLIC_MAX_BODY_BYTES, PublicRequest, PublicResponse, PublicSiteRouter};
 
 /// Standalone native TCP HTTP/1.1 server for [`PublicSiteRouter`].
 pub struct TcpPublicSiteServer {
     addr: SocketAddr,
-    shutdown_flag: Arc<AtomicBool>,
+    shutdown: ShutdownSignal,
     router: Arc<Mutex<PublicSiteRouter>>,
+    access_logs: AccessLogRingBuffer,
     accept_thread: Option<JoinHandle<()>>,
 }
 
 impl TcpPublicSiteServer {
     /// Binds a real TCP listener on `bind_addr` (e.g. `"127.0.0.1:8082"` or `"127.0.0.1:0"`).
     pub fn bind(bind_addr: &str, router: PublicSiteRouter) -> std::io::Result<Self> {
-        let listener = TcpListener::bind(bind_addr)?;
-        let addr = listener.local_addr()?;
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let shared = Arc::new(Mutex::new(router));
+        Self::bind_with_shutdown(bind_addr, router, ShutdownSignal::new())
+    }
 
-        let flag = Arc::clone(&shutdown_flag);
+    /// Binds a real TCP listener on `bind_addr` controlled by a caller-supplied [`ShutdownSignal`].
+    pub fn bind_with_shutdown(
+        bind_addr: &str,
+        router: PublicSiteRouter,
+        shutdown: ShutdownSignal,
+    ) -> std::io::Result<Self> {
+        let listener = TcpListener::bind(bind_addr)?;
+        listener.set_nonblocking(true)?;
+        let addr = listener.local_addr()?;
+        let shared = Arc::new(Mutex::new(router));
+        let access_logs = AccessLogRingBuffer::from_env(DEFAULT_ACCESS_LOG_CAPACITY);
+
+        let flag = shutdown.clone();
         let shared_router = Arc::clone(&shared);
+        let logs = access_logs.clone();
         let accept_thread = thread::spawn(move || {
-            for stream_res in listener.incoming() {
-                if flag.load(Ordering::SeqCst) {
-                    break;
+            while !flag.is_triggered() {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let _ = stream.set_nonblocking(false);
+                        if flag.is_triggered() {
+                            break;
+                        }
+                        handle_tcp_connection(stream, &shared_router, &logs);
+                    }
+                    Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
                 }
-                let Ok(stream) = stream_res else {
-                    continue;
-                };
-                handle_tcp_connection(stream, &shared_router);
             }
         });
 
         Ok(Self {
             addr,
-            shutdown_flag,
+            shutdown,
             router: shared,
+            access_logs,
             accept_thread: Some(accept_thread),
         })
     }
@@ -64,10 +89,29 @@ impl TcpPublicSiteServer {
         Arc::clone(&self.router)
     }
 
+    /// Returns a cloneable [`ShutdownSignal`] that gracefully stops this server's accept loop.
+    #[must_use]
+    pub fn shutdown_signal(&self) -> ShutdownSignal {
+        self.shutdown.clone()
+    }
+
+    /// Returns a snapshot of recorded zero-PHI structured JSON access events.
+    #[must_use]
+    pub fn access_logs(&self) -> Vec<ZeroPhiAccessEvent> {
+        self.access_logs.snapshot()
+    }
+
+    /// Returns `true` while the accept thread is still running.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.accept_thread
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished())
+    }
+
     /// Gracefully stops the listener loop and joins the accept thread.
     pub fn shutdown(mut self) {
-        self.shutdown_flag.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.addr);
+        self.shutdown.trigger();
         if let Some(handle) = self.accept_thread.take() {
             let _ = handle.join();
         }
@@ -76,8 +120,7 @@ impl TcpPublicSiteServer {
 
 impl Drop for TcpPublicSiteServer {
     fn drop(&mut self) {
-        self.shutdown_flag.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.addr);
+        self.shutdown.trigger();
         if let Some(handle) = self.accept_thread.take() {
             let _ = handle.join();
         }
@@ -86,12 +129,17 @@ impl Drop for TcpPublicSiteServer {
 
 enum ReadOutcome {
     Request { req: PublicRequest, is_head: bool },
-    PayloadTooLarge,
-    BadRequest,
+    PayloadTooLarge { method: String, target: String },
+    BadRequest { method: String, target: String },
     Closed,
 }
 
-fn handle_tcp_connection(mut stream: TcpStream, router: &Arc<Mutex<PublicSiteRouter>>) {
+fn handle_tcp_connection(
+    mut stream: TcpStream,
+    router: &Arc<Mutex<PublicSiteRouter>>,
+    access_logs: &AccessLogRingBuffer,
+) {
+    let started = Instant::now();
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
 
@@ -99,30 +147,72 @@ fn handle_tcp_connection(mut stream: TcpStream, router: &Arc<Mutex<PublicSiteRou
         .peer_addr()
         .map_or_else(|_| "127.0.0.1".to_owned(), |a| a.ip().to_string());
 
-    let now_ms = SystemTime::now()
+    let now_duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+        .unwrap_or_default();
+    let now_ms = u64::try_from(now_duration.as_millis()).unwrap_or(u64::MAX);
+    let timestamp_secs = now_duration.as_secs();
 
-    let (response, is_head) = match read_request(&stream, client_ip) {
-        ReadOutcome::Closed => return,
-        ReadOutcome::BadRequest => (simple_text_response(400, "Bad Request"), false),
-        ReadOutcome::PayloadTooLarge => (
-            simple_text_response(413, "Payload Too Large (64 KiB limit exceeded)"),
-            false,
-        ),
-        ReadOutcome::Request { req, is_head } => {
-            let resp = match router.lock() {
-                Ok(mut guard) => guard.handle(&req, now_ms),
-                Err(_) => simple_text_response(500, "Internal Server Error"),
-            };
-            (resp, is_head)
-        }
-    };
+    let (response, is_head, method_label, raw_target, request_id) =
+        match read_request(&stream, client_ip) {
+            ReadOutcome::Closed => return,
+            ReadOutcome::BadRequest { method, target } => {
+                let req_id = HttpRequestId::parse_or_generate(None, "public");
+                let mut resp = simple_text_response(400, "Bad Request");
+                resp.headers
+                    .insert(REQUEST_ID_HEADER.to_owned(), req_id.as_str().to_owned());
+                (resp, false, method, target, req_id)
+            }
+            ReadOutcome::PayloadTooLarge { method, target } => {
+                let req_id = HttpRequestId::parse_or_generate(None, "public");
+                let mut resp =
+                    simple_text_response(413, "Payload Too Large (64 KiB limit exceeded)");
+                resp.headers
+                    .insert(REQUEST_ID_HEADER.to_owned(), req_id.as_str().to_owned());
+                (resp, false, method, target, req_id)
+            }
+            ReadOutcome::Request { req, is_head } => {
+                let method_label = if is_head {
+                    "HEAD".to_owned()
+                } else {
+                    req.method.clone()
+                };
+                let raw_target = req.path_and_query.clone();
+                let incoming_id = req.header(REQUEST_ID_HEADER).map(str::to_owned);
+                let mut resp = match router.lock() {
+                    Ok(mut guard) => guard.handle(&req, now_ms),
+                    Err(_) => simple_text_response(500, "Internal Server Error"),
+                };
+                let req_id = resp
+                    .headers
+                    .get(REQUEST_ID_HEADER)
+                    .and_then(|v| HttpRequestId::parse(v))
+                    .unwrap_or_else(|| {
+                        let id = HttpRequestId::parse_or_generate(incoming_id.as_deref(), "public");
+                        resp.headers
+                            .insert(REQUEST_ID_HEADER.to_owned(), id.as_str().to_owned());
+                        id
+                    });
+                (resp, is_head, method_label, raw_target, req_id)
+            }
+        };
 
+    let status = response.status;
     let wire = serialize_http1(&response, is_head);
     let _ = stream.write_all(&wire);
     let _ = stream.flush();
     let _ = stream.shutdown(Shutdown::Write);
+
+    let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    access_logs.record(ZeroPhiAccessEvent {
+        timestamp_secs,
+        service: "ef-public-site".to_owned(),
+        request_id,
+        method: method_label,
+        route_template: ZeroPhiRouteTemplate::from_target(&raw_target),
+        status,
+        latency_us,
+    });
 
     // Drain any unread request bytes (e.g., rejected 413 body) so Linux closes cleanly with FIN.
     let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
@@ -151,10 +241,16 @@ fn read_request(stream: &TcpStream, client_ip: String) -> ReadOutcome {
     let trimmed = request_line.trim_end_matches(['\r', '\n']);
     let mut parts = trimmed.split_whitespace();
     let Some(raw_method) = parts.next() else {
-        return ReadOutcome::BadRequest;
+        return ReadOutcome::BadRequest {
+            method: "UNKNOWN".to_owned(),
+            target: "/".to_owned(),
+        };
     };
     let Some(target) = parts.next() else {
-        return ReadOutcome::BadRequest;
+        return ReadOutcome::BadRequest {
+            method: raw_method.to_owned(),
+            target: "/".to_owned(),
+        };
     };
     let is_head = raw_method == "HEAD";
     let method = if is_head { "GET" } else { raw_method };
@@ -179,17 +275,28 @@ fn read_request(stream: &TcpStream, client_ip: String) -> ReadOutcome {
         None => 0usize,
         Some(raw) => match raw.parse::<usize>() {
             Ok(n) => n,
-            Err(_) => return ReadOutcome::BadRequest,
+            Err(_) => {
+                return ReadOutcome::BadRequest {
+                    method: raw_method.to_owned(),
+                    target: target.to_owned(),
+                };
+            }
         },
     };
 
     if content_length > PUBLIC_MAX_BODY_BYTES {
-        return ReadOutcome::PayloadTooLarge;
+        return ReadOutcome::PayloadTooLarge {
+            method: raw_method.to_owned(),
+            target: target.to_owned(),
+        };
     }
 
     let mut body = vec![0u8; content_length];
     if content_length > 0 && reader.read_exact(&mut body).is_err() {
-        return ReadOutcome::BadRequest;
+        return ReadOutcome::BadRequest {
+            method: raw_method.to_owned(),
+            target: target.to_owned(),
+        };
     }
 
     ReadOutcome::Request {
@@ -197,6 +304,7 @@ fn read_request(stream: &TcpStream, client_ip: String) -> ReadOutcome {
             method: method.to_owned(),
             path_and_query: target.to_owned(),
             client_ip,
+            headers,
             body,
         },
         is_head,

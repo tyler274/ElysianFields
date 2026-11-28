@@ -221,6 +221,7 @@ def request(
     *,
     method: str = "GET",
     body: dict | None = None,
+    headers: dict[str, str] | None = None,
     timeout: float = 20.0,
     retry_statuses: tuple[int, ...] = (),
 ) -> tuple[int, dict[str, str], str]:
@@ -229,6 +230,8 @@ def request(
     last_status: int | None = None
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers_in = {"Content-Type": "application/json"} if data is not None else {}
+    if headers:
+        headers_in.update(headers)
     while time.monotonic() < deadline:
         req = urllib.request.Request(f"{base}{path}", data=data, headers=headers_in, method=method)
         try:
@@ -249,10 +252,21 @@ def request(
     raise RuntimeError(f"timed out requesting {method} {base}{path}: last_status={last_status} last_err={last_err}")
 
 
+REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
 def assert_gateway_headers(hdrs: dict[str, str], route: str) -> None:
     assert hdrs.get("x-content-type-options") == "nosniff", f"{route}: missing nosniff ({hdrs})"
     assert hdrs.get("x-frame-options") == "DENY", f"{route}: missing X-Frame-Options DENY ({hdrs})"
     assert hdrs.get("referrer-policy") == "no-referrer", f"{route}: missing Referrer-Policy ({hdrs})"
+
+
+def assert_request_id(hdrs: dict[str, str], route: str, expected: str | None = None) -> str:
+    req_id = hdrs.get("x-request-id", "")
+    assert REQUEST_ID_RE.match(req_id), f"{route}: missing or invalid X-Request-Id ({req_id!r}, hdrs={hdrs})"
+    if expected is not None:
+        assert req_id == expected, f"{route}: expected echoed X-Request-Id {expected!r}, got {req_id!r}"
+    return req_id
 
 
 def extract_gauge(metrics_text: str, name: str) -> int:
@@ -261,14 +275,16 @@ def extract_gauge(metrics_text: str, name: str) -> int:
     return int(match.group(1))
 
 
-# 1. Public site via Caddy gateway (/) + security headers + /dei crisis-first + /grafana/ 404.
+# 1. Public site via Caddy gateway (/) + security headers + X-Request-Id + /dei crisis-first + /grafana/ 404.
 pub_code, pub_hdrs, pub_body = request("/")
 assert pub_code == 200, f"GET / expected 200, got {pub_code}"
 assert_gateway_headers(pub_hdrs, "/")
+assert_request_id(pub_hdrs, "/")
 
 dei_code, dei_hdrs, dei_body = request("/dei")
 assert dei_code == 200, f"GET /dei expected 200, got {dei_code}"
 assert_gateway_headers(dei_hdrs, "/dei")
+assert_request_id(dei_hdrs, "/dei")
 idx_988, idx_911, idx_samhsa = dei_body.find("988"), dei_body.find("911"), dei_body.find("SAMHSA")
 facility_markers = [
     dei_body.find(m)
@@ -278,24 +294,33 @@ facility_markers = [
 assert min(idx_988, idx_911, idx_samhsa) >= 0 and facility_markers
 assert max(idx_988, idx_911, idx_samhsa) < min(facility_markers)
 
-graf_code, _, _ = request("/grafana/")
+graf_code, graf_hdrs, _ = request("/grafana/")
 assert graf_code == 404, f"GET /grafana/ expected 404, got {graf_code}"
+assert_request_id(graf_hdrs, "/grafana/")
 
-# 2. Clinic Wasm shell + /api/health + /api/metrics via Caddy gateway.
+# 2. Clinic Wasm shell + /api/health + /api/healthz + /api/metrics via Caddy gateway.
 clinic_shell_code, clinic_shell_hdrs, clinic_shell_body = request("/elysianfields/")
 assert clinic_shell_code == 200, f"GET /elysianfields/ expected 200, got {clinic_shell_code}"
 assert_gateway_headers(clinic_shell_hdrs, "/elysianfields/")
+assert_request_id(clinic_shell_hdrs, "/elysianfields/")
 assert "/elysianfields" in clinic_shell_body
 
-clinic_health_code, _, clinic_health_body = request("/elysianfields/api/health")
+clinic_health_code, clinic_health_hdrs, clinic_health_body = request("/elysianfields/api/health")
 assert clinic_health_code == 200, f"GET /elysianfields/api/health expected 200, got {clinic_health_code}"
+assert_request_id(clinic_health_hdrs, "/elysianfields/api/health")
 clinic_health_json = json.loads(clinic_health_body)
 assert clinic_health_json.get("db_healthy") is True, f"clinic health not db_healthy: {clinic_health_json}"
 
-# 3. Mobile PWA + /mobile-api/readyz + /mobile-api/metrics via Caddy gateway.
+clinic_healthz_code, clinic_healthz_hdrs, clinic_healthz_body = request("/elysianfields/api/healthz")
+assert clinic_healthz_code == 200, f"GET /elysianfields/api/healthz expected 200, got {clinic_healthz_code}"
+assert_request_id(clinic_healthz_hdrs, "/elysianfields/api/healthz")
+assert json.loads(clinic_healthz_body).get("db_healthy") is True
+
+# 3. Mobile PWA + /mobile-api/readyz + /mobile-api/healthz + /mobile-api/metrics via Caddy gateway.
 mobile_pwa_code, mobile_pwa_hdrs, mobile_pwa_body = request("/elysianfields/mobile/")
 assert mobile_pwa_code == 200, f"GET /elysianfields/mobile/ expected 200, got {mobile_pwa_code}"
 assert_gateway_headers(mobile_pwa_hdrs, "/elysianfields/mobile/")
+assert_request_id(mobile_pwa_hdrs, "/elysianfields/mobile/")
 assert "/elysianfields/mobile" in mobile_pwa_body
 
 mobile_manifest_code, mobile_manifest_hdrs, _ = request("/elysianfields/mobile/manifest.webmanifest")
@@ -307,15 +332,29 @@ assert "application/manifest+json" in mobile_manifest_hdrs.get("content-type", "
 mobile_sw_code, _, _ = request("/elysianfields/mobile/sw.js")
 assert mobile_sw_code == 200, f"GET /elysianfields/mobile/sw.js expected 200, got {mobile_sw_code}"
 
-mobile_readyz_code, _, mobile_readyz_body = request("/elysianfields/mobile-api/readyz")
+mobile_readyz_code, mobile_readyz_hdrs, mobile_readyz_body = request("/elysianfields/mobile-api/readyz")
 assert mobile_readyz_code == 200, f"GET /elysianfields/mobile-api/readyz expected 200, got {mobile_readyz_code}"
+assert_request_id(mobile_readyz_hdrs, "/elysianfields/mobile-api/readyz")
 mobile_readyz_json = json.loads(mobile_readyz_body)
 assert mobile_readyz_json.get("ready") is True
 assert mobile_readyz_json.get("restore_replay_verified") is True
 
-mobile_metrics_code, _, mobile_metrics_body = request("/elysianfields/mobile-api/metrics")
+mobile_healthz_code, mobile_healthz_hdrs, mobile_healthz_body = request("/elysianfields/mobile-api/healthz")
+assert mobile_healthz_code == 200, f"GET /elysianfields/mobile-api/healthz expected 200, got {mobile_healthz_code}"
+assert_request_id(mobile_healthz_hdrs, "/elysianfields/mobile-api/healthz")
+assert json.loads(mobile_healthz_body).get("ready") is True
+
+mobile_metrics_code, mobile_metrics_hdrs, mobile_metrics_body = request("/elysianfields/mobile-api/metrics")
 assert mobile_metrics_code == 200, f"GET /elysianfields/mobile-api/metrics expected 200, got {mobile_metrics_code}"
+assert_request_id(mobile_metrics_hdrs, "/elysianfields/mobile-api/metrics")
 assert extract_gauge(mobile_metrics_body, "ef_mobile_db_ready") == 1
+
+# 3b. End-to-end X-Request-Id trace propagation echo across all 3 backends through Caddy.
+trace_id = "ef-compose-trace-42"
+for trace_route in ("/", "/elysianfields/api/healthz", "/elysianfields/mobile-api/healthz"):
+    tr_code, tr_hdrs, _ = request(trace_route, headers={"X-Request-Id": trace_id})
+    assert tr_code == 200, f"trace probe GET {trace_route} expected 200, got {tr_code}"
+    assert_request_id(tr_hdrs, trace_route, expected=trace_id)
 
 # 4. Live Clinic auth write -> PG18 durable WAL -> unauthenticated prompt rejected (401) -> container restart replay.
 probe_email = "compose-e2e-probe@clinic.example"
@@ -333,8 +372,9 @@ unauth_prompt_code, _, _ = request(
 )
 assert unauth_prompt_code == 401, f"unauthenticated chat command expected 401, got {unauth_prompt_code}"
 
-clinic_metrics_code, _, clinic_metrics_body = request("/elysianfields/api/metrics")
+clinic_metrics_code, clinic_metrics_hdrs, clinic_metrics_body = request("/elysianfields/api/metrics")
 assert clinic_metrics_code == 200, f"GET /elysianfields/api/metrics expected 200, got {clinic_metrics_code}"
+assert_request_id(clinic_metrics_hdrs, "/elysianfields/api/metrics")
 assert extract_gauge(clinic_metrics_body, "ef_clinic_db_ready") == 1
 wal_seq_before_restart = extract_gauge(clinic_metrics_body, "ef_clinic_wal_seq")
 assert wal_seq_before_restart >= 1, f"expected ef_clinic_wal_seq >= 1 after auth write, got {wal_seq_before_restart}"
@@ -424,6 +464,7 @@ report = {
         "mobile_sw_status": mobile_sw_code,
         "mobile_readyz_verified": True,
         "mobile_metrics_db_ready": 1,
+        "request_id_propagation_verified": True,
         "zero_phi_in_metrics": True,
     },
 }
