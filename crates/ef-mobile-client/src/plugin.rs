@@ -12,7 +12,7 @@ use ef_core::IdempotencyKey;
 use ef_mobile_domain::{
     AccountFencedHealthBatch, ConnectivityState, HealthSampleEntry, HealthTransactionalOutbox,
     IncomingBatchItem, MobileClientScreen, MobileDeviceAuthState, MobileSessionId, PatientRecord,
-    PushTokenRegistry, SavepointBatchReport,
+    PortablePatientExport, PushTokenRegistry, SavepointBatchReport,
 };
 use ef_ui_catalog::{
     A11yNodeMarker, A11ySemanticKey, ChromeProduct, ComposerAction, ComposerSurface,
@@ -84,6 +84,7 @@ pub enum MobileClientCommand {
     ConnectedCareDisconnect {
         connection_id: ConnectionId,
     },
+    ExportData,
     DeleteAccount {
         event_id: String,
         occurred_at: String,
@@ -122,6 +123,7 @@ pub struct MobileClientState {
     pub last_dob_outcome: Option<DobVerificationOutcome>,
     pub last_connection_standing: Option<ConnectionStanding>,
     pub sent_envelopes: Vec<TransferEnvelope>,
+    pub last_export: Option<PortablePatientExport>,
     pub last_delete_receipt: Option<AccountDeleteReceipt>,
     pub errors: Vec<String>,
     pub frames_drawn: u64,
@@ -146,6 +148,7 @@ impl Default for MobileClientState {
             last_dob_outcome: None,
             last_connection_standing: None,
             sent_envelopes: Vec::new(),
+            last_export: None,
             last_delete_receipt: None,
             errors: Vec::new(),
             frames_drawn: 0,
@@ -166,6 +169,7 @@ impl MobileClientState {
         self.last_dob_outcome = None;
         self.last_connection_standing = None;
         self.sent_envelopes.clear();
+        self.last_export = None;
         let _ = composer.apply(ComposerAction::SelectAll);
         let _ = composer.apply(ComposerAction::Backspace);
     }
@@ -494,6 +498,22 @@ fn process_mobile_client_commands(
                 ) {
                     Ok(standing) => {
                         state.last_connection_standing = Some(standing);
+                        gate.request_redraw(RedrawReason::StreamDelta);
+                    }
+                    Err(err) => state.errors.push(err.to_string()),
+                }
+            }
+            MobileClientCommand::ExportData => {
+                let Some(session_id) = state.current_session_id() else {
+                    continue;
+                };
+                let now = state.clock_secs;
+                match transport_res
+                    .transport
+                    .export_patient_data(&session_id, now)
+                {
+                    Ok(export) => {
+                        state.last_export = Some(export);
                         gate.request_redraw(RedrawReason::StreamDelta);
                     }
                     Err(err) => state.errors.push(err.to_string()),

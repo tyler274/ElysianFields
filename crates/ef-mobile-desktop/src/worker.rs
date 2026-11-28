@@ -16,13 +16,16 @@ use ef_connected_care::{
 };
 use ef_core::IdempotencyKey;
 use ef_mobile_client::{
-    LiveHttpMobileTransport, MobileClientState, MobileClientTransport, MobileTransportError,
+    AccountDeleteReceipt, LiveHttpMobileTransport, MobileClientState, MobileClientTransport,
+    MobileTransportError,
 };
 use ef_mobile_domain::{
     AccountFencedHealthBatch, HealthSampleEntry, IncomingBatchItem, MobileAuthAuthority,
-    MobileSessionId, PatientRecord, VerifiedMobileSession,
+    MobileSessionId, PatientRecord, PortablePatientExport, VerifiedMobileSession,
 };
-use ef_ui_catalog::{ComposerAction, ComposerSurface, IdleRedrawGate, RedrawReason};
+use ef_ui_catalog::{
+    ComposerAction, ComposerSurface, IdleRedrawGate, RedrawReason, UiKey, UiLocale, translate,
+};
 use thiserror::Error;
 
 use crate::state::MobileDesktopUiState;
@@ -35,8 +38,11 @@ pub enum WorkerOperation {
     FlushOwedSignOuts,
     VerifyDob,
     ShareConnectedCare,
+    DisconnectConnectedCare,
     SendForMyDoctor,
     SyncHealthSnapshot,
+    ExportData,
+    DeleteAccount,
 }
 
 impl WorkerOperation {
@@ -48,8 +54,11 @@ impl WorkerOperation {
             Self::FlushOwedSignOuts => "Flushing owed sign-outs to live server...",
             Self::VerifyDob => "Verifying date of birth with live server...",
             Self::ShareConnectedCare => "Submitting Connected Care sharing consent...",
+            Self::DisconnectConnectedCare => "Disconnecting Connected Care...",
             Self::SendForMyDoctor => "Delivering curated note to your doctor...",
             Self::SyncHealthSnapshot => "Syncing personal health trends & records...",
+            Self::ExportData => "Exporting portable patient data...",
+            Self::DeleteAccount => "Permanently deleting mobile account...",
         }
     }
 }
@@ -103,6 +112,21 @@ pub enum LiveWorkerRequest {
         records: Vec<IncomingBatchItem>,
         now_secs: u64,
     },
+    ExportData {
+        session_id: MobileSessionId,
+        now_secs: u64,
+    },
+    DisconnectConnectedCare {
+        session_id: MobileSessionId,
+        connection_id: ConnectionId,
+        now_secs: u64,
+    },
+    DeleteAccount {
+        session_id: MobileSessionId,
+        event_id: String,
+        occurred_at: String,
+        now_secs: u64,
+    },
 }
 
 impl LiveWorkerRequest {
@@ -114,8 +138,11 @@ impl LiveWorkerRequest {
             Self::FlushOwedSignOuts { .. } => WorkerOperation::FlushOwedSignOuts,
             Self::VerifyDob { .. } => WorkerOperation::VerifyDob,
             Self::ShareConnectedCare { .. } => WorkerOperation::ShareConnectedCare,
+            Self::DisconnectConnectedCare { .. } => WorkerOperation::DisconnectConnectedCare,
             Self::SendForMyDoctor { .. } => WorkerOperation::SendForMyDoctor,
             Self::SyncHealthSnapshot { .. } => WorkerOperation::SyncHealthSnapshot,
+            Self::ExportData { .. } => WorkerOperation::ExportData,
+            Self::DeleteAccount { .. } => WorkerOperation::DeleteAccount,
         }
     }
 }
@@ -144,6 +171,15 @@ pub enum LiveWorkerResponse {
     },
     SyncHealthSnapshot {
         result: Result<(Vec<HealthSampleEntry>, Vec<PatientRecord>), MobileTransportError>,
+    },
+    ExportData {
+        result: Result<PortablePatientExport, MobileTransportError>,
+    },
+    DisconnectConnectedCare {
+        result: Result<ConnectionStanding, MobileTransportError>,
+    },
+    DeleteAccount {
+        result: Result<AccountDeleteReceipt, MobileTransportError>,
     },
 }
 
@@ -339,6 +375,27 @@ fn run_worker_loop(
                     });
                 LiveWorkerResponse::SyncHealthSnapshot { result }
             }
+            LiveWorkerRequest::ExportData {
+                session_id,
+                now_secs,
+            } => LiveWorkerResponse::ExportData {
+                result: transport.export_patient_data(&session_id, now_secs),
+            },
+            LiveWorkerRequest::DisconnectConnectedCare {
+                session_id,
+                connection_id,
+                now_secs,
+            } => LiveWorkerResponse::DisconnectConnectedCare {
+                result: transport.connected_care_disconnect(&session_id, connection_id, now_secs),
+            },
+            LiveWorkerRequest::DeleteAccount {
+                session_id,
+                event_id,
+                occurred_at,
+                now_secs,
+            } => LiveWorkerResponse::DeleteAccount {
+                result: transport.delete_account(&session_id, &event_id, &occurred_at, now_secs),
+            },
         };
 
         if resp_tx.send(response).is_err() {
@@ -359,6 +416,7 @@ pub fn clear_visible_account_state(
     mobile_state.last_dob_outcome = None;
     mobile_state.last_connection_standing = None;
     mobile_state.sent_envelopes.clear();
+    mobile_state.last_export = None;
     let _ = composer.apply(ComposerAction::SelectAll);
     let _ = composer.apply(ComposerAction::Backspace);
 }
@@ -369,6 +427,7 @@ pub fn poll_live_server_worker_system(
     mut mobile_state: ResMut<MobileClientState>,
     mut desktop: ResMut<MobileDesktopUiState>,
     mut composer: ResMut<ComposerSurface>,
+    ui_locale: Res<UiLocale>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
     let Some(mut worker) = live_worker else {
@@ -487,6 +546,62 @@ pub fn poll_live_server_worker_system(
                 Err(err) => {
                     mobile_state.errors.push(err.to_string());
                     desktop.set_status_message(format!("Health sync failed: {err}"));
+                }
+            },
+            LiveWorkerResponse::ExportData { result } => match result {
+                Ok(export) => {
+                    if matches!(
+                        mobile_state.auth_device.screen(),
+                        ef_mobile_domain::MobileClientScreen::SignedIn { .. }
+                    ) {
+                        let sample_count = export.health_samples.len();
+                        let record_count = export.records.len();
+                        mobile_state.last_export = Some(export);
+                        desktop.set_status_message(format!(
+                            "{} ({sample_count} sample(s), {record_count} record(s)).",
+                            translate(ui_locale.current, UiKey::MobileExportReady)
+                        ));
+                    }
+                }
+                Err(err) => {
+                    mobile_state.errors.push(err.to_string());
+                    desktop.set_status_message(format!("Export failed: {err}"));
+                }
+            },
+            LiveWorkerResponse::DisconnectConnectedCare { result } => match result {
+                Ok(standing) => {
+                    if matches!(
+                        mobile_state.auth_device.screen(),
+                        ef_mobile_domain::MobileClientScreen::SignedIn { .. }
+                    ) {
+                        mobile_state.last_connection_standing = Some(standing);
+                        desktop.set_status_message("Connected Care disconnected.");
+                    }
+                }
+                Err(err) => {
+                    mobile_state.errors.push(err.to_string());
+                    desktop.set_status_message(format!("Disconnect failed: {err}"));
+                }
+            },
+            LiveWorkerResponse::DeleteAccount { result } => match result {
+                Ok(receipt) => {
+                    let _ = mobile_state
+                        .push_registry
+                        .revoke_device("desktop-mobile-device");
+                    // Enforce SignInHoldsNothing immediately upon permanent deletion.
+                    clear_visible_account_state(&mut mobile_state, &mut composer);
+                    mobile_state.last_delete_receipt = Some(receipt.clone());
+                    let mut shadow = MobileAuthAuthority::new();
+                    let _ = mobile_state.auth_device.sign_out(&mut shadow);
+                    desktop.set_status_message(format!(
+                        "{} (receipt: {})",
+                        translate(ui_locale.current, UiKey::MobileAccountDeleted),
+                        receipt.receipt_event_id
+                    ));
+                }
+                Err(err) => {
+                    mobile_state.errors.push(err.to_string());
+                    desktop.set_status_message(format!("Account deletion failed: {err}"));
                 }
             },
         }
