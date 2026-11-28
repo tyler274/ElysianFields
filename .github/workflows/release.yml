@@ -132,8 +132,8 @@ jobs:
       - name: Cache macOS Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-macos-arm64
-          shared-key: cross-macos-arm64
+          key: cross-macos-arm64-v2
+          shared-key: cross-macos-arm64-v2
           cache-on-failure: true
 
       - name: Build, smoke-test, and package macOS ARM64 desktop bundle
@@ -182,8 +182,8 @@ jobs:
       - name: Cache Windows Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-windows-msvc
-          shared-key: cross-windows-msvc
+          key: cross-windows-msvc-v2
+          shared-key: cross-windows-msvc-v2
           cache-on-failure: true
 
       - name: Build, smoke-test, and package Windows x86_64 desktop bundle
@@ -230,8 +230,8 @@ jobs:
       - name: Cache wasm32 Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm32-v2
-          shared-key: wasm32-v2
+          key: wasm32-v3
+          shared-key: wasm32-v3
           cache-on-failure: true
 
       - name: Build release Wasm modules and package /elysianfields static bundle
@@ -314,10 +314,28 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  cargo-deny:
+    name: Pre-release cargo-deny gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check advisories, bans, licenses, and sources
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+          command-arguments: advisories bans licenses sources
+
   publish-release:
-    name: Aggregate SHA256SUMS & Publish GitHub Release
+    name: Aggregate SHA256SUMS, SBOM & Publish GitHub Release
     needs:
       - resolve-version
+      - cargo-deny
       - package-desktop-linux
       - package-desktop-macos
       - package-desktop-windows
@@ -337,13 +355,24 @@ jobs:
         with:
           path: release-stage
 
+      - name: Generate and verify deterministic CycloneDX 1.5 SBOM
+        env:
+          RELEASE_VERSION: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          mkdir -p release-assets
+          sbom_file="release-assets/elysian-fields-${RELEASE_VERSION}-sbom.cdx.json"
+          python3 scripts/generate_sbom.py \
+            --version "${RELEASE_VERSION}" \
+            --out "${sbom_file}"
+          python3 scripts/generate_sbom.py --verify --out "${sbom_file}"
+
       - name: Aggregate and verify SHA256SUMS.txt
         run: |
           mkdir -p release-assets
           find release-stage -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
           (
             cd release-assets
-            sha256sum *.tar.gz *.zip | sort -k2 > SHA256SUMS.txt
+            sha256sum *.tar.gz *.zip *.cdx.json | sort -k2 > SHA256SUMS.txt
             sha256sum -c SHA256SUMS.txt
             cat SHA256SUMS.txt
           )

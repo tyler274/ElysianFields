@@ -263,6 +263,48 @@ class DeployAndLocalStackTests(unittest.TestCase):
             self.assertGreater(len(content.strip()), 200, f"chapter {chapter} appears empty")
             self.assertNotRegex(content, r"\bTYL-[0-9]+\b")
 
+    def test_release_workflow_cache_alignment_cargo_deny_and_sbom_wiring(self) -> None:
+        release_wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        for needle in (
+            "key: cross-desktop-linux-v2",
+            "shared-key: cross-desktop-linux-v2",
+            "key: cross-macos-arm64-v2",
+            "shared-key: cross-macos-arm64-v2",
+            "key: cross-windows-msvc-v2",
+            "shared-key: cross-windows-msvc-v2",
+            "key: wasm32-v3",
+            "shared-key: wasm32-v3",
+            "cargo-deny:",
+            "EmbarkStudios/cargo-deny-action@v2",
+            "- cargo-deny",
+            "scripts/generate_sbom.py",
+            "--verify",
+            "-sbom.cdx.json",
+            "*.cdx.json",
+            "SHA256SUMS.txt",
+        ):
+            self.assertIn(needle, release_wf, f"missing `{needle}` in .github/workflows/release.yml")
+
+        self.assertNotIn("key: wasm32-v2", release_wf)
+        self.assertNotIn("shared-key: wasm32-v2", release_wf)
+        self.assertNotRegex(release_wf, r"(?m)key: cross-macos-arm64\s*$")
+        self.assertNotRegex(release_wf, r"(?m)key: cross-windows-msvc\s*$")
+
+    def test_ci_and_dev_check_wire_check_book_verifier(self) -> None:
+        ci_wf = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/check_book.py", ci_wf)
+
+        dev_check = (REPO_ROOT / "scripts" / "dev-check.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/check_book.py", dev_check)
+        self.assertIn("mdbook build book", dev_check)
+        syntax = subprocess.run(
+            ["bash", "-n", str(REPO_ROOT / "scripts" / "dev-check.sh")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
