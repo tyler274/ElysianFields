@@ -13,7 +13,10 @@ use ef_mobile_client::{
     MobileClientState, MobileTransportError, MobileTransportResource,
 };
 use ef_mobile_domain::{
-    ConnectivityState, MobileAuthAuthority, MobileClientScreen, MobileSessionId,
+    AccountFencedHealthBatch, AccountIncarnation, ClinicalRecordBucket,
+    ConfidentialityTag as RecordConfidentialityTag, ConnectivityState, HealthAdapterPlatform,
+    HealthMetricKind, HealthSampleEntry, ImportSourceKind, IncomingBatchItem, MobileAccountId,
+    MobileAuthAuthority, MobileClientScreen, MobileSessionId, PatientRecord, PortalVendor,
 };
 use ef_ui_catalog::{
     ChromeProduct, ComposerAction, ComposerOutcome, ComposerSurface, DesktopPreferences,
@@ -55,6 +58,7 @@ pub enum DesktopAction {
     ToggleConnectivity,
     OfflineSignOut,
     FlushOwedSignOuts,
+    SyncDemoHealthSnapshot,
     VerifyDob,
     ShareConnectedCare,
     ReviewAndSendDoctorNote,
@@ -164,6 +168,281 @@ impl OwedRecoveryBannerState {
     }
 }
 
+/// Product-local heading and privacy notices for the Personal Health Trends & Records card.
+pub const HEALTH_TRENDS_HEADING: &str = "Personal Health Trends & Records";
+pub const SYNC_DEMO_HEALTH_LABEL: &str = "Sync Demo Health Snapshot";
+pub const SIGNED_OUT_HEALTH_NOTICE: &str =
+    "Signed out — personal health trends and records are hidden until you sign in.";
+pub const SIGNED_IN_HEALTH_EMPTY_NOTICE: &str =
+    "No personal health trends synced yet. Select Sync Demo Health Snapshot to refresh.";
+
+/// Explicit typed projection for the Personal Health Trends & Records card.
+///
+/// Always derived directly from [`MobileClientState`] (no second authoritative store),
+/// enforcing `SignInHoldsNothing` whenever the account screen is not `SignedIn`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PersonalHealthPanelView {
+    /// Signed out: strictly zero health metrics or personal records are rendered.
+    SignedOut,
+    /// Signed in, no health trends or personal records synced yet.
+    SignedInEmpty,
+    /// Signed in with visible health trends and/or personal records.
+    SignedInPopulated {
+        trends_summary: String,
+        records_summary: String,
+        trend_count: usize,
+        record_count: usize,
+    },
+}
+
+impl PersonalHealthPanelView {
+    /// Derives the single authoritative health trends & records presentation directly from [`MobileClientState`].
+    #[must_use]
+    pub fn from_client_state(mobile_state: &MobileClientState) -> Self {
+        if !matches!(
+            mobile_state.auth_device.screen(),
+            MobileClientScreen::SignedIn { .. }
+        ) {
+            return Self::SignedOut;
+        }
+        if mobile_state.visible_health_trends.is_empty() && mobile_state.visible_records.is_empty()
+        {
+            return Self::SignedInEmpty;
+        }
+
+        let trends_summary = format_visible_health_trends(&mobile_state.visible_health_trends);
+        let records_summary = format_visible_records(&mobile_state.visible_records);
+        Self::SignedInPopulated {
+            trends_summary,
+            records_summary,
+            trend_count: mobile_state.visible_health_trends.len(),
+            record_count: mobile_state.visible_records.len(),
+        }
+    }
+
+    /// Returns the rendered body text for the health trend metrics slot.
+    #[must_use]
+    pub fn trends_body(&self) -> String {
+        match self {
+            Self::SignedOut => SIGNED_OUT_HEALTH_NOTICE.to_owned(),
+            Self::SignedInEmpty => SIGNED_IN_HEALTH_EMPTY_NOTICE.to_owned(),
+            Self::SignedInPopulated { trends_summary, .. } => trends_summary.clone(),
+        }
+    }
+
+    /// Returns the rendered body text for the personal health records slot (strictly empty when signed out).
+    #[must_use]
+    pub fn records_body(&self) -> String {
+        match self {
+            Self::SignedOut | Self::SignedInEmpty => String::new(),
+            Self::SignedInPopulated {
+                records_summary, ..
+            } => records_summary.clone(),
+        }
+    }
+}
+
+fn format_milli_value(value_milli: i64, decimals: u8) -> String {
+    let sign = if value_milli < 0 { "-" } else { "" };
+    let abs = value_milli.unsigned_abs();
+    let whole = abs / 1_000;
+    let frac = abs % 1_000;
+    match decimals {
+        0 => format!("{sign}{whole}"),
+        1 => format!("{sign}{whole}.{}", frac / 100),
+        _ => format!("{sign}{whole}.{:02}", frac / 10),
+    }
+}
+
+fn metric_display_label(metric: HealthMetricKind) -> (&'static str, u8) {
+    match metric {
+        HealthMetricKind::Steps => ("Daily Steps", 0),
+        HealthMetricKind::RestingHeartRate => ("Resting Heart Rate", 0),
+        HealthMetricKind::BloodPressure => ("Blood Pressure", 0),
+        HealthMetricKind::Sleep => ("Sleep Duration", 1),
+        HealthMetricKind::ActiveCalories => ("Active Calories", 0),
+        HealthMetricKind::Exercise => ("Exercise", 0),
+        HealthMetricKind::Distance => ("Distance", 1),
+        HealthMetricKind::Nutrition => ("Nutrition", 0),
+        HealthMetricKind::Hydration => ("Hydration", 1),
+        HealthMetricKind::Weight => ("Weight", 1),
+        HealthMetricKind::BodyFat => ("Body Fat", 1),
+        HealthMetricKind::LeanBodyMass => ("Lean Body Mass", 1),
+        HealthMetricKind::Height => ("Height", 1),
+        HealthMetricKind::BloodGlucose => ("Blood Glucose", 0),
+        HealthMetricKind::BodyTemperature => ("Body Temperature", 1),
+        HealthMetricKind::BasalBodyTemperature => ("Basal Temperature", 1),
+        HealthMetricKind::OxygenSaturation => ("Oxygen Saturation", 0),
+        HealthMetricKind::Vo2Max => ("VO2 Max", 1),
+    }
+}
+
+fn format_visible_health_trends(samples: &[HealthSampleEntry]) -> String {
+    if samples.is_empty() {
+        return "Health Trends: none synced yet.".to_owned();
+    }
+    // Display the latest sample per metric kind in canonical order.
+    let mut latest_by_metric: std::collections::BTreeMap<HealthMetricKind, &HealthSampleEntry> =
+        std::collections::BTreeMap::new();
+    for sample in samples {
+        latest_by_metric
+            .entry(sample.metric)
+            .and_modify(|existing| {
+                if sample.recorded_at_secs >= existing.recorded_at_secs {
+                    *existing = sample;
+                }
+            })
+            .or_insert(sample);
+    }
+
+    let ordered_primary = [
+        HealthMetricKind::Steps,
+        HealthMetricKind::RestingHeartRate,
+        HealthMetricKind::BloodPressure,
+        HealthMetricKind::Sleep,
+    ];
+    let mut lines = Vec::new();
+    for kind in ordered_primary {
+        if let Some(sample) = latest_by_metric.remove(&kind) {
+            let (label, decimals) = metric_display_label(kind);
+            let value = format_milli_value(sample.value_milli, decimals);
+            lines.push(format!("- {label}: {value} {}", sample.unit));
+        }
+    }
+    for (kind, sample) in latest_by_metric {
+        let (label, decimals) = metric_display_label(kind);
+        let value = format_milli_value(sample.value_milli, decimals);
+        lines.push(format!("- {label}: {value} {}", sample.unit));
+    }
+    lines.join("\n")
+}
+
+fn format_visible_records(records: &[PatientRecord]) -> String {
+    if records.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec![format!("Personal Records ({}):", records.len())];
+    for record in records {
+        lines.push(format!(
+            "- [{:?}] {} ({}): {}",
+            record.bucket, record.title, record.original_date, record.summary
+        ));
+    }
+    lines.join("\n")
+}
+
+fn build_demo_health_snapshot(
+    account_id: &MobileAccountId,
+    incarnation: AccountIncarnation,
+    seq: u64,
+    now_secs: u64,
+) -> (AccountFencedHealthBatch, Vec<IncomingBatchItem>) {
+    let step_offset = i64::try_from(seq.saturating_sub(1)).unwrap_or(0);
+    let recorded_at = now_secs.saturating_add(seq.saturating_mul(60));
+    let steps_milli = (8_240 + step_offset * 350) * 1_000;
+    let rhr_milli = (62 - (step_offset % 3)) * 1_000;
+    let bp_systolic_milli = (118 + (step_offset % 4)) * 1_000;
+    let sleep_milli = 7_400 + (step_offset % 3) * 150;
+
+    let batch = AccountFencedHealthBatch {
+        account_id: account_id.clone(),
+        account_incarnation: incarnation,
+        idempotency_key: format!("demo-health-snapshot-{seq}"),
+        samples: vec![
+            HealthSampleEntry {
+                sample_id: format!("steps-{seq}"),
+                metric: HealthMetricKind::Steps,
+                value_milli: steps_milli,
+                unit: "steps".to_owned(),
+                recorded_at_secs: recorded_at,
+                platform: HealthAdapterPlatform::IosHealthKit,
+            },
+            HealthSampleEntry {
+                sample_id: format!("rhr-{seq}"),
+                metric: HealthMetricKind::RestingHeartRate,
+                value_milli: rhr_milli,
+                unit: "bpm".to_owned(),
+                recorded_at_secs: recorded_at,
+                platform: HealthAdapterPlatform::IosHealthKit,
+            },
+            HealthSampleEntry {
+                sample_id: format!("bp-{seq}"),
+                metric: HealthMetricKind::BloodPressure,
+                value_milli: bp_systolic_milli,
+                unit: "mmHg systolic".to_owned(),
+                recorded_at_secs: recorded_at,
+                platform: HealthAdapterPlatform::AndroidHealthConnect,
+            },
+            HealthSampleEntry {
+                sample_id: format!("sleep-{seq}"),
+                metric: HealthMetricKind::Sleep,
+                value_milli: sleep_milli,
+                unit: "hours".to_owned(),
+                recorded_at_secs: recorded_at,
+                platform: HealthAdapterPlatform::AndroidHealthConnect,
+            },
+        ],
+    };
+
+    let mut records = vec![
+        IncomingBatchItem::Valid(PatientRecord {
+            record_id: "rec-hba1c-001".to_owned(),
+            version: seq,
+            account_id: account_id.clone(),
+            incarnation,
+            source_kind: ImportSourceKind::SmartFhirR4 {
+                vendor: PortalVendor::EpicMyChart,
+            },
+            portal_id: Some("portal-synthetic-valley".to_owned()),
+            bucket: ClinicalRecordBucket::Results,
+            confidentiality: RecordConfidentialityTag::Standard,
+            part2_notice: None,
+            original_date: "2026-01-10".to_owned(),
+            title: "HbA1c Lab Panel".to_owned(),
+            summary: format!("6.4% (snapshot #{seq}; down from 6.8% prior quarter)"),
+            native_bytes: b"synthetic-hba1c-fhir-r4".to_vec(),
+            removed_upstream: false,
+        }),
+        IncomingBatchItem::Valid(PatientRecord {
+            record_id: "rec-med-lisinopril-001".to_owned(),
+            version: seq,
+            account_id: account_id.clone(),
+            incarnation,
+            source_kind: ImportSourceKind::SmartHealthLink,
+            portal_id: None,
+            bucket: ClinicalRecordBucket::Medications,
+            confidentiality: RecordConfidentialityTag::Standard,
+            part2_notice: None,
+            original_date: "2026-01-04".to_owned(),
+            title: "Lisinopril 10 mg Daily".to_owned(),
+            summary: "Active daily antihypertensive regimen".to_owned(),
+            native_bytes: b"synthetic-med-shl".to_vec(),
+            removed_upstream: false,
+        }),
+    ];
+
+    if seq >= 2 {
+        records.push(IncomingBatchItem::Valid(PatientRecord {
+            record_id: "rec-visit-wellness-002".to_owned(),
+            version: seq,
+            account_id: account_id.clone(),
+            incarnation,
+            source_kind: ImportSourceKind::CcdaR21Xml,
+            portal_id: Some("portal-synthetic-valley".to_owned()),
+            bucket: ClinicalRecordBucket::Visits,
+            confidentiality: RecordConfidentialityTag::Standard,
+            part2_notice: None,
+            original_date: "2026-01-18".to_owned(),
+            title: "Primary Care Follow-Up".to_owned(),
+            summary: "Home blood pressure and sleep trend review on track".to_owned(),
+            native_bytes: b"synthetic-visit-ccda".to_vec(),
+            removed_upstream: false,
+        }));
+    }
+
+    (batch, records)
+}
+
 /// Single authoritative Curie Mobile desktop presentation state.
 #[derive(Debug, Resource)]
 pub struct MobileDesktopUiState {
@@ -178,6 +457,7 @@ pub struct MobileDesktopUiState {
     pub last_status: String,
     pub status_override: Option<String>,
     pub next_transfer_seq: u64,
+    pub next_health_sync_seq: u64,
     pub active_focus: MobileInputFocus,
     pub email_field: ComposerSurface,
     pub invite_code_field: ComposerSurface,
@@ -341,6 +621,7 @@ impl MobileDesktopUiState {
                     last_status: translate(config.locale, UiKey::MobileStatusReadyDemo).to_owned(),
                     status_override: None,
                     next_transfer_seq: 1,
+                    next_health_sync_seq: 1,
                     active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
@@ -375,6 +656,7 @@ impl MobileDesktopUiState {
                     ),
                     status_override: None,
                     next_transfer_seq: 1,
+                    next_health_sync_seq: 1,
                     active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
@@ -442,6 +724,22 @@ pub fn queue_owed_demo_preview(app: &mut App, config: &MobileDesktopConfig) {
     queue.push(MobileClientCommand::SetConnectivity(
         ConnectivityState::Online,
     ));
+}
+
+/// Seeds a deterministic signed-in demo session with populated Health Trends & Records
+/// when `--signed-in-demo` is set.
+pub fn queue_signed_in_demo_preview(app: &mut App, config: &MobileDesktopConfig) {
+    if !config.signed_in_demo || !matches!(config.mode, LaunchMode::Demo) {
+        return;
+    }
+    app.world_mut()
+        .resource_mut::<MobileClientCommandQueue>()
+        .push(MobileClientCommand::SignIn {
+            email: config.email.clone(),
+        });
+    app.world_mut()
+        .resource_mut::<DesktopActionQueue>()
+        .push(DesktopAction::SyncDemoHealthSnapshot);
 }
 
 /// Cycles to the next locale in the 12-locale compile-time catalog.
@@ -682,6 +980,59 @@ pub fn process_desktop_actions_system(
                 } else {
                     mobile_queue.push(MobileClientCommand::FlushOwedSignOuts);
                     desktop.set_status_message("Flushing queued owed sign-outs.");
+                }
+            }
+            DesktopAction::SyncDemoHealthSnapshot => {
+                let MobileClientScreen::SignedIn {
+                    account_id,
+                    incarnation,
+                    session_id,
+                    ..
+                } = mobile_state.auth_device.screen().clone()
+                else {
+                    desktop.set_status_message(
+                        "Sign in before syncing personal health trends and records.",
+                    );
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                };
+                if mobile_state.auth_device.connectivity() == ConnectivityState::Offline {
+                    desktop.set_status_message("Go online before syncing personal health trends.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                }
+                let seq = desktop.next_health_sync_seq;
+                desktop.next_health_sync_seq = desktop.next_health_sync_seq.saturating_add(1);
+                let now_secs = mobile_state.clock_secs;
+                let (batch, records) =
+                    build_demo_health_snapshot(&account_id, incarnation, seq, now_secs);
+
+                if let Some(worker) = live_worker.as_deref_mut() {
+                    match worker.submit(LiveWorkerRequest::SyncHealthSnapshot {
+                        session_id,
+                        batch,
+                        records,
+                        now_secs,
+                    }) {
+                        Ok(()) => {
+                            desktop.set_status_message(
+                                WorkerOperation::SyncHealthSnapshot.in_flight_label(),
+                            );
+                        }
+                        Err(err) => {
+                            mobile_state.errors.push(err.to_string());
+                            desktop
+                                .set_status_message(format!("Health sync dispatch failed: {err}"));
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else {
+                    mobile_queue.push(MobileClientCommand::QueueHealthBatch(batch));
+                    mobile_queue.push(MobileClientCommand::SyncHealthOutboxAndRefreshTrends);
+                    mobile_queue.push(MobileClientCommand::IngestRecords(records));
+                    mobile_queue.push(MobileClientCommand::RefreshRecords);
+                    desktop.set_status_message(format!("Synced personal health snapshot #{seq}."));
+                    gate.request_redraw(RedrawReason::StreamDelta);
                 }
             }
             DesktopAction::VerifyDob => {

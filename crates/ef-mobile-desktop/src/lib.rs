@@ -36,13 +36,16 @@ pub use smoke::{
 };
 pub use state::{
     CRISIS_LINE_911, CRISIS_LINE_988, CRISIS_LINE_SAMHSA, DEMO_DOB_DAY, DEMO_DOB_MONTH,
-    DEMO_DOB_YEAR, DesktopAction, DesktopActionQueue, MobileDesktopUiState, MobileModeKind,
-    OwedRecoveryBannerState, next_locale, queue_owed_demo_preview,
+    DEMO_DOB_YEAR, DesktopAction, DesktopActionQueue, HEALTH_TRENDS_HEADING, MobileDesktopUiState,
+    MobileModeKind, OwedRecoveryBannerState, PersonalHealthPanelView,
+    SIGNED_IN_HEALTH_EMPTY_NOTICE, SIGNED_OUT_HEALTH_NOTICE, SYNC_DEMO_HEALTH_LABEL, next_locale,
+    queue_owed_demo_preview, queue_signed_in_demo_preview,
 };
 pub use ui::{
     ActionButton, ButtonStyle, CardSurfaceNode, ComposerBoxNode, CrisisBannerNode,
-    CrisisBannerPalette, FLUSH_OWED_SIGN_OUTS_LABEL, FormInputBoxNode, MirroredRowNode,
-    MobileDesktopUiPlugin, OwedRecoveryBannerNode, RootCanvasNode, TextSlot, TextTone,
+    CrisisBannerPalette, FLUSH_OWED_SIGN_OUTS_LABEL, FormInputBoxNode, HealthTrendsCardNode,
+    MirroredRowNode, MobileDesktopUiPlugin, OwedRecoveryBannerNode, RootCanvasNode, TextSlot,
+    TextTone,
 };
 pub use worker::{
     LiveServerWorker, LiveWorkerRequest, LiveWorkerResponse, PendingWorkerState,
@@ -108,6 +111,7 @@ pub fn run_windowed_app(config: &MobileDesktopConfig, screenshot_path: Option<Pa
         .resource_mut::<UiTheme>()
         .set_mode(effective_config.theme);
     queue_owed_demo_preview(&mut app, &effective_config);
+    queue_signed_in_demo_preview(&mut app, &effective_config);
 
     if let Some(path) = screenshot_path {
         app.insert_resource(WinitSettings::game())

@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::config::{LaunchMode, MobileDesktopConfig};
 use crate::state::{
     DesktopAction, DesktopActionQueue, MobileDesktopUiState, OwedRecoveryBannerState,
-    queue_owed_demo_preview,
+    queue_owed_demo_preview, queue_signed_in_demo_preview,
 };
 use crate::ui::{CrisisBannerNode, MirroredRowNode, MobileDesktopUiPlugin, RootCanvasNode};
 use crate::worker::{LiveServerWorker, PendingWorkerState};
@@ -66,6 +66,7 @@ pub fn build_headless_mobile_desktop_app(config: &MobileDesktopConfig) -> App {
         .resource_mut::<UiTheme>()
         .set_mode(config.theme);
     queue_owed_demo_preview(&mut app, config);
+    queue_signed_in_demo_preview(&mut app, config);
 
     app
 }
@@ -113,6 +114,35 @@ pub fn run_headless_smoke(
         }
         // Clear seeded demo owed sign-out before running step 4's clean sign-in/offline cycle.
         dispatch_action(&mut app, DesktopAction::FlushOwedSignOuts);
+    }
+    if config.signed_in_demo && matches!(config.mode, LaunchMode::Demo) {
+        let mobile = app.world().resource::<MobileClientState>();
+        if !matches!(
+            mobile.auth_device.screen(),
+            MobileClientScreen::SignedIn { .. }
+        ) {
+            return Err(SmokeError::Invariant(
+                "--signed-in-demo expected SignedIn screen after startup".to_owned(),
+            ));
+        }
+        if mobile.visible_health_trends.len() < 4 || mobile.visible_records.is_empty() {
+            return Err(SmokeError::Invariant(format!(
+                "--signed-in-demo expected populated health trends (>=4) and records (>=1), got {} trends / {} records",
+                mobile.visible_health_trends.len(),
+                mobile.visible_records.len()
+            )));
+        }
+        // Sign out cleanly (`SignInHoldsNothing`) before running step 4's clean sign-in/offline cycle.
+        dispatch_action(&mut app, DesktopAction::OfflineSignOut);
+        let after_sign_out = app.world().resource::<MobileClientState>();
+        if !after_sign_out.visible_health_trends.is_empty()
+            || !after_sign_out.visible_records.is_empty()
+        {
+            return Err(SmokeError::Invariant(
+                "SignInHoldsNothing violated: health trends/records remained visible after sign-out"
+                    .to_owned(),
+            ));
+        }
     }
 
     // 1. Verify Crisis-First Banner is spawned.
