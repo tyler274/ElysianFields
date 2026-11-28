@@ -69,6 +69,9 @@ jobs:
           elif [ -f scripts/check-wall.sh ]; then
             bash scripts/check-wall.sh
           fi
+          if [ -f scripts/check_book.py ]; then
+            python3 scripts/check_book.py
+          fi
           if [ -f scripts/check_ledger.py ]; then
             python3 scripts/check_ledger.py
           fi
