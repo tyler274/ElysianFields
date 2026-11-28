@@ -2160,6 +2160,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ef-mobile-desktop"
+version = "0.1.0"
+dependencies = [
+ "accesskit",
+ "bevy",
+ "ef-connected-care",
+ "ef-core",
+ "ef-mobile-client",
+ "ef-mobile-domain",
+ "ef-mobile-server",
+ "ef-ui-catalog",
+ "fontique",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "winit",
+]
+
+[[package]]
 name = "ef-mobile-domain"
 version = "0.1.0"
 dependencies = [

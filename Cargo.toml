@@ -24,6 +24,7 @@ members = [
     "crates/ef-mobile-domain",
     "crates/ef-mobile-server",
     "crates/ef-mobile-client",
+    "crates/ef-mobile-desktop",
     "crates/ef-extension",
     "crates/ef-public-site",
     "crates/ef-migration-rehearsal",

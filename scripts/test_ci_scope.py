@@ -96,6 +96,12 @@ class ClassifyPathsTests(unittest.TestCase):
         self.assertFalse(desktop_scope["mobile"])
         self.assertFalse(desktop_scope["wasm"])
 
+        mobile_desktop_scope = ci_scope.classify_paths(["crates/ef-mobile-desktop/src/main.rs"])
+        self.assertTrue(mobile_desktop_scope["desktop"])
+        self.assertTrue(mobile_desktop_scope["native"])
+        self.assertFalse(mobile_desktop_scope["wasm"])
+        self.assertFalse(mobile_desktop_scope["client_only"])
+
         mobile_scope = ci_scope.classify_paths(["platform/ios/App.swift"])
         self.assertTrue(mobile_scope["mobile"])
         self.assertTrue(mobile_scope["native"])
@@ -150,6 +156,7 @@ class ClassifyPathsTests(unittest.TestCase):
         self.assertNotIn("ef-harness", crates)
         self.assertNotIn("ef-boundaries", crates)
         self.assertNotIn("m1-mobile-lifecycle", crates)
+        self.assertNotIn("ef-mobile-desktop", crates)
 
 
 class TouchedCratesTests(unittest.TestCase):

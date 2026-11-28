@@ -93,6 +93,7 @@ DESKTOP_PREFIXES: tuple[str, ...] = (
     "platform/desktop/",
     "crates/client-desktop/",
     "crates/elysian-desktop/",
+    "crates/ef-mobile-desktop/",
 )
 
 MOBILE_PREFIXES: tuple[str, ...] = (
