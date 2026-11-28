@@ -18,8 +18,14 @@ use ef_clinic_domain::workspace::{
 use ef_core::{ChatId, Locale as CoreLocale, PhysicianId, PracticeId, SourceKey, WorkspaceId};
 use ef_harness::StubProvider;
 
-use crate::config::LaunchBackend;
+use crate::config::{DesktopLaunchConfig, LaunchBackend};
 use crate::worker::LiveSubmissionState;
+
+/// Realistic synthetic progressive streaming draft seeded by `--streaming-demo`.
+pub const STREAMING_DEMO_DRAFT: &str = "HbA1c improved from 7.4% to 6.8% on Metformin 1000 mg BID; renal panel eGFR > 60 mL/min [1]...";
+
+/// Synthetic streaming step label paired with `--streaming-demo`.
+pub const STREAMING_DEMO_STEP: &str = "Drafting response...";
 
 /// Display metadata for one synthetic or server-backed patient in the desktop roster rail.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,6 +181,34 @@ impl DesktopWorkspaceState {
             .map(|entry| format!("[{}] {}", entry.speaker, entry.body))
             .collect::<Vec<_>>()
             .join("\n\n")
+    }
+
+    /// Applies deterministic CLI preview flags (`--search`, `--streaming-demo`) using a single owner.
+    pub fn apply_preview_config(&mut self, config: &DesktopLaunchConfig) {
+        if let Some(ref query) = config.search_query {
+            self.input_focus = DesktopInputFocus::PatientSearch;
+            self.patient_search_query.clone_from(query);
+            self.search_highlight_index = 0;
+            self.clamp_search_highlight();
+        }
+        if config.streaming_demo {
+            let workspace_id = self
+                .active_patient()
+                .map(|p| p.workspace_id.clone())
+                .unwrap_or_else(|| {
+                    WorkspaceId::new("ws-avery-jordan").unwrap_or_else(|_| unreachable!("id"))
+                });
+            let request_id = self.next_live_request_id;
+            self.next_live_request_id = self.next_live_request_id.saturating_add(1);
+            self.live_submission = LiveSubmissionState::InFlight {
+                request_id,
+                workspace_id,
+            };
+            self.streaming_draft = Some(STREAMING_DEMO_DRAFT.to_owned());
+            self.status_override = None;
+            self.status_banner =
+                DesktopStatusBanner::Streaming(Some(STREAMING_DEMO_STEP.to_owned()));
+        }
     }
 }
 

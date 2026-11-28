@@ -341,7 +341,7 @@ impl MobileDesktopUiState {
                     last_status: translate(config.locale, UiKey::MobileStatusReadyDemo).to_owned(),
                     status_override: None,
                     next_transfer_seq: 1,
-                    active_focus: MobileInputFocus::CuratedNote,
+                    active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
                     dob_field,
@@ -375,7 +375,7 @@ impl MobileDesktopUiState {
                     ),
                     status_override: None,
                     next_transfer_seq: 1,
-                    active_focus: MobileInputFocus::CuratedNote,
+                    active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
                     dob_field,
@@ -421,6 +421,27 @@ impl MobileDesktopUiState {
             None
         }
     }
+}
+
+/// Seeds 1 deterministic offline-queued owed sign-out in demo mode when `--owed-demo` is set,
+/// bringing the app directly into [`OwedRecoveryBannerState::OnlineFlushPending`] on launch.
+pub fn queue_owed_demo_preview(app: &mut App, config: &MobileDesktopConfig) {
+    if !config.owed_demo || !matches!(config.mode, LaunchMode::Demo) {
+        return;
+    }
+    let mut queue = app.world_mut().resource_mut::<MobileClientCommandQueue>();
+    queue.push(MobileClientCommand::SignIn {
+        email: config.email.clone(),
+    });
+    queue.push(MobileClientCommand::SetConnectivity(
+        ConnectivityState::Offline,
+    ));
+    queue.push(MobileClientCommand::SignOut {
+        device_id: Some("desktop-mobile-device".to_owned()),
+    });
+    queue.push(MobileClientCommand::SetConnectivity(
+        ConnectivityState::Online,
+    ));
 }
 
 /// Cycles to the next locale in the 12-locale compile-time catalog.
