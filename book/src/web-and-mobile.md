@@ -16,17 +16,21 @@ Mounted strictly under `/elysianfields/`:
 
 - **Clinic Web Shell** (`web/elysianfields/{index.html,boot.js,a11y-bridge.js,locales.js,styles.css}`):
   - Single-owner `ElysianNarrowA11yBridge` projects landmark and control ARIA nodes without duplicating business state.
-  - Supports all 7 complex-script QA locales (`en`, `he`, `ar`, `zh-Hans`, `ja`, `vi`, `hi`), CSS logical properties for automatic RTL mirroring, WCAG 2.1 AA Dark/Light themes, 200% text-zoom reflow, `Ctrl/Cmd+Shift+L` Privacy Cover, `?` Shortcuts modal, WebGPU/WebGL2 fallback, and live `/elysianfields/api/*` HTTP/SSE wiring.
+  - Exposes the full 4-tab workstation bar (`Chat` | `Today` | `Messages` | `Memory & Care`, `role="tablist"`, `Ctrl/Cmd+1..4`, RTL arrow navigation) wired to live `/elysianfields/api/*` workflow endpoints (`GET /api/today`, `POST /api/today/standing`, `GET /api/workspaces/{id}/memory`, `POST /api/workspaces/{id}/connected-care/invitations`).
+  - Supports all 12 shipped locales (`en`, `es`, `fr`, `pt`, `de`, `zh-Hans`, `ja`, `ko`, `ar`, `he`, `vi`, `hi`), CSS logical properties for automatic RTL mirroring, WCAG 2.1 AA Dark/Light themes, 200% text-zoom reflow, `Ctrl/Cmd+Shift+L` Privacy Cover, `?` Shortcuts modal, WebGPU/WebGL2 fallback, and live HTTP/SSE streaming.
 - **Curie Mobile PWA** (`web/elysianfields/mobile/{index.html,mobile-boot.js,mobile.css,manifest.webmanifest,sw.js}`):
   - Touch-friendly mobile viewport (`>= 44px` touch targets, zero horizontal overflow in LTR and RTL).
+  - Includes the signed-in **Personal Health Trends & Records** card (`Steps`, `Resting HR`, `Blood Pressure`, `Sleep`, `Personal Records`, clickable **Sync Health Snapshot**) strictly enforcing `SignInHoldsNothing` on sign-out, alongside 12-locale Owed Sign-Out Recovery labels.
   - Offline Service Worker (`sw.js`) precaches the mobile shell and crisis helplines (`988`, `911`, `SAMHSA`) while never caching `/elysianfields/mobile-api/*` clinical or authentication responses.
 
 ## Chrome MV3 Extension Popup (`extension/`)
 
-The connector extension (`extension/{manifest.json,popup.html,popup.css,popup.js,connector.js,worker.js}`) uses a lightweight semantic-HTML popup paired with `ef-extension` protocol tests:
+The connector extension (`extension/{manifest.json,popup.html,popup.css,popup.js,connector.js,worker.js}`) uses a lightweight semantic-HTML popup (`16,287 B` uncompressed, `< 20 KiB` / `1.55%` of the `1.0 MiB` MV3 budget) paired with `ef-extension` protocol tests and `scripts/test_extension_popup.py`:
 
+- Supports all 12 shipped locales (`en`, `es`, `fr`, `pt`, `de`, `zh-Hans`, `ja`, `ko`, `ar`, `he`, `vi`, `hi`) with automatic `dir="rtl"` mirroring and CSS logical properties for Hebrew and Arabic.
+- Provides a WCAG 2.1 AA Light/Dark theme toggle (`data-theme="dark|light"`) and a local **Quick-Capture Triage** composer that redacts identifiers and computes SHA-256 digests locally without storing raw PHI in popup state or `chrome.storage`.
 - Stores pairing tokens exclusively in `chrome.storage.session` (memory-only; never persisted to `localStorage` or disk).
-- Enforces strict MV3 CSP with zero inline scripts or styles, WCAG 2.1 AA Light/Dark contrast, and `<= 250 ms` popup cold-start latency verified in Playwright.
+- Enforces strict MV3 CSP (`script-src 'self'; object-src 'self'`) with zero inline scripts or styles and `<= 250 ms` popup cold-start latency verified in Playwright.
 
 ## Three-Browser Playwright QA Suites
 
