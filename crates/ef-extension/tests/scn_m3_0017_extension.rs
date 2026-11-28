@@ -32,10 +32,11 @@ fn scn_m3_0017_mv3_package_passes_manifest_csp_neutrality_and_d2_size_audit() {
         "popup size {} B must stay <= 1.0 MiB",
         report.popup_total_bytes
     );
-    // Decision D2 semantic HTML popup is orders of magnitude below 1.0 MiB.
+    // Decision D2 semantic HTML popup stays orders of magnitude below 1.0 MiB (< 20 KiB uncompressed,
+    // including cross-platform CRLF line endings on Windows).
     assert!(
-        report.popup_total_bytes < 16_384,
-        "narrow semantic HTML popup should stay compact (< 16 KiB uncompressed), got {} B",
+        report.popup_total_bytes < MV3_POPUP_STRICT_UNCOMPRESSED_BYTES,
+        "narrow semantic HTML popup should stay compact (< 20 KiB uncompressed), got {} B",
         report.popup_total_bytes
     );
 }
