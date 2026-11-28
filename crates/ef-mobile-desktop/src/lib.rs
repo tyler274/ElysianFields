@@ -6,9 +6,11 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 pub mod config;
+pub mod forms;
 pub mod smoke;
 pub mod state;
 pub mod ui;
+pub mod worker;
 
 use std::path::PathBuf;
 
@@ -25,6 +27,10 @@ pub use config::{
     MOBILE_WINDOW_WIDTH, MobileDesktopConfig, MobilePrefOverrides, PreferenceMode, RunTarget,
     parse_server_addr,
 };
+pub use forms::{
+    ClipboardBuffer, FormParseError, MobileInputFocus, parse_dob_iso, parse_email,
+    parse_invite_credential,
+};
 pub use smoke::{
     MobileDesktopSmokeReport, SmokeError, build_headless_mobile_desktop_app, run_headless_smoke,
 };
@@ -35,8 +41,12 @@ pub use state::{
 };
 pub use ui::{
     ActionButton, ButtonStyle, CardSurfaceNode, ComposerBoxNode, CrisisBannerNode,
-    CrisisBannerPalette, MirroredRowNode, MobileDesktopUiPlugin, RootCanvasNode, TextSlot,
-    TextTone,
+    CrisisBannerPalette, FormInputBoxNode, MirroredRowNode, MobileDesktopUiPlugin, RootCanvasNode,
+    TextSlot, TextTone,
+};
+pub use worker::{
+    LiveServerWorker, LiveWorkerRequest, LiveWorkerResponse, PendingWorkerState,
+    WorkerDispatchError, WorkerOperation,
 };
 
 #[derive(Resource)]
@@ -88,6 +98,10 @@ pub fn run_windowed_app(config: &MobileDesktopConfig, screenshot_path: Option<Pa
     .insert_resource(transport_res)
     .insert_resource(ui_state)
     .add_systems(Startup, spawn_mobile_camera);
+
+    if let LaunchMode::LiveServer { addr, .. } = effective_config.mode {
+        app.insert_resource(LiveServerWorker::spawn(addr));
+    }
 
     app.world_mut().resource_mut::<UiLocale>().current = effective_config.locale;
     app.world_mut()

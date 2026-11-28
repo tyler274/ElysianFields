@@ -2,9 +2,14 @@
 //! Unit and live `TcpMobileServer` integration tests for `ef-mobile-desktop`.
 
 use std::fs;
+use std::net::TcpListener;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::prelude::*;
 use ef_connected_care::{
     ConnectedCareState, CreateInvitationRequest, DateOfBirth, DobVerificationOutcome,
     InviteCredential, PairKey,
@@ -12,15 +17,17 @@ use ef_connected_care::{
 use ef_core::{PatientId, PhysicianId, PracticeId};
 use ef_mobile_client::MobileClientState;
 use ef_mobile_desktop::{
-    ConfigError, DesktopAction, DesktopActionQueue, LaunchMode, MobileDesktopConfig,
-    MobileDesktopUiState, PreferenceMode, RunTarget, TextSlot, build_headless_mobile_desktop_app,
+    ClipboardBuffer, ConfigError, DesktopAction, DesktopActionQueue, FormInputBoxNode,
+    FormParseError, LaunchMode, LiveServerWorker, MobileDesktopConfig, MobileDesktopUiState,
+    MobileInputFocus, PendingWorkerState, PreferenceMode, RunTarget, TextSlot,
+    build_headless_mobile_desktop_app, parse_dob_iso, parse_email, parse_invite_credential,
     run_headless_smoke,
 };
-use ef_mobile_domain::FileReceiptJournal;
+use ef_mobile_domain::{FileReceiptJournal, MobileClientScreen};
 use ef_mobile_server::{MobileService, TcpMobileServer};
 use ef_ui_catalog::{
     ComposerAction, ComposerSurface, DesktopPreferences, DesktopPrefsStore, DesktopZoom, Locale,
-    ThemeMode, UiKey, translate,
+    ThemeMode, UiKey, UiTheme, translate,
 };
 
 fn fresh_temp_dir(label: &str) -> PathBuf {
@@ -33,6 +40,77 @@ fn fresh_temp_dir(label: &str) -> PathBuf {
     ));
     fs::create_dir_all(&dir).expect("create temp test dir");
     dir
+}
+
+fn send_key(app: &mut App, key_code: KeyCode, logical_key: Key) {
+    app.world_mut().write_message(KeyboardInput {
+        key_code,
+        logical_key,
+        state: ButtonState::Pressed,
+        text: None,
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    });
+    app.update();
+}
+
+fn send_text(app: &mut App, text: &str) {
+    for ch in text.chars() {
+        let s = ch.to_string();
+        if ch == ' ' {
+            send_key(app, KeyCode::Space, Key::Space);
+        } else {
+            send_key(app, KeyCode::KeyA, Key::Character(s.into()));
+        }
+    }
+}
+
+fn send_chord(app: &mut App, modifiers: &[KeyCode], key_code: KeyCode, logical_key: Key) {
+    if !app.world().contains_resource::<ButtonInput<KeyCode>>() {
+        app.insert_resource(ButtonInput::<KeyCode>::default());
+    }
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for &m in modifiers {
+            keys.press(m);
+        }
+    }
+    send_key(app, key_code, logical_key);
+    {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for &m in modifiers {
+            keys.release(m);
+        }
+    }
+}
+
+fn wait_for_live_worker_idle(app: &mut App, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        app.update();
+        let is_idle = app
+            .world()
+            .get_resource::<LiveServerWorker>()
+            .is_none_or(LiveServerWorker::is_idle);
+        if is_idle {
+            // One additional frame so visuals/a11y reflect the applied worker response.
+            app.update();
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for LiveServerWorker to finish in-flight request"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn dispatch_live_and_wait(app: &mut App, action: DesktopAction) {
+    app.world_mut()
+        .resource_mut::<DesktopActionQueue>()
+        .push(action);
+    app.update();
+    wait_for_live_worker_idle(app, Duration::from_secs(5));
 }
 
 #[test]
@@ -113,6 +191,307 @@ fn headless_smoke_verifies_12_locales_rtl_themes_crisis_offline_signout_and_zero
 }
 
 #[test]
+fn focus_ring_cycles_tab_shift_tab_and_highlights_active_wcag_border() {
+    let cfg = MobileDesktopConfig::parse_args(["--demo", "--no-prefs"]).expect("cfg");
+    let mut app = build_headless_mobile_desktop_app(&cfg);
+    app.update();
+
+    // Default focus starts at CuratedNote; Tab cycles through all 4 variants cleanly.
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::CuratedNote
+    );
+
+    let forward_order = [
+        MobileInputFocus::Email,
+        MobileInputFocus::InviteCode,
+        MobileInputFocus::DateOfBirth,
+        MobileInputFocus::CuratedNote,
+    ];
+    for expected in forward_order {
+        send_key(&mut app, KeyCode::Tab, Key::Tab);
+        assert_eq!(
+            app.world().resource::<MobileDesktopUiState>().active_focus,
+            expected
+        );
+
+        let tokens = app.world().resource::<UiTheme>().tokens;
+        let expected_focus_border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+        let expected_inactive_border = BorderColor::all(tokens.text_secondary.to_bevy_color());
+        let mut q = app
+            .world_mut()
+            .query::<(&FormInputBoxNode, &Node, &BorderColor)>();
+        let mut seen = 0usize;
+        for (input_box, node, border) in q.iter(app.world()) {
+            seen += 1;
+            if input_box.field == expected {
+                assert_eq!(node.border, UiRect::all(Val::Px(3.0)));
+                assert_eq!(*border, expected_focus_border);
+            } else {
+                assert_eq!(node.border, UiRect::all(Val::Px(1.0)));
+                assert_eq!(*border, expected_inactive_border);
+            }
+        }
+        assert_eq!(seen, 4, "all 4 interactive FormInputBoxNodes must exist");
+    }
+
+    // Shift+Tab cycles strictly backward through all 4 variants.
+    let reverse_order = [
+        MobileInputFocus::DateOfBirth,
+        MobileInputFocus::InviteCode,
+        MobileInputFocus::Email,
+        MobileInputFocus::CuratedNote,
+    ];
+    for expected in reverse_order {
+        send_chord(&mut app, &[KeyCode::ShiftLeft], KeyCode::Tab, Key::Tab);
+        assert_eq!(
+            app.world().resource::<MobileDesktopUiState>().active_focus,
+            expected
+        );
+    }
+}
+
+#[test]
+fn interactive_editing_undo_redo_and_clipboard_across_all_4_fields() {
+    let cfg = MobileDesktopConfig::parse_args(["--demo", "--no-prefs"]).expect("cfg");
+    let mut app = build_headless_mobile_desktop_app(&cfg);
+    app.update();
+
+    // 1. Focus Email via Tab, select all, replace, test Backspace + Undo/Redo + Copy.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::Email
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyA,
+        Key::Character("a".into()),
+    );
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    send_text(&mut app, "maya@example.invalid");
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().patient_email,
+        "maya@example.invalid"
+    );
+
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().patient_email,
+        "maya@example.invali"
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyZ,
+        Key::Character("z".into()),
+    );
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().patient_email,
+        "maya@example.invalid"
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft, KeyCode::ShiftLeft],
+        KeyCode::KeyZ,
+        Key::Character("z".into()),
+    );
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().patient_email,
+        "maya@example.invali"
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyZ,
+        Key::Character("z".into()),
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyC,
+        Key::Character("c".into()),
+    );
+    assert_eq!(
+        app.world().resource::<ClipboardBuffer>().paste(),
+        Some("maya@example.invalid")
+    );
+
+    // 2. Tab to InviteCode: edit, ArrowLeft + Delete, and verify multiline paste strips newlines.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::InviteCode
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyA,
+        Key::Character("a".into()),
+    );
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    send_text(&mut app, "ABCD-99");
+    send_key(&mut app, KeyCode::ArrowLeft, Key::ArrowLeft);
+    send_key(&mut app, KeyCode::Delete, Key::Delete);
+    assert_eq!(
+        app.world()
+            .resource::<MobileDesktopUiState>()
+            .invite_code_display,
+        "ABCD-9"
+    );
+
+    app.world_mut()
+        .resource_mut::<ClipboardBuffer>()
+        .copy("XY\nZ");
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyV,
+        Key::Character("v".into()),
+    );
+    assert_eq!(
+        app.world()
+            .resource::<MobileDesktopUiState>()
+            .invite_code_display,
+        "ABCD-9XYZ"
+    );
+
+    // 3. Tab to DateOfBirth: edit to a new ISO date and validate typed parser.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::DateOfBirth
+    );
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyA,
+        Key::Character("a".into()),
+    );
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    send_text(&mut app, "1992-07-23");
+    assert_eq!(
+        app.world()
+            .resource::<MobileDesktopUiState>()
+            .resolve_dob()
+            .expect("valid parsed dob"),
+        DateOfBirth::new(1992, 7, 23).expect("dob")
+    );
+
+    // 4. Tab to CuratedNote: test Shift+Enter newline + ClipboardBuffer paste + Undo/Redo.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::CuratedNote
+    );
+    send_text(&mut app, "Morning check");
+    send_chord(&mut app, &[KeyCode::ShiftLeft], KeyCode::Enter, Key::Enter);
+    send_text(&mut app, "BP 118/76");
+    assert_eq!(
+        app.world().resource::<ComposerSurface>().text(),
+        "Morning check\nBP 118/76"
+    );
+
+    // Verify typed parsers reject malformed values cleanly.
+    assert!(matches!(
+        parse_email("   "),
+        Err(FormParseError::EmptyEmail)
+    ));
+    assert!(matches!(
+        parse_email("not-an-email"),
+        Err(FormParseError::InvalidEmail)
+    ));
+    assert!(matches!(
+        parse_invite_credential("---", None),
+        Err(FormParseError::EmptyInviteCode)
+    ));
+    assert!(matches!(
+        parse_invite_credential("https://example.invalid/invite?token=abc-123", None),
+        Ok(InviteCredential::LinkToken(tok)) if tok.as_str() == "abc-123"
+    ));
+    assert!(matches!(
+        parse_dob_iso("1985/04/12"),
+        Err(FormParseError::InvalidDobFormat)
+    ));
+    assert!(matches!(
+        parse_dob_iso("1985-02-30"),
+        Err(FormParseError::InvalidCalendarDate(_))
+    ));
+}
+
+#[test]
+fn enter_in_email_invite_and_dob_triggers_sign_in_and_verify_dob_cleanly() {
+    let cfg = MobileDesktopConfig::parse_args(["--demo", "--no-prefs"]).expect("cfg");
+    let mut app = build_headless_mobile_desktop_app(&cfg);
+    app.update();
+
+    // Focus Email and press Enter -> signs in.
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_focus(MobileInputFocus::Email);
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    app.update();
+    assert!(matches!(
+        app.world()
+            .resource::<MobileClientState>()
+            .auth_device
+            .screen(),
+        MobileClientScreen::SignedIn { .. }
+    ));
+
+    // Edit DOB to a malformed string, press Enter -> clear error status, no crash.
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_dob_text("invalid-dob");
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_focus(MobileInputFocus::DateOfBirth);
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<MobileClientState>()
+            .last_dob_outcome
+            .is_none()
+    );
+    assert!(
+        app.world()
+            .resource::<MobileDesktopUiState>()
+            .last_status
+            .contains("YYYY-MM-DD")
+    );
+
+    // Edit DOB to wrong calendar date, press Enter in InviteCode -> Mismatch outcome.
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_dob_text("1999-01-01");
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_focus(MobileInputFocus::InviteCode);
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    app.update();
+    assert!(matches!(
+        app.world().resource::<MobileClientState>().last_dob_outcome,
+        Some(DobVerificationOutcome::Mismatch { .. })
+    ));
+
+    // Edit DOB back to matching demo DOB (1985-04-12), press Enter -> Verified!
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_dob_text("1985-04-12");
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_focus(MobileInputFocus::DateOfBirth);
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    app.update();
+    assert!(matches!(
+        app.world().resource::<MobileClientState>().last_dob_outcome,
+        Some(DobVerificationOutcome::Verified { .. })
+    ));
+}
+
+#[test]
 fn live_tcp_mobile_server_integration_end_to_end() {
     let db_dir = fresh_temp_dir("db");
     let journal_dir = fresh_temp_dir("journal");
@@ -154,6 +533,10 @@ fn live_tcp_mobile_server_integration_end_to_end() {
     .expect("live server config");
 
     let mut app = build_headless_mobile_desktop_app(&cfg);
+    assert_eq!(
+        app.world().resource::<LiveServerWorker>().pending_state(),
+        PendingWorkerState::Idle
+    );
     app.world_mut()
         .resource_mut::<MobileDesktopUiState>()
         .set_invite_credential(
@@ -163,22 +546,23 @@ fn live_tcp_mobile_server_integration_end_to_end() {
         );
     app.update();
 
-    fn dispatch(app: &mut bevy::prelude::App, action: DesktopAction) {
-        app.world_mut()
-            .resource_mut::<DesktopActionQueue>()
-            .push(action);
-        app.update();
-        app.update();
-    }
+    // Sign in live over background HTTP worker -> verify DOB -> explicit Share -> send For My Doctor note.
+    dispatch_live_and_wait(&mut app, DesktopAction::SignIn);
+    assert!(matches!(
+        app.world()
+            .resource::<MobileClientState>()
+            .auth_device
+            .screen(),
+        MobileClientScreen::SignedIn { .. }
+    ));
 
-    // Sign in live over TCP HTTP/1.1 -> verify DOB -> explicit Share -> send For My Doctor note.
-    dispatch(&mut app, DesktopAction::SignIn);
-    dispatch(&mut app, DesktopAction::VerifyDob);
+    dispatch_live_and_wait(&mut app, DesktopAction::VerifyDob);
     assert!(matches!(
         app.world().resource::<MobileClientState>().last_dob_outcome,
         Some(DobVerificationOutcome::Verified { .. })
     ));
-    dispatch(&mut app, DesktopAction::ShareConnectedCare);
+
+    dispatch_live_and_wait(&mut app, DesktopAction::ShareConnectedCare);
     assert!(
         app.world()
             .resource::<MobileClientState>()
@@ -195,7 +579,7 @@ fn live_tcp_mobile_server_integration_end_to_end() {
         .apply(ComposerAction::InsertText(
             "فحصُ السكّري HbA1c 6.8% — ضغط الدم BP 122/78".to_owned(),
         ));
-    dispatch(&mut app, DesktopAction::ReviewAndSendDoctorNote);
+    dispatch_live_and_wait(&mut app, DesktopAction::ReviewAndSendDoctorNote);
     assert_eq!(
         app.world()
             .resource::<MobileClientState>()
@@ -215,6 +599,163 @@ fn live_tcp_mobile_server_integration_end_to_end() {
     server.shutdown();
     let _ = fs::remove_dir_all(&db_dir);
     let _ = fs::remove_dir_all(&journal_dir);
+}
+
+#[test]
+fn live_server_interactive_typed_forms_and_unreachable_error_handling() {
+    let db_dir = fresh_temp_dir("live-forms-db");
+    let journal_dir = fresh_temp_dir("live-forms-journal");
+
+    let journal = FileReceiptJournal::open(&journal_dir).expect("open receipt journal");
+    let mut svc = MobileService::open_durable(&db_dir, Box::new(journal), 1_760_000_000, false)
+        .expect("open durable mobile service");
+
+    let expected_dob = DateOfBirth::new(1991, 11, 5).expect("valid dob");
+    let pair = PairKey::new(
+        PracticeId::new("practice-interactive-live").expect("practice id"),
+        PatientId::new("patient-interactive-live").expect("patient id"),
+    );
+    let issued = svc
+        .connected_care
+        .create_invitation(CreateInvitationRequest {
+            pair,
+            issued_by: PhysicianId::new("phys-interactive-live").expect("phys id"),
+            practice_name: "Interactive Live Clinic".to_owned(),
+            physician_name: "Dr. Horizon".to_owned(),
+            expected_dob,
+            created_at: "2026-01-12T09:00:00Z".to_owned(),
+        })
+        .expect("issue connected care invite");
+
+    let server = TcpMobileServer::bind("127.0.0.1:0", svc).expect("bind TcpMobileServer");
+    let addr = server.local_addr();
+
+    // Launch with NO preloaded invite credential — user types Email, Invite Code, DOB, and Note!
+    let cfg =
+        MobileDesktopConfig::parse_args(["--server", &format!("http://{addr}"), "--no-prefs"])
+            .expect("live cfg");
+    let mut app = build_headless_mobile_desktop_app(&cfg);
+    app.update();
+
+    // 1. Tab to Email, clear default, type custom email, press Enter -> background SignIn.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyA,
+        Key::Character("a".into()),
+    );
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    send_text(&mut app, "interactive.live@example.invalid");
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    wait_for_live_worker_idle(&mut app, Duration::from_secs(5));
+    assert!(matches!(
+        app.world()
+            .resource::<MobileClientState>()
+            .auth_device
+            .screen(),
+        MobileClientScreen::SignedIn { .. }
+    ));
+
+    // 2. Tab to InviteCode, type server-issued short code.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    send_text(&mut app, issued.short_code.as_str());
+
+    // 3. Tab to DateOfBirth, replace with 1991-11-05, press Enter -> background VerifyDob.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    send_chord(
+        &mut app,
+        &[KeyCode::ControlLeft],
+        KeyCode::KeyA,
+        Key::Character("a".into()),
+    );
+    send_key(&mut app, KeyCode::Backspace, Key::Backspace);
+    send_text(&mut app, "1991-11-05");
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    wait_for_live_worker_idle(&mut app, Duration::from_secs(5));
+    assert!(matches!(
+        app.world().resource::<MobileClientState>().last_dob_outcome,
+        Some(DobVerificationOutcome::Verified { .. })
+    ));
+    assert_eq!(
+        app.world()
+            .resource::<MobileDesktopUiState>()
+            .practice_preview_name,
+        "Interactive Live Clinic - Dr. Horizon"
+    );
+
+    // 4. Explicit Share via background worker.
+    dispatch_live_and_wait(&mut app, DesktopAction::ShareConnectedCare);
+    assert!(
+        app.world()
+            .resource::<MobileClientState>()
+            .last_connection_standing
+            .as_ref()
+            .is_some_and(|s| s.state == ConnectedCareState::Connected)
+    );
+
+    // 5. Tab to CuratedNote, type note, press Enter -> background SendForMyDoctor.
+    send_key(&mut app, KeyCode::Tab, Key::Tab);
+    send_text(&mut app, "BP 118/76 today, no dizziness");
+    send_key(&mut app, KeyCode::Enter, Key::Enter);
+    wait_for_live_worker_idle(&mut app, Duration::from_secs(5));
+    let envelopes = &app.world().resource::<MobileClientState>().sent_envelopes;
+    assert_eq!(envelopes.len(), 1);
+    assert_eq!(
+        envelopes[0].items[0].verbatim_payload,
+        "BP 118/76 today, no dizziness"
+    );
+    assert!(
+        app.world()
+            .resource::<MobileClientState>()
+            .errors
+            .is_empty()
+    );
+
+    server.shutdown();
+    let _ = fs::remove_dir_all(&db_dir);
+    let _ = fs::remove_dir_all(&journal_dir);
+
+    // 6. Verify unreachable server surfaces a typed error cleanly without blocking UI thread.
+    let closed_listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let dead_addr = closed_listener.local_addr().expect("local addr");
+    drop(closed_listener);
+
+    let err_cfg =
+        MobileDesktopConfig::parse_args(["--server", &format!("http://{dead_addr}"), "--no-prefs"])
+            .expect("dead server cfg");
+    let mut err_app = build_headless_mobile_desktop_app(&err_cfg);
+    err_app.insert_resource(LiveServerWorker::spawn_with_timeout(
+        dead_addr,
+        Duration::from_millis(300),
+    ));
+    err_app.update();
+
+    dispatch_live_and_wait(&mut err_app, DesktopAction::SignIn);
+    assert_eq!(
+        err_app
+            .world()
+            .resource::<MobileClientState>()
+            .auth_device
+            .screen(),
+        &MobileClientScreen::EnterYourEmail
+    );
+    assert!(
+        !err_app
+            .world()
+            .resource::<MobileClientState>()
+            .errors
+            .is_empty(),
+        "unreachable server must record a typed error"
+    );
+    assert!(
+        err_app
+            .world()
+            .resource::<MobileDesktopUiState>()
+            .status_override
+            .as_deref()
+            .is_some_and(|s| s.contains("Sign-in failed"))
+    );
 }
 
 #[test]
