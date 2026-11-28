@@ -32,7 +32,7 @@ The connector extension (`extension/{manifest.json,popup.html,popup.css,popup.js
 
 - `scripts/browser_e2e.py`: validates `/elysianfields/`, `/elysianfields/mobile/` (with Mobile Chromium Pixel 7 and Mobile WebKit iPhone 14 touch emulation and offline reload), MV3 popup budget, JavaScript-disabled `ef-public-site` rendering, and live compiled Wasm instantiation under strict CSP.
 - `scripts/qa_multilingual_gui.py`: tests all 7 writing systems across Desktop (`1280×800`) and Mobile (`390×844`) — 14 views per browser engine — checking RTL geometry mirroring, zero horizontal overflow, Canvas 2D non-tofu glyph rendering, and BiDi composer round-trips.
-- `scripts/qa_ux_accessibility.py`: verifies computed WCAG 2.1 AA contrast ratios in Light and Dark themes, 200% zoom reflow, keyboard Privacy Cover / Shortcuts modals, MV3 popup contrast, and physical crisis-line ordering on `/dei`.
+- `scripts/qa_ux_accessibility.py`: verifies computed WCAG 2.1 AA contrast ratios in Light and Dark themes, 200% zoom reflow, keyboard Privacy Cover / Shortcuts modals, MV3 popup contrast, and physical crisis-line ordering on the searchable zero-JS `/dei?state=&service=&q=` recovery finder (`crates/ef-public-site/tests/dei_finder_filtering.rs`).
 
 ## Native Android and iOS OS Shims (`platform/`)
 

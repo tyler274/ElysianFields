@@ -28,12 +28,13 @@ Migrations are idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`) and verifi
   - Uses PostgreSQL session advisory locks to serialize mutations across concurrent instances and incrementally replays `WHERE seq > $1` WAL rows before reads.
   - Streams LLM responses via Server-Sent Events (`text/event-stream`) with monotonic `id:` fields supporting zero-duplicate, zero-gap `Last-Event-ID` resume across instance failover.
   - Enforces per-IP sliding-window rate limiting (`429 Too Many Requests` + `Retry-After`), 64 KiB auth body caps (`413`), and fail-closed `GET /elysianfields/api/health` (`200` when DB healthy, `503` when backing store is unreachable).
+  - Exposes live authenticated workflow HTTP endpoints (`GET /elysianfields/api/today`, `POST /elysianfields/api/today/standing`, `GET /elysianfields/api/workspaces/{id}/memory`, and `POST /elysianfields/api/workspaces/{id}/connected-care/invitations`), verified in `crates/ef-clinic-server/tests/workflow_http_api.rs`.
 - **Curie Mobile (`ef-mobile-server`)**:
   - Maintains an independent privacy-receipt journal (`EF_MOBILE_JOURNAL_DIR`) separate from primary state (`EF_MOBILE_DATA_DIR` / `EF_MOBILE_DATABASE_URL`).
   - `GET /elysianfields/mobile-api/readyz` fails closed (`503`) if schema migrations, restore-replay verification, or backing database health checks fail, preventing resurrection of deleted accounts after backup restoration.
 - **Public Site (`ef-public-site`)**:
   - Strictly stateless server rendering semantic HTML with zero JavaScript requirement.
-  - Guarantees crisis helplines (`988`, `911`, `SAMHSA`) render before facility listings on `/dei`, marks `/invite` with `noindex, nofollow`, blocks `/grafana/` with `404` + `no-store`, and exposes `/health` and `/readyz`.
+  - Provides a searchable zero-JS **Dei Recovery Finder** (`GET /dei?state=&service=&q=`) with server-side filtering, XSS-safe HTML escaping, and a pinned crisis banner (`988`, `911`, `SAMHSA`) guaranteed above facility listings (`crates/ef-public-site/tests/dei_finder_filtering.rs`); marks `/invite` with `noindex, nofollow`, blocks `/grafana/` with `404` + `no-store`, and exposes `/health` and `/readyz`.
 
 ## Zero-PHI Prometheus Observability, Structured JSON Logs, and Graceful Shutdown
 

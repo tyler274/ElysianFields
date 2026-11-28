@@ -19,7 +19,7 @@ The workspace comprises **28 Rust crates** sharing edition `2024`, a single pinn
 | Crate | Target Surface | Ownership |
 | --- | --- | --- |
 | `ef-core` | Native + Wasm | Typed identifiers (`WorkspaceId`, `PhysicianId`, `PracticeId`, `SourceKey`, `SessionId`), shared locales, core error types, and zero-PHI telemetry (`telemetry`: structured JSON access logs, `X-Request-Id`, `ShutdownSignal`). |
-| `ef-ui-catalog` | Native + Wasm | Compile-time exhaustive 12-locale UI catalog (`107` keys × `12` locales = `1,284` strings), `LocalizedChrome`, WCAG 2.1 AA Dark/Light color tokens, multiline `ComposerSurface`, and OS-native desktop preferences (`prefs`). |
+| `ef-ui-catalog` | Native + Wasm | Compile-time exhaustive 12-locale UI catalog (`128` keys × `12` locales = `1,536` strings), `LocalizedChrome`, WCAG 2.1 AA Dark/Light color tokens, multiline `ComposerSurface`, and OS-native desktop preferences (`prefs`). |
 | `ef-connected-care` | Native + Wasm | Consent-gated invitation, DOB verification (with permanent lockout), explicit Share, 42 CFR Part 2 notice enforcement, and disconnection bridge between Clinic and Mobile. |
 | `ef-harness` | Headless native | Product-neutral streaming LLM orchestration, retry/backoff state machine, idempotency receipts, and stub provider for deterministic tests. |
 | `ef-pgwire` | Headless native | Zero-dependency PostgreSQL Wire Protocol v3.0 client with FIPS-180-4 SHA-256, `SCRAM-SHA-256`, parameterized Extended Query, transactions, `ping()`, and session advisory locks. |
@@ -34,9 +34,9 @@ The workspace comprises **28 Rust crates** sharing edition `2024`, a single pinn
 | `ef-clinical-lib` | Headless native | De-identified clinical reference library and `ConceptQuery` PHI fail-closed validator. |
 | `ef-encoder` | Headless native | Offline 256-dimensional workspace-scoped semantic chart search index with zero cross-patient leakage. |
 | `ef-patient-bank` | Headless native | Synthetic clinical patient fixtures and deterministic corpus generator for integration testing and migration rehearsal. |
-| `ef-clinic-server` | Headless binary | HTTP/1.1 + SSE server under `/elysianfields/` with PostgreSQL 18 / WAL durability, advisory-lock failover, rate limiting, static web serving, `/api/health`, zero-PHI `/api/metrics`, structured JSON access logs (`EF_ACCESS_LOG_JSON=1`), `X-Request-Id`, and graceful `ShutdownSignal` drain. |
+| `ef-clinic-server` | Headless binary | HTTP/1.1 + SSE server under `/elysianfields/` with PostgreSQL 18 / WAL durability, advisory-lock failover, live authenticated workflow endpoints (`/api/today`, `/api/today/standing`, `/api/workspaces/{id}/memory`, `/api/workspaces/{id}/connected-care/invitations`), rate limiting, static web serving, `/api/health`, zero-PHI `/api/metrics`, structured JSON access logs (`EF_ACCESS_LOG_JSON=1`), `X-Request-Id`, and graceful `ShutdownSignal` drain. |
 | `ef-clinic-client` | Native + Wasm | Bevy `0.20.1` Curie Clinic client plugin, pure-`TcpStream` `LiveHttpClinicTransport`, and zero-dep Wasm `cdylib` ABI (`wasm_abi`). |
-| `ef-clinic-desktop` | Native desktop binary | Standalone windowed Bevy `0.20.1` desktop GPU application for Curie Clinic across Linux, macOS, and Windows with progressive token-by-token SSE streaming, mid-flight `WorkStop` cancel/retry, `Ctrl+K` roster search, and live TCP worker E2E. |
+| `ef-clinic-desktop` | Native desktop binary | Standalone windowed Bevy `0.20.1` 4-tab physician workstation (`Chat` \| `Today` \| `Messages` \| `Memory & Care`, `Ctrl/Cmd+1..4`, `--view`) backed by `ef-clinic-workflows` and `ef-connected-care`, with progressive SSE streaming, mid-flight `WorkStop` cancel/retry, `Ctrl+K` roster search, and live TCP worker E2E. |
 
 ## Curie Mobile
 
@@ -45,12 +45,12 @@ The workspace comprises **28 Rust crates** sharing edition `2024`, a single pinn
 | `ef-mobile-domain` | Native + Wasm | Standalone patient accounts, incarnation fences, privacy-receipt non-resurrection journal, portal sync, HealthKit/Health Connect outbox, and For My Doctor payloads. |
 | `ef-mobile-server` | Headless binary | HTTP/1.1 service under `/elysianfields/mobile-api/` with isolated PostgreSQL 18 / WAL storage, fail-closed `/readyz` restore-replay gate, Connected Care endpoints, zero-PHI `/metrics`, structured JSON access logs, `X-Request-Id`, and graceful `ShutdownSignal` drain. |
 | `ef-mobile-client` | Native + Wasm | Bevy `0.20.1` Curie Mobile client plugin, pure-`TcpStream` `LiveHttpMobileTransport`, and zero-dep Wasm `cdylib` ABI (`wasm_abi`). |
-| `ef-mobile-desktop` | Native desktop binary | Standalone windowed Bevy `0.20.1` mobile-proportioned desktop application for Curie Mobile across Linux, macOS, and Windows with interactive 4-field forms, `OwedRecoveryBannerState` + Flush Owed Sign-Outs, and live TCP worker E2E. |
+| `ef-mobile-desktop` | Native desktop binary | Standalone windowed Bevy `0.20.1` mobile-proportioned desktop application for Curie Mobile across Linux, macOS, and Windows with interactive 4-field forms, Personal Health Trends & Records (`SignInHoldsNothing` enforcement), `OwedRecoveryBannerState` + Flush Owed Sign-Outs, 100% 12-locale chrome, and live TCP worker E2E. |
 
 ## Public Site, Browser Extension, and Migration Rehearsal
 
 | Crate | Target Surface | Ownership |
 | --- | --- | --- |
-| `ef-public-site` | Headless binary | Standalone HTTP/1.1 server rendering JavaScript-free semantic HTML for `/`, `/mobile`, `/privacy`, `/terms`, `/clinical-transparency`, `/invite` (`noindex`), `/dei` crisis-first recovery finder, `/health`, `/readyz`, `/metrics`, structured JSON access logs, `X-Request-Id`, and graceful `ShutdownSignal` drain. |
+| `ef-public-site` | Headless binary | Standalone HTTP/1.1 server rendering JavaScript-free semantic HTML for `/`, `/mobile`, `/privacy`, `/terms`, `/clinical-transparency`, `/invite` (`noindex`), searchable zero-JS `/dei?state=&service=&q=` crisis-first recovery finder with XSS-safe escaping, `/health`, `/readyz`, `/metrics`, structured JSON access logs, `X-Request-Id`, and graceful `ShutdownSignal` drain. |
 | `ef-extension` | Headless native | Chrome MV3 connector pairing state machine, memory-only session semantics, and strict CSP/manifest verification. |
 | `ef-migration-rehearsal` | Headless native | Shadow-mode diff parity, single-writer domain fencing, pending-job drain/rollback, privacy-receipt replay, 468-patient crash-resume, and live 3-server cross-product TCP E2E suite. |
