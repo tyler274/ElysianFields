@@ -121,6 +121,7 @@ class DeployAndLocalStackTests(unittest.TestCase):
     def test_flake_exposes_linux_bevy_desktop_gui_runtime_libs(self) -> None:
         flake_text = (REPO_ROOT / "flake.nix").read_text(encoding="utf-8")
         for lib_name in (
+            "fontconfig.lib",
             "libxkbcommon",
             "wayland",
             "xorg.libX11",
