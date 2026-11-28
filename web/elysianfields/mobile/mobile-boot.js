@@ -21,6 +21,54 @@ import {
 
 const MOBILE_MOUNT_PREFIX = "/elysianfields/mobile";
 const MOBILE_API_PREFIX = "/elysianfields/mobile-api";
+const THEME_STORAGE_KEY = "curie.theme.v1";
+
+function resolveInitialTheme(params) {
+  const fromQuery = params.get("theme");
+  if (fromQuery === "light" || fromQuery === "dark") {
+    return fromQuery;
+  }
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+  } catch (_err) {
+    // Ignore restricted storage contexts.
+  }
+  if (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+  ) {
+    return "light";
+  }
+  return "dark";
+}
+
+function applyMobileTheme(theme, chrome, persist = false) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = normalized;
+  document.documentElement.dataset.efTheme = normalized;
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute("content", normalized === "light" ? "#f8fafc" : "#0f172a");
+  }
+  if (persist) {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
+    } catch (_err) {
+      // Ignore storage quota or privacy restrictions.
+    }
+  }
+  const toggleBtn = document.getElementById("btn-toggle-theme");
+  if (toggleBtn) {
+    toggleBtn.setAttribute("aria-pressed", normalized === "light" ? "true" : "false");
+    if (chrome) {
+      toggleBtn.textContent = normalized === "light" ? chrome.theme_to_dark : chrome.theme_to_light;
+    }
+  }
+  return normalized;
+}
 
 export function isWithinMobileMount(pathname) {
   return pathname === MOBILE_MOUNT_PREFIX || pathname.startsWith(`${MOBILE_MOUNT_PREFIX}/`);
@@ -202,6 +250,12 @@ function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = 
   setText("heading-mobile-diagnostics", chrome.mobile_diagnostics);
   setText("mobile-metric-dir", `${dir} / ${normalizedLang} (${meta.script})`);
 
+  const activeTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const themeBtn = document.getElementById("btn-toggle-theme");
+  if (themeBtn) {
+    themeBtn.textContent = activeTheme === "light" ? chrome.theme_to_dark : chrome.theme_to_light;
+  }
+
   const noteEl = document.getElementById("doctor-note");
   if (noteEl) {
     noteEl.placeholder = chrome.doctor_note_placeholder;
@@ -304,6 +358,7 @@ async function bootMobile() {
     lang: "en",
     dir: "ltr",
     script: "Latn",
+    theme: "dark",
     lastAction: null,
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
@@ -317,11 +372,13 @@ async function bootMobile() {
   });
 
   const params = new URLSearchParams(window.location.search);
+  state.theme = applyMobileTheme(resolveInitialTheme(params), null, false);
   const initialLang = params.get("lang") || (params.get("dir") === "rtl" ? "ar" : "en");
   let localeInfo = applyLocaleAndDirection(initialLang);
   state.lang = localeInfo.lang;
   state.dir = localeInfo.dir;
   state.script = localeInfo.script;
+  state.theme = applyMobileTheme(state.theme, localeInfo.chrome, false);
 
   const pathname = window.location.pathname;
   const withinMount = isWithinMobileMount(pathname);
@@ -447,6 +504,14 @@ async function bootMobile() {
     });
   }
 
+  const themeToggleBtn = document.getElementById("btn-toggle-theme");
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      const nextTheme = state.theme === "light" ? "dark" : "light";
+      state.theme = applyMobileTheme(nextTheme, localeInfo.chrome, true);
+    });
+  }
+
   const signOutBtn = document.getElementById("btn-mobile-signout");
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
@@ -569,6 +634,10 @@ async function bootMobile() {
       return snap;
     },
     setLocale: (lang) => applyMobileLocale(lang),
+    setTheme: (theme) => {
+      state.theme = applyMobileTheme(theme, localeInfo.chrome, true);
+      return state.theme;
+    },
     getState: () => ({ ...state, a11yNodeCount: bridge.projectedNodeCount() }),
   });
 

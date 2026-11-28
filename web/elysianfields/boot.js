@@ -19,6 +19,59 @@ import {
 } from "./wasm-bridge.js";
 
 const MOUNT_PREFIX = "/elysianfields";
+const THEME_STORAGE_KEY = "curie.theme.v1";
+
+function resolveInitialTheme(searchParams) {
+  const fromQuery = searchParams.get("theme");
+  if (fromQuery === "light" || fromQuery === "dark") {
+    return fromQuery;
+  }
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+  } catch (_err) {
+    // Ignore restricted storage contexts.
+  }
+  if (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: light)").matches
+  ) {
+    return "light";
+  }
+  return "dark";
+}
+
+function applyThemeToDocument(theme, chrome, persist = false) {
+  const normalized = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = normalized;
+  document.documentElement.dataset.efTheme = normalized;
+  if (persist) {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, normalized);
+    } catch (_err) {
+      // Ignore storage quota or privacy restrictions.
+    }
+  }
+  const toggleBtn = document.getElementById("btn-toggle-theme");
+  if (toggleBtn) {
+    toggleBtn.setAttribute("aria-pressed", normalized === "light" ? "true" : "false");
+    if (chrome) {
+      toggleBtn.textContent = normalized === "light" ? chrome.theme_to_dark : chrome.theme_to_light;
+    }
+  }
+  return normalized;
+}
+
+function isEditableFocusTarget(target) {
+  if (!target || typeof target !== "object") return false;
+  const tag = String(target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") {
+    return true;
+  }
+  return Boolean(target.isContentEditable);
+}
 
 export function isWithinMount(pathname) {
   return pathname === MOUNT_PREFIX || pathname.startsWith(`${MOUNT_PREFIX}/`);
@@ -366,7 +419,23 @@ function applyClinicDocumentLocale(
   setText("btn-send-prompt", chrome.send);
   setText("btn-load-wasm", chrome.load_wasm);
   setText("heading-diagnostics", chrome.diagnostics_heading);
+  setText("btn-privacy-cover", chrome.privacy_cover_btn);
+  setText("privacy-cover-title", chrome.privacy_cover_title);
+  setText("privacy-cover-hint", chrome.privacy_cover_hint);
+  setText("btn-dismiss-privacy", chrome.privacy_cover_dismiss);
+  setText("btn-shortcuts", chrome.shortcuts_btn);
+  setText("shortcuts-title", chrome.shortcuts_title);
+  setText("shortcut-privacy-desc", chrome.shortcuts_privacy_desc);
+  setText("shortcut-help-desc", chrome.shortcuts_help_desc);
+  setText("shortcut-escape-desc", chrome.shortcuts_escape_desc);
+  setText("btn-close-shortcuts", chrome.shortcuts_close);
   setText("metric-locale", `${dir} / ${normalizedLang} (${meta.script})`);
+
+  const activeTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const themeBtn = document.getElementById("btn-toggle-theme");
+  if (themeBtn) {
+    themeBtn.textContent = activeTheme === "light" ? chrome.theme_to_dark : chrome.theme_to_light;
+  }
 
   const composerEl = document.getElementById("composer-draft");
   if (composerEl) {
@@ -391,6 +460,9 @@ async function boot() {
     lang: "en",
     dir: "ltr",
     script: "Latn",
+    theme: "dark",
+    privacyCoverActive: false,
+    shortcutsOpen: false,
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
     lastWasmSnapshot: null,
@@ -409,11 +481,178 @@ async function boot() {
   setText("metric-subpath", withinMount ? `${pathname} (valid)` : `${pathname} (invalid-mount)`);
 
   const searchParams = new URLSearchParams(window.location.search);
+  const initialTheme = resolveInitialTheme(searchParams);
+  state.theme = applyThemeToDocument(initialTheme, null, false);
   const requestedLang = searchParams.get("lang") || "en";
   let localeInfo = applyClinicDocumentLocale(requestedLang, null, null, true);
   state.lang = localeInfo.lang;
   state.dir = localeInfo.dir;
   state.script = localeInfo.script;
+  state.theme = applyThemeToDocument(state.theme, localeInfo.chrome, false);
+
+  const workspaceGrid = document.querySelector(".workspace-grid");
+  const privacyCoverEl = document.getElementById("privacy-cover");
+  const dismissPrivacyBtn = document.getElementById("btn-dismiss-privacy");
+  const shortcutsDialogEl = document.getElementById("shortcuts-dialog");
+  const closeShortcutsBtn = document.getElementById("btn-close-shortcuts");
+  let priorFocusEl = null;
+
+  const restorePriorFocus = () => {
+    const target = priorFocusEl;
+    priorFocusEl = null;
+    if (target && target.isConnected && typeof target.focus === "function") {
+      target.focus();
+    }
+  };
+
+  const closeShortcutsDialog = (restoreFocus = true) => {
+    if (!shortcutsDialogEl || shortcutsDialogEl.hidden) return;
+    shortcutsDialogEl.hidden = true;
+    state.shortcutsOpen = false;
+    document.documentElement.dataset.efShortcutsOpen = "false";
+    if (restoreFocus) {
+      restorePriorFocus();
+    }
+  };
+
+  const openShortcutsDialog = () => {
+    if (!shortcutsDialogEl || state.privacyCoverActive) return;
+    if (shortcutsDialogEl.hidden) {
+      priorFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    shortcutsDialogEl.hidden = false;
+    state.shortcutsOpen = true;
+    document.documentElement.dataset.efShortcutsOpen = "true";
+    if (closeShortcutsBtn) {
+      closeShortcutsBtn.focus();
+    }
+  };
+
+  const setPrivacyCoverActive = (active) => {
+    if (!privacyCoverEl) return;
+    const next = Boolean(active);
+    if (next) {
+      closeShortcutsDialog(false);
+      if (privacyCoverEl.hidden) {
+        priorFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }
+      privacyCoverEl.hidden = false;
+      state.privacyCoverActive = true;
+      document.documentElement.dataset.efPrivacyCover = "active";
+      if (workspaceGrid) {
+        workspaceGrid.setAttribute("aria-hidden", "true");
+        workspaceGrid.classList.add("is-concealed");
+      }
+      if (dismissPrivacyBtn) {
+        dismissPrivacyBtn.focus();
+      }
+    } else if (!privacyCoverEl.hidden || state.privacyCoverActive) {
+      privacyCoverEl.hidden = true;
+      state.privacyCoverActive = false;
+      document.documentElement.dataset.efPrivacyCover = "inactive";
+      if (workspaceGrid) {
+        workspaceGrid.removeAttribute("aria-hidden");
+        workspaceGrid.classList.remove("is-concealed");
+      }
+      restorePriorFocus();
+    }
+  };
+
+  document.documentElement.dataset.efPrivacyCover = "inactive";
+  document.documentElement.dataset.efShortcutsOpen = "false";
+
+  const themeToggleBtn = document.getElementById("btn-toggle-theme");
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      const nextTheme = state.theme === "light" ? "dark" : "light";
+      state.theme = applyThemeToDocument(nextTheme, localeInfo.chrome, true);
+    });
+  }
+
+  const privacyCoverBtn = document.getElementById("btn-privacy-cover");
+  if (privacyCoverBtn) {
+    privacyCoverBtn.addEventListener("click", () => {
+      setPrivacyCoverActive(!state.privacyCoverActive);
+    });
+  }
+
+  if (dismissPrivacyBtn) {
+    dismissPrivacyBtn.addEventListener("click", () => {
+      setPrivacyCoverActive(false);
+    });
+  }
+
+  if (privacyCoverEl) {
+    privacyCoverEl.addEventListener("click", (event) => {
+      if (event.target === privacyCoverEl) {
+        setPrivacyCoverActive(false);
+      }
+    });
+  }
+
+  const shortcutsBtn = document.getElementById("btn-shortcuts");
+  if (shortcutsBtn) {
+    shortcutsBtn.addEventListener("click", () => {
+      if (state.shortcutsOpen) {
+        closeShortcutsDialog(true);
+      } else {
+        openShortcutsDialog();
+      }
+    });
+  }
+
+  if (closeShortcutsBtn) {
+    closeShortcutsBtn.addEventListener("click", () => {
+      closeShortcutsDialog(true);
+    });
+  }
+
+  if (shortcutsDialogEl) {
+    shortcutsDialogEl.addEventListener("click", (event) => {
+      if (event.target === shortcutsDialogEl) {
+        closeShortcutsDialog(true);
+      }
+    });
+  }
+
+  document.addEventListener("keydown", (event) => {
+    const key = String(event.key || "");
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      (key.toLowerCase() === "l" || event.code === "KeyL")
+    ) {
+      event.preventDefault();
+      setPrivacyCoverActive(!state.privacyCoverActive);
+      return;
+    }
+    if (key === "Escape") {
+      if (state.privacyCoverActive) {
+        event.preventDefault();
+        setPrivacyCoverActive(false);
+        return;
+      }
+      if (state.shortcutsOpen) {
+        event.preventDefault();
+        closeShortcutsDialog(true);
+        return;
+      }
+    }
+    if (
+      key === "?" &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !isEditableFocusTarget(event.target)
+    ) {
+      event.preventDefault();
+      if (state.shortcutsOpen) {
+        closeShortcutsDialog(true);
+      } else {
+        openShortcutsDialog();
+      }
+    }
+  });
 
   const appRoot = document.getElementById("elysian-app") ?? document.body;
   const composerEl = document.getElementById("composer-draft");
@@ -681,6 +920,19 @@ async function boot() {
     apiClient,
     bridge,
     setLocale: (lang) => switchClinicLocale(lang),
+    setTheme: (theme) => {
+      state.theme = applyThemeToDocument(theme, localeInfo.chrome, true);
+      return state.theme;
+    },
+    setPrivacyCover: (active) => {
+      setPrivacyCoverActive(active);
+      return state.privacyCoverActive;
+    },
+    openShortcuts: () => openShortcutsDialog(),
+    closeModals: () => {
+      setPrivacyCoverActive(false);
+      closeShortcutsDialog(true);
+    },
     dispatchWasm: (cmd) => {
       if (!wasmClient) return null;
       const snap = wasmClient.dispatch(cmd);
