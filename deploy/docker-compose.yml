@@ -111,6 +111,38 @@ services:
       retries: 5
       start_period: 5s
 
+  gateway:
+    image: caddy:2-alpine
+    profiles:
+      - gateway
+    depends_on:
+      clinic:
+        condition: service_healthy
+      mobile:
+        condition: service_healthy
+      public-site:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /config
+      - /data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
 volumes:
   postgres-data:
   clinic-data:

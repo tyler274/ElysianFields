@@ -6,11 +6,11 @@ This directory holds the rootless OCI container definitions and local compositio
 
 Each `Containerfile` uses a multi-stage Rust release build (`rust:1.99.1-slim-bookworm`) copied into a minimal `debian:bookworm-slim` runtime image running as non-root UID/GID `10001` with a single compiled binary, zero baked-in secrets, and built-in HTTP healthchecks:
 
-| Containerfile | Binary | Port | Health / Readiness Probe | Writable State Volumes |
-| --- | --- | --- | --- | --- |
-| [`Containerfile.clinic`](./Containerfile.clinic) | `ef-clinic-server` | `8088` | `GET /elysianfields/` | `/var/lib/elysian/clinic` (plus read-only `/srv/elysianfields/web` mounted at `/elysianfields/`) |
-| [`Containerfile.mobile`](./Containerfile.mobile) | `ef-mobile-server` | `8089` | `GET /elysianfields/mobile-api/readyz` | `/var/lib/elysian/mobile-data` and independent `/var/lib/elysian/mobile-journal` |
-| [`Containerfile.public`](./Containerfile.public) | `ef-public-site` | `8082` | `GET /health` and `GET /readyz` | None (stateless) |
+| Containerfile | Binary | Port | Health / Readiness Probe | Prometheus Metrics (Zero-PHI) | Writable State Volumes |
+| --- | --- | --- | --- | --- | --- |
+| [`Containerfile.clinic`](./Containerfile.clinic) | `ef-clinic-server` | `8088` | `GET /elysianfields/` and `GET /elysianfields/api/health` | `GET /elysianfields/api/metrics` | `/var/lib/elysian/clinic` (plus read-only `/srv/elysianfields/web` mounted at `/elysianfields/`) |
+| [`Containerfile.mobile`](./Containerfile.mobile) | `ef-mobile-server` | `8089` | `GET /elysianfields/mobile-api/readyz` | `GET /elysianfields/mobile-api/metrics` | `/var/lib/elysian/mobile-data` and independent `/var/lib/elysian/mobile-journal` |
+| [`Containerfile.public`](./Containerfile.public) | `ef-public-site` | `8082` | `GET /health` and `GET /readyz` | `GET /metrics` | None (stateless) |
 
 ## Isolated PostgreSQL 18 Compose Stack
 
@@ -18,6 +18,14 @@ Each `Containerfile` uses a multi-stage Rust release build (`rust:1.99.1-slim-bo
 
 ```sh
 docker compose -f deploy/docker-compose.yml up --build
+```
+
+## Unified Single-Origin Gateway
+
+To front all three services behind a single hardened HTTP origin on `127.0.0.1:8080` using [`Caddyfile`](./Caddyfile) (`/elysianfields/api/*` -> `clinic:8088` with zero-buffer SSE flushing, `/elysianfields/mobile-api/*` -> `mobile:8089`, `/elysianfields/*` -> `clinic:8088`, and `/*` -> `public-site:8082`):
+
+```sh
+docker compose -f deploy/docker-compose.yml --profile gateway up --build
 ```
 
 Provide real database credentials via environment variables (`EF_PG_USER`, `EF_PG_PASSWORD`) outside local development; never commit provider or database secrets into image layers or compose files.

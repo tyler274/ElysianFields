@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -132,6 +133,76 @@ class DeployAndLocalStackTests(unittest.TestCase):
             "LD_LIBRARY_PATH",
         ):
             self.assertIn(lib_name, flake_text)
+
+    def test_caddyfile_and_compose_single_origin_gateway(self) -> None:
+        caddyfile = DEPLOY_DIR / "Caddyfile"
+        self.assertTrue(caddyfile.is_file(), f"missing {caddyfile}")
+        caddy_text = caddyfile.read_text(encoding="utf-8")
+        for needle in (
+            ":8080",
+            "/elysianfields/api/*",
+            "/elysianfields/mobile-api/*",
+            "/elysianfields/*",
+            "/*",
+            "clinic:8088",
+            "mobile:8089",
+            "public-site:8082",
+            "X-Content-Type-Options",
+            "nosniff",
+            "X-Frame-Options",
+            "DENY",
+            "Referrer-Policy",
+            "no-referrer",
+        ):
+            self.assertIn(needle, caddy_text, f"missing `{needle}` in deploy/Caddyfile")
+
+        compose_text = (DEPLOY_DIR / "docker-compose.yml").read_text(encoding="utf-8")
+        for needle in (
+            "gateway:",
+            "image: caddy:2-alpine",
+            "profiles:",
+            "- gateway",
+            "./Caddyfile:/etc/caddy/Caddyfile:ro",
+            "127.0.0.1:8080:8080",
+        ):
+            self.assertIn(needle, compose_text, f"missing `{needle}` in deploy/docker-compose.yml")
+
+    def test_android_gradle_structure_and_manifest_security_invariants(self) -> None:
+        android_dir = REPO_ROOT / "platform" / "android"
+        settings_kts = android_dir / "settings.gradle.kts"
+        build_kts = android_dir / "build.gradle.kts"
+        config_kt = android_dir / "src" / "main" / "kotlin" / "fields" / "elysian" / "mobile" / "MobileAppConfig.kt"
+        manifest = android_dir / "src" / "main" / "AndroidManifest.xml"
+
+        for required in (settings_kts, build_kts, config_kt, manifest):
+            self.assertTrue(required.is_file(), f"missing {required}")
+
+        self.assertIn("elysian-mobile-android", settings_kts.read_text(encoding="utf-8"))
+        self.assertIn("fields.elysian.mobile", build_kts.read_text(encoding="utf-8"))
+
+        config_text = config_kt.read_text(encoding="utf-8")
+        self.assertIn("package fields.elysian.mobile", config_text)
+        self.assertNotIn("import android.", config_text)
+
+        tree = ET.parse(manifest)
+        root = tree.getroot()
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        self.assertEqual(root.attrib.get("package"), "fields.elysian.mobile")
+
+        app = root.find("application")
+        self.assertIsNotNone(app, "AndroidManifest.xml missing <application>")
+        assert app is not None
+        self.assertEqual(app.attrib.get(f"{android_ns}allowBackup"), "false")
+        self.assertEqual(app.attrib.get(f"{android_ns}usesCleartextTraffic"), "false")
+
+        queries = root.find("queries")
+        self.assertIsNotNone(queries, "AndroidManifest.xml missing <queries> for tel: crisis intents")
+        assert queries is not None
+        tel_schemes = [
+            data.attrib.get(f"{android_ns}scheme")
+            for data in queries.findall(".//data")
+        ]
+        self.assertIn("tel", tel_schemes, "AndroidManifest.xml must declare explicit tel: crisis intent query")
 
 
 if __name__ == "__main__":

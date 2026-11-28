@@ -273,6 +273,34 @@ private fun testFcmService() {
     check(!invalid, "unknown FCM kind must return false")
 }
 
+private fun testMobileAppConfig() {
+    val cfg = MobileAppConfig.productionDefaults()
+    check(cfg.applicationId == "fields.elysian.mobile", "applicationId mismatch")
+    check(cfg.apiBasePath == "/elysianfields/mobile-api", "apiBasePath mismatch")
+    check(!cfg.allowBackup, "allowBackup must be false")
+    check(!cfg.usesCleartextTraffic, "usesCleartextTraffic must be false")
+    check(
+        cfg.endpointUrl("https://app.example.invalid/", "readyz") ==
+            "https://app.example.invalid/elysianfields/mobile-api/readyz",
+        "HTTPS endpoint resolution mismatch",
+    )
+    check(
+        cfg.endpointUrl("http://127.0.0.1:8089", "/metrics") ==
+            "http://127.0.0.1:8089/elysianfields/mobile-api/metrics",
+        "loopback dev endpoint resolution mismatch",
+    )
+    var rejectedCleartext = false
+    try {
+        cfg.endpointUrl("http://public.example.invalid", "readyz")
+    } catch (_: IllegalArgumentException) {
+        rejectedCleartext = true
+    }
+    check(rejectedCleartext, "non-loopback cleartext HTTP origin must be rejected")
+    check(cfg.isAllowedCrisisUri("tel:988"), "tel:988 must be allowed")
+    check(cfg.isAllowedCrisisUri("tel:911"), "tel:911 must be allowed")
+    check(!cfg.isAllowedCrisisUri("http://988"), "non-tel crisis URI must be rejected")
+}
+
 fun main() {
     testEfssV1CanonicalParity()
     println("PASS: testEfssV1CanonicalParity")
@@ -284,5 +312,7 @@ fun main() {
     println("PASS: testHealthConnectBridge")
     testFcmService()
     println("PASS: testFcmService")
-    println("ALL ANDROID KOTLIN SHIM TESTS PASSED (5/5)")
+    testMobileAppConfig()
+    println("PASS: testMobileAppConfig")
+    println("ALL ANDROID KOTLIN SHIM TESTS PASSED (6/6)")
 }

@@ -130,6 +130,39 @@ impl MobileHttpResponse {
         Self::json(405, &serde_json::json!({ "error": "method_not_allowed" }))
     }
 
+    /// Constructs a zero-PHI Prometheus exposition (`0.0.4`) response carrying `ClinicalNoStore` headers.
+    #[must_use]
+    pub fn prometheus_metrics(body: String) -> Self {
+        let policy = CachePolicy::ClinicalNoStore;
+        let mut headers = vec![
+            (
+                "Content-Type".to_owned(),
+                "text/plain; version=0.0.4; charset=utf-8".to_owned(),
+            ),
+            (
+                "Content-Security-Policy".to_owned(),
+                MOBILE_STRICT_CSP.to_owned(),
+            ),
+            ("X-Frame-Options".to_owned(), "DENY".to_owned()),
+            ("X-Content-Type-Options".to_owned(), "nosniff".to_owned()),
+            ("Referrer-Policy".to_owned(), "no-referrer".to_owned()),
+            (
+                "Cache-Control".to_owned(),
+                policy.cache_control_header().to_owned(),
+            ),
+        ];
+        if let Some(cdn) = policy.cdn_cache_control_header() {
+            headers.push(("CDN-Cache-Control".to_owned(), cdn.to_owned()));
+            headers.push(("Surrogate-Control".to_owned(), cdn.to_owned()));
+        }
+        Self {
+            status: 200,
+            reason: status_reason(200),
+            headers,
+            body: body.into_bytes(),
+        }
+    }
+
     #[must_use]
     pub fn to_http1_bytes(&self) -> Vec<u8> {
         let mut head = format!("HTTP/1.1 {} {}\r\n", self.status, self.reason);

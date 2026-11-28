@@ -159,6 +159,15 @@ impl HttpResponse {
         resp
     }
 
+    /// Constructs a zero-PHI Prometheus exposition (`0.0.4`) response carrying `ClinicalNoStore` headers.
+    #[must_use]
+    pub fn prometheus_metrics(body: String) -> Self {
+        let mut resp = Self::base(200, CachePolicy::ClinicalNoStore);
+        resp.set_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+        resp.body = body.into_bytes();
+        resp
+    }
+
     /// Constructs a `404 Not Found` response with `ClinicalNoStore` headers.
     #[must_use]
     pub fn not_found() -> Self {

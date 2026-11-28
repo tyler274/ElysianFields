@@ -2,6 +2,10 @@
 //! production observability exclusion (`EF-PUBLIC-0001` & `EF-PUBLIC-0002`).
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +153,116 @@ struct HealthPayload {
     status: &'static str,
 }
 
+/// Zero-PHI atomic Prometheus counters/gauges for [`PublicSiteRouter`].
+#[derive(Debug)]
+struct PublicMetrics {
+    requests_2xx: AtomicU64,
+    requests_4xx: AtomicU64,
+    requests_5xx: AtomicU64,
+    #[cfg(not(target_arch = "wasm32"))]
+    started_at: Instant,
+    #[cfg(target_arch = "wasm32")]
+    started_ms: AtomicU64,
+}
+
+impl Clone for PublicMetrics {
+    fn clone(&self) -> Self {
+        Self {
+            requests_2xx: AtomicU64::new(self.requests_2xx.load(Ordering::Relaxed)),
+            requests_4xx: AtomicU64::new(self.requests_4xx.load(Ordering::Relaxed)),
+            requests_5xx: AtomicU64::new(self.requests_5xx.load(Ordering::Relaxed)),
+            #[cfg(not(target_arch = "wasm32"))]
+            started_at: self.started_at,
+            #[cfg(target_arch = "wasm32")]
+            started_ms: AtomicU64::new(self.started_ms.load(Ordering::Relaxed)),
+        }
+    }
+}
+
+impl PublicMetrics {
+    fn new() -> Self {
+        Self {
+            requests_2xx: AtomicU64::new(0),
+            requests_4xx: AtomicU64::new(0),
+            requests_5xx: AtomicU64::new(0),
+            #[cfg(not(target_arch = "wasm32"))]
+            started_at: Instant::now(),
+            #[cfg(target_arch = "wasm32")]
+            started_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn record_status(&self, status: u16) {
+        match status {
+            200..=299 => {
+                self.requests_2xx.fetch_add(1, Ordering::Relaxed);
+            }
+            400..=499 => {
+                self.requests_4xx.fetch_add(1, Ordering::Relaxed);
+            }
+            500..=599 => {
+                self.requests_5xx.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    fn uptime_seconds(&self, now_ms: u64) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = now_ms;
+            self.started_at.elapsed().as_secs()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let start = self.started_ms.load(Ordering::Relaxed);
+            if start == 0 {
+                let _ = self.started_ms.compare_exchange(
+                    0,
+                    now_ms,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
+                0
+            } else {
+                now_ms.saturating_sub(start) / 1_000
+            }
+        }
+    }
+
+    fn render_prometheus(&self, now_ms: u64) -> String {
+        let r2 = self.requests_2xx.load(Ordering::Relaxed);
+        let r4 = self.requests_4xx.load(Ordering::Relaxed);
+        let r5 = self.requests_5xx.load(Ordering::Relaxed);
+        let uptime_secs = self.uptime_seconds(now_ms);
+        let mut out = String::with_capacity(384);
+        let _ = writeln!(
+            out,
+            "# HELP ef_public_http_requests_total Total HTTP requests handled by ef-public-site by status class."
+        );
+        let _ = writeln!(out, "# TYPE ef_public_http_requests_total counter");
+        let _ = writeln!(
+            out,
+            "ef_public_http_requests_total{{status_class=\"2xx\"}} {r2}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_public_http_requests_total{{status_class=\"4xx\"}} {r4}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_public_http_requests_total{{status_class=\"5xx\"}} {r5}"
+        );
+        let _ = writeln!(
+            out,
+            "# HELP ef_public_uptime_seconds Seconds elapsed since ef-public-site started."
+        );
+        let _ = writeln!(out, "# TYPE ef_public_uptime_seconds gauge");
+        let _ = writeln!(out, "ef_public_uptime_seconds {uptime_secs}");
+        out
+    }
+}
+
 /// Semantic HTML public site router with zero clinical DB credentials or secrets.
 #[derive(Debug, Clone)]
 pub struct PublicSiteRouter {
@@ -157,6 +271,7 @@ pub struct PublicSiteRouter {
     demo: SyntheticDemoEngine,
     dei_shards: BTreeMap<String, DeiStateShard>,
     ingress: PublicIngressGuard,
+    metrics: PublicMetrics,
 }
 
 impl PublicSiteRouter {
@@ -173,6 +288,7 @@ impl PublicSiteRouter {
             demo: SyntheticDemoEngine::new(5),
             dei_shards,
             ingress: PublicIngressGuard::new(60, 60_000),
+            metrics: PublicMetrics::new(),
         }
     }
 
@@ -206,6 +322,12 @@ impl PublicSiteRouter {
 
     /// Dispatches a public HTTP request with ingress checks, cache headers, and semantic HTML rendering.
     pub fn handle(&mut self, req: &PublicRequest, now_ms: u64) -> PublicResponse {
+        let resp = self.dispatch_handle(req, now_ms);
+        self.metrics.record_status(resp.status);
+        resp
+    }
+
+    fn dispatch_handle(&mut self, req: &PublicRequest, now_ms: u64) -> PublicResponse {
         if let Err(code) = self.ingress.check(&req.client_ip, req.body.len(), now_ms) {
             let msg = if code == 413 {
                 "Payload Too Large (64 KiB limit exceeded)"
@@ -334,6 +456,12 @@ impl PublicSiteRouter {
                     .unwrap_or_else(|_| "{\"status\":\"ok\"}".to_owned());
                 PublicResponse::text(200, "application/json", "no-store", body)
             }
+            ("GET", "/metrics") => PublicResponse::text(
+                200,
+                "text/plain; version=0.0.4; charset=utf-8",
+                "no-store",
+                self.metrics.render_prometheus(now_ms),
+            ),
             ("GET", p) if self.legal.get(p).is_some() => match self.legal.render_html(p) {
                 Ok(html) => PublicResponse::html(200, "public, max-age=300", html),
                 Err(_) => self.render_not_found(p),
