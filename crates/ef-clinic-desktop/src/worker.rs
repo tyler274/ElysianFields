@@ -5,7 +5,9 @@
 
 use std::net::SocketAddr;
 use std::sync::Mutex;
-use std::sync::mpsc::{self, Receiver, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use bevy::prelude::Resource;
