@@ -222,9 +222,11 @@ def request(
     method: str = "GET",
     body: dict | None = None,
     timeout: float = 20.0,
+    retry_statuses: tuple[int, ...] = (),
 ) -> tuple[int, dict[str, str], str]:
     deadline = time.monotonic() + timeout
     last_err: Exception | None = None
+    last_status: int | None = None
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers_in = {"Content-Type": "application/json"} if data is not None else {}
     while time.monotonic() < deadline:
@@ -235,11 +237,16 @@ def request(
                 return resp.status, hdrs, resp.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             hdrs = {k.lower(): v for k, v in exc.headers.items()}
-            return exc.code, hdrs, exc.read().decode("utf-8", errors="replace")
+            payload = exc.read().decode("utf-8", errors="replace")
+            if exc.code in retry_statuses and time.monotonic() < deadline:
+                last_status = exc.code
+                time.sleep(0.25)
+                continue
+            return exc.code, hdrs, payload
         except Exception as exc:
             last_err = exc
             time.sleep(0.25)
-    raise RuntimeError(f"timed out requesting {method} {base}{path}: {last_err}")
+    raise RuntimeError(f"timed out requesting {method} {base}{path}: last_status={last_status} last_err={last_err}")
 
 
 def assert_gateway_headers(hdrs: dict[str, str], route: str) -> None:
@@ -377,9 +384,16 @@ subprocess.check_call(
         "clinic",
     ]
 )
-restarted_health_code, _, _ = request("/elysianfields/api/health", timeout=30.0)
+restarted_health_code, _, _ = request(
+    "/elysianfields/api/health",
+    timeout=30.0,
+    retry_statuses=(502, 503, 504),
+)
 assert restarted_health_code == 200, f"clinic health after restart expected 200, got {restarted_health_code}"
-restarted_metrics_code, _, restarted_metrics_body = request("/elysianfields/api/metrics")
+restarted_metrics_code, _, restarted_metrics_body = request(
+    "/elysianfields/api/metrics",
+    retry_statuses=(502, 503, 504),
+)
 assert restarted_metrics_code == 200
 assert extract_gauge(restarted_metrics_body, "ef_clinic_db_ready") == 1
 wal_seq_after_restart = extract_gauge(restarted_metrics_body, "ef_clinic_wal_seq")
