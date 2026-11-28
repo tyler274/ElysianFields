@@ -1,0 +1,60 @@
+[package]
+name = "ef-clinic-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Curie Clinic native Bevy 0.20.1 desktop application for Linux, macOS, and Windows."
+
+[dependencies]
+accesskit = { workspace = true }
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_log",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+ef-clinic-client = { path = "../ef-clinic-client" }
+ef-clinic-domain = { workspace = true }
+ef-core = { workspace = true }
+ef-harness = { workspace = true }
+ef-ui-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { workspace = true, features = [
+    "multi_threaded",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_ui_render",
+    "ui_picking",
+    "default_font",
+    "system_font_discovery",
+    "png",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bevy = { workspace = true, features = ["x11"] }
+# Enable native Wayland without `wayland-csd-adwaita` (`sctk-adwaita/ab_glyph` -> unmaintained `ttf-parser`).
+winit = { version = "0.30.13", default-features = false, features = [
+    "wayland",
+    "wayland-dlopen",
+    "wayland-csd-adwaita-notitle",
+] }
+# Load system fontconfig at runtime via `dlopen` so builds require no `fontconfig.pc` / `libfontconfig-dev`.
+fontique = { version = "0.11.1", default-features = false, features = ["fontconfig-dlopen"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-clinic-server = { path = "../ef-clinic-server" }
+
+[lints]
+workspace = true

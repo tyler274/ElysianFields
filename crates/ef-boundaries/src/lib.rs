@@ -249,6 +249,7 @@ pub fn is_client_crate(name: &str) -> bool {
         || name.starts_with("ef-ui-")
         || name == "ef-extension"
         || name.ends_with("-client")
+        || name.ends_with("-desktop")
         || name.ends_with("-web")
 }
 
