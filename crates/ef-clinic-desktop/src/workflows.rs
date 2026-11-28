@@ -26,6 +26,24 @@ use ef_connected_care::{
 use ef_core::{PatientId, PhysicianId, PracticeId, SourceKey, WorkspaceId};
 use ef_ui_catalog::{Locale, UiKey, translate};
 
+use crate::worker::TodayStandingUpdate;
+
+/// Live-server Today snapshot received asynchronously from `GET /elysianfields/api/today`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveTodaySnapshot {
+    pub items: Vec<RenderedTodayItem>,
+    pub scheduled_visits: Vec<ScheduledVisitEntry>,
+    pub channel_banners: Vec<TodayChannelBanner>,
+}
+
+/// Live-server Connected Care invitation issued via
+/// `POST /elysianfields/api/workspaces/{workspace_id}/connected-care/invitations`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveIssuedInvite {
+    pub invitation_id: String,
+    pub invite_code: String,
+}
+
 /// Explicit typed active tab in the 4-tab Curie Clinic Physician Workstation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ClinicWorkspaceTab {
@@ -87,6 +105,9 @@ pub struct ClinicWorkflowState {
     pub memories: BTreeMap<WorkspaceId, PatientMemoryStore>,
     pub connected_care: ConnectedCareBridge,
     pub active_invites: BTreeMap<WorkspaceId, IssuedInvitation>,
+    pub live_today: Option<LiveTodaySnapshot>,
+    pub live_memories: BTreeMap<WorkspaceId, Vec<MemoryEntry>>,
+    pub live_invites: BTreeMap<WorkspaceId, LiveIssuedInvite>,
 }
 
 impl Default for ClinicWorkflowState {
@@ -283,7 +304,88 @@ impl ClinicWorkflowState {
             memories,
             connected_care: ConnectedCareBridge::new(),
             active_invites: BTreeMap::new(),
+            live_today: None,
+            live_memories: BTreeMap::new(),
+            live_invites: BTreeMap::new(),
         }
+    }
+
+    /// Applies a live server workflow snapshot loaded via `LivePromptWorker`.
+    pub fn apply_live_workflow_snapshot(
+        &mut self,
+        workspace_id: WorkspaceId,
+        today_items: Vec<RenderedTodayItem>,
+        scheduled_visits: Vec<ScheduledVisitEntry>,
+        channel_banners: Vec<TodayChannelBanner>,
+        memory_entries: Vec<MemoryEntry>,
+    ) {
+        self.live_today = Some(LiveTodaySnapshot {
+            items: today_items,
+            scheduled_visits,
+            channel_banners,
+        });
+        self.live_memories.insert(workspace_id, memory_entries);
+    }
+
+    /// Applies a server-confirmed Today standing update (`Seen` or `Done`).
+    pub fn apply_live_today_standing(
+        &mut self,
+        item_id: &str,
+        standing: TodayStandingUpdate,
+        version_id: u64,
+    ) {
+        if let Some(live) = self.live_today.as_mut() {
+            match standing {
+                TodayStandingUpdate::Seen => {
+                    if let Some(entry) = live.items.iter_mut().find(|r| r.item.item_id == item_id)
+                        && version_id >= entry.item.version_id
+                    {
+                        entry.seen = true;
+                    }
+                }
+                TodayStandingUpdate::Done => {
+                    live.items.retain(|r| {
+                        !(r.item.item_id == item_id && version_id >= r.item.version_id)
+                    });
+                }
+            }
+            return;
+        }
+
+        match standing {
+            TodayStandingUpdate::Seen => {
+                self.today_engine
+                    .mark_seen(&self.physician_id, item_id, version_id);
+            }
+            TodayStandingUpdate::Done => {
+                if let Some(item) = self
+                    .today_candidates
+                    .iter()
+                    .find(|c| c.item_id == item_id)
+                    .cloned()
+                {
+                    let mut effective = item;
+                    effective.version_id = version_id;
+                    let _ = self.today_engine.mark_done(&self.physician_id, &effective);
+                }
+            }
+        }
+    }
+
+    /// Records a server-issued Connected Care invitation (`EF-XXXXXX`) for `workspace_id`.
+    pub fn apply_live_invite_issued(
+        &mut self,
+        workspace_id: WorkspaceId,
+        invite_code: String,
+        invitation_id: String,
+    ) {
+        self.live_invites.insert(
+            workspace_id,
+            LiveIssuedInvite {
+                invitation_id,
+                invite_code,
+            },
+        );
     }
 
     /// Evaluates the current Today view through `TodayQueueEngine::build_view`.
@@ -301,9 +403,28 @@ impl ClinicWorkflowState {
     /// Returns urgency-sorted (`Now` before `Today`) visible Today items.
     #[must_use]
     pub fn visible_today_items(&self) -> Vec<RenderedTodayItem> {
+        if let Some(ref live) = self.live_today {
+            return live.items.clone();
+        }
         match self.build_today_view() {
             TodayViewState::Actionable { items, .. } => items,
             TodayViewState::Quiet { .. } => Vec::new(),
+        }
+    }
+
+    /// Returns scheduled visits from the live snapshot when present, or the local demo engine.
+    #[must_use]
+    pub fn scheduled_visits_list(&self) -> Vec<ScheduledVisitEntry> {
+        if let Some(ref live) = self.live_today {
+            return live.scheduled_visits.clone();
+        }
+        match self.build_today_view() {
+            TodayViewState::Actionable {
+                scheduled_visits, ..
+            }
+            | TodayViewState::Quiet {
+                scheduled_visits, ..
+            } => scheduled_visits,
         }
     }
 
@@ -336,15 +457,9 @@ impl ClinicWorkflowState {
     /// Returns the workspace ID for the `index`-th sorted scheduled visit.
     #[must_use]
     pub fn scheduled_visit_workspace(&self, index: usize) -> Option<WorkspaceId> {
-        let visits = match self.build_today_view() {
-            TodayViewState::Actionable {
-                scheduled_visits, ..
-            }
-            | TodayViewState::Quiet {
-                scheduled_visits, ..
-            } => scheduled_visits,
-        };
-        visits.get(index).map(|v| v.workspace_id.clone())
+        self.scheduled_visits_list()
+            .get(index)
+            .map(|v| v.workspace_id.clone())
     }
 
     /// Derives the physician-scoped reply card through `MessageReplyEngine::derive_reply_card`.
@@ -384,6 +499,9 @@ impl ClinicWorkflowState {
     /// Returns all active and retired memory entries for `workspace_id`.
     #[must_use]
     pub fn memory_entries_for(&self, workspace_id: &WorkspaceId) -> &[MemoryEntry] {
+        if let Some(live) = self.live_memories.get(workspace_id) {
+            return live.as_slice();
+        }
         self.memories
             .get(workspace_id)
             .map_or(&[], PatientMemoryStore::all_entries)
@@ -392,6 +510,9 @@ impl ClinicWorkflowState {
     /// Returns the Connected Care state for `workspace_id` via `ConnectedCareBridge::clinic_standing`.
     #[must_use]
     pub fn connected_care_state_for(&self, workspace_id: &WorkspaceId) -> ConnectedCareState {
+        if self.live_invites.contains_key(workspace_id) {
+            return ConnectedCareState::Invited;
+        }
         let Ok(patient_id) = PatientId::new(workspace_id.as_str()) else {
             return ConnectedCareState::NotInvited;
         };
@@ -403,6 +524,17 @@ impl ClinicWorkflowState {
     #[must_use]
     pub fn active_invite_for(&self, workspace_id: &WorkspaceId) -> Option<&IssuedInvitation> {
         self.active_invites.get(workspace_id)
+    }
+
+    /// Returns the active `EF-XXXXXX` invite code from either live server state or local demo bridge.
+    #[must_use]
+    pub fn active_invite_code_for(&self, workspace_id: &WorkspaceId) -> Option<&str> {
+        if let Some(live) = self.live_invites.get(workspace_id) {
+            return Some(live.invite_code.as_str());
+        }
+        self.active_invites
+            .get(workspace_id)
+            .map(|inv| inv.short_code.as_str())
     }
 
     /// Issues (or returns existing open) 6-digit `EF-XXXXXX` Connected Care invitation
@@ -442,13 +574,17 @@ impl ClinicWorkflowState {
     /// Formats the `TodaySaysSo` channel health banner text (`TempError` never asks to reconnect).
     #[must_use]
     pub fn format_channel_health_banner(&self, locale: Locale) -> String {
-        let banners = match self.build_today_view() {
-            TodayViewState::Actionable {
-                channel_banners, ..
+        let banners = if let Some(ref live) = self.live_today {
+            live.channel_banners.clone()
+        } else {
+            match self.build_today_view() {
+                TodayViewState::Actionable {
+                    channel_banners, ..
+                }
+                | TodayViewState::Quiet {
+                    channel_banners, ..
+                } => channel_banners,
             }
-            | TodayViewState::Quiet {
-                channel_banners, ..
-            } => channel_banners,
         };
         let heading = translate(locale, UiKey::ChannelHealth);
         if banners.is_empty() {

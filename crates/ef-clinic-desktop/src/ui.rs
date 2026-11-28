@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use ef_clinic_client::{
     ActiveWorkspaceView, ClientClock, ClinicAction, ClinicActionMessage, ClinicSessionShell,
 };
-use ef_clinic_workflows::today::{TodayUrgency, TodayViewState};
+use ef_clinic_workflows::today::TodayUrgency;
 use ef_connected_care::ConnectedCareState;
 use ef_core::IdempotencyKey;
 use ef_ui_catalog::{
@@ -36,7 +36,10 @@ use crate::demo::{
     DesktopCitationCatalog, DesktopInputFocus, DesktopStatusBanner, DesktopTranscriptEntry,
     DesktopWorkspaceState,
 };
-use crate::worker::{LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState};
+use crate::worker::{
+    LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState,
+    TodayStandingUpdate,
+};
 use crate::workflows::{ClinicWorkflowState, ClinicWorkspaceTab};
 
 /// Typed interactive button action component (zero string dispatch).
@@ -1140,14 +1143,7 @@ fn spawn_today_panel(
     scale: f32,
 ) {
     let items = workflows.visible_today_items();
-    let visits = match workflows.build_today_view() {
-        TodayViewState::Actionable {
-            scheduled_visits, ..
-        }
-        | TodayViewState::Quiet {
-            scheduled_visits, ..
-        } => scheduled_visits,
-    };
+    let visits = workflows.scheduled_visits_list();
     let seen_label = translate(locale, UiKey::MarkSeen);
     let done_label = translate(locale, UiKey::MarkDone);
 
@@ -1446,13 +1442,9 @@ fn spawn_memory_care_panel(
         workflows.connected_care_state_for(ws)
     });
     let invite_line = active_ws
-        .and_then(|ws| workflows.active_invite_for(ws))
-        .map_or_else(String::new, |inv| {
-            format!(
-                "{}: {}",
-                translate(locale, UiKey::ActiveInviteCode),
-                inv.short_code.as_str()
-            )
+        .and_then(|ws| workflows.active_invite_code_for(ws))
+        .map_or_else(String::new, |code| {
+            format!("{}: {code}", translate(locale, UiKey::ActiveInviteCode))
         });
 
     root.spawn((
@@ -2225,10 +2217,42 @@ fn process_desktop_events_system(
                 ws_state.status_banner = DesktopStatusBanner::Custom(
                     translate(ui_locale.current, tab.ui_key()).to_owned(),
                 );
+                if live_worker.is_enabled()
+                    && matches!(
+                        tab,
+                        ClinicWorkspaceTab::Today | ClinicWorkspaceTab::MemoryCare
+                    )
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(active_ws) =
+                        ws_state.active_patient().map(|p| p.workspace_id.clone())
+                    && let Err(detail) = live_worker.fetch_workflow_snapshot(session_id, active_ws)
+                {
+                    ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                }
                 gate.request_redraw(RedrawReason::FocusTransition);
             }
             DesktopUiEvent::TodayMarkSeen(idx) => {
-                if let Some(item_id) = workflows.mark_today_seen(idx) {
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                {
+                    if let Some(rendered) = workflows.visible_today_items().get(idx).cloned() {
+                        ws_state.status_override = None;
+                        match live_worker.update_today_standing(
+                            session_id,
+                            rendered.item.item_id,
+                            TodayStandingUpdate::Seen,
+                            rendered.item.version_id,
+                        ) {
+                            Ok(()) => {
+                                ws_state.status_banner = DesktopStatusBanner::Sending;
+                            }
+                            Err(detail) => {
+                                ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                            }
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
+                } else if let Some(item_id) = workflows.mark_today_seen(idx) {
                     ws_state.status_override = None;
                     ws_state.status_banner = DesktopStatusBanner::Custom(format!(
                         "{}: {item_id}",
@@ -2238,7 +2262,27 @@ fn process_desktop_events_system(
                 }
             }
             DesktopUiEvent::TodayMarkDone(idx) => {
-                if let Some(item_id) = workflows.mark_today_done(idx) {
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                {
+                    if let Some(rendered) = workflows.visible_today_items().get(idx).cloned() {
+                        ws_state.status_override = None;
+                        match live_worker.update_today_standing(
+                            session_id,
+                            rendered.item.item_id,
+                            TodayStandingUpdate::Done,
+                            rendered.item.version_id,
+                        ) {
+                            Ok(()) => {
+                                ws_state.status_banner = DesktopStatusBanner::Sending;
+                            }
+                            Err(detail) => {
+                                ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                            }
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
+                } else if let Some(item_id) = workflows.mark_today_done(idx) {
                     ws_state.status_override = None;
                     ws_state.status_banner = DesktopStatusBanner::Custom(format!(
                         "{}: {item_id}",
@@ -2293,16 +2337,36 @@ fn process_desktop_events_system(
                 }
             }
             DesktopUiEvent::MemoryIssueInvite => {
-                if let Some(active_ws) = ws_state.active_patient().map(|p| p.workspace_id.clone())
-                    && let Ok(issued) = workflows.issue_connected_care_invite(&active_ws)
-                {
-                    ws_state.status_override = None;
-                    ws_state.status_banner = DesktopStatusBanner::Custom(format!(
-                        "{}: {}",
-                        translate(ui_locale.current, UiKey::ActiveInviteCode),
-                        issued.short_code.as_str()
-                    ));
-                    gate.request_redraw(RedrawReason::UserInput);
+                if let Some(active_ws) = ws_state.active_patient().map(|p| p.workspace_id.clone()) {
+                    if live_worker.is_enabled()
+                        && let Some(session_id) = session.view_state.held_session().cloned()
+                    {
+                        let patient_id = format!("pat-{}", active_ws.as_str());
+                        let expected_dob = "1985-04-12".to_owned();
+                        ws_state.status_override = None;
+                        match live_worker.issue_connected_care_invite(
+                            session_id,
+                            active_ws,
+                            patient_id,
+                            expected_dob,
+                        ) {
+                            Ok(()) => {
+                                ws_state.status_banner = DesktopStatusBanner::Sending;
+                            }
+                            Err(detail) => {
+                                ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                            }
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    } else if let Ok(issued) = workflows.issue_connected_care_invite(&active_ws) {
+                        ws_state.status_override = None;
+                        ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                            "{}: {}",
+                            translate(ui_locale.current, UiKey::ActiveInviteCode),
+                            issued.short_code.as_str()
+                        ));
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
                 }
             }
         }
@@ -2387,6 +2451,7 @@ fn poll_live_worker_outcomes_system(
     live_worker: Res<LivePromptWorker>,
     ui_locale: Res<UiLocale>,
     mut ws_state: ResMut<DesktopWorkspaceState>,
+    mut workflows: ResMut<ClinicWorkflowState>,
     mut active_workspace: ResMut<ActiveWorkspaceView>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
@@ -2497,6 +2562,61 @@ fn poll_live_worker_outcomes_system(
                 ws_state.status_override = None;
                 ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
                 gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            LivePromptOutcome::WorkflowSnapshotLoaded {
+                workspace_id,
+                today_items,
+                scheduled_visits,
+                channel_banners,
+                memory_entries,
+            } => {
+                workflows.apply_live_workflow_snapshot(
+                    workspace_id,
+                    today_items,
+                    scheduled_visits,
+                    channel_banners,
+                    memory_entries,
+                );
+                gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            LivePromptOutcome::TodayStandingUpdated {
+                item_id,
+                standing,
+                version_id,
+            } => {
+                workflows.apply_live_today_standing(&item_id, standing, version_id);
+                let action_key = match standing {
+                    TodayStandingUpdate::Seen => UiKey::MarkSeen,
+                    TodayStandingUpdate::Done => UiKey::MarkDone,
+                };
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                    "{}: {item_id}",
+                    translate(ui_locale.current, action_key)
+                ));
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            LivePromptOutcome::ConnectedCareInviteIssued {
+                workspace_id,
+                invite_code,
+                invitation_id,
+            } => {
+                workflows.apply_live_invite_issued(
+                    workspace_id,
+                    invite_code.clone(),
+                    invitation_id,
+                );
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                    "{}: {invite_code}",
+                    translate(ui_locale.current, UiKey::ActiveInviteCode)
+                ));
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            LivePromptOutcome::WorkflowFailed { detail } => {
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                gate.request_redraw(RedrawReason::UserInput);
             }
         }
     }
@@ -2609,14 +2729,7 @@ fn sync_desktop_ui_visuals_system(
         && ws_state.last_failed_prompt.is_some();
 
     let today_items = workflows.visible_today_items();
-    let today_visits = match workflows.build_today_view() {
-        TodayViewState::Actionable {
-            scheduled_visits, ..
-        }
-        | TodayViewState::Quiet {
-            scheduled_visits, ..
-        } => scheduled_visits,
-    };
+    let today_visits = workflows.scheduled_visits_list();
     let today_banner = workflows.format_channel_health_banner(locale);
     let reply_card = workflows.derive_active_reply_card().ok();
     let messages_body = workflows.format_messages_card(locale);
@@ -2636,13 +2749,9 @@ fn sync_desktop_ui_visuals_system(
         });
     let active_invite_text = active_ws_id
         .as_ref()
-        .and_then(|ws| workflows.active_invite_for(ws))
-        .map_or_else(String::new, |inv| {
-            format!(
-                "{}: {}",
-                translate(locale, UiKey::ActiveInviteCode),
-                inv.short_code.as_str()
-            )
+        .and_then(|ws| workflows.active_invite_code_for(ws))
+        .map_or_else(String::new, |code| {
+            format!("{}: {code}", translate(locale, UiKey::ActiveInviteCode),)
         });
 
     for (slot, mut node, bg, border, text, font, text_color, a11y) in &mut nodes {

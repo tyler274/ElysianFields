@@ -24,10 +24,11 @@ use ef_clinic_client::{
     VerifySignInRequest,
 };
 use ef_clinic_desktop::{
-    ClinicDesktopUiPlugin, DesktopClipboard, DesktopInputFocus, DesktopLaunchConfig,
-    DesktopStatusBanner, DesktopUiEvent, DesktopUiSlot, DesktopWorkspaceState, LaunchBackend,
-    LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState, ZoomLevel,
-    bootstrap_clinic_session, create_transport_for_backend,
+    ClinicDesktopUiPlugin, ClinicWorkflowState, ClinicWorkspaceTab, DesktopClipboard,
+    DesktopInputFocus, DesktopLaunchConfig, DesktopStatusBanner, DesktopUiEvent, DesktopUiSlot,
+    DesktopWorkspaceState, LaunchBackend, LivePromptOutcome, LivePromptRequest, LivePromptWorker,
+    LiveSubmissionState, TodayStandingUpdate, ZoomLevel, bootstrap_clinic_session,
+    create_transport_for_backend,
 };
 use ef_clinic_domain::auth::{
     AccountStanding, EmailAddress, PhysicianAccount, PhysicianRole, SignInMode,
@@ -37,6 +38,9 @@ use ef_clinic_domain::workspace::{
     CitationOrigin, CitedSourcePayload, ReadablePart, classify_record_status,
 };
 use ef_clinic_server::{ClinicService, TcpClinicServer};
+use ef_clinic_workflows::memory::MemoryAuthority;
+use ef_clinic_workflows::today::TodayUrgency;
+use ef_connected_care::ConnectedCareState;
 use ef_core::{
     ChatId, IdempotencyKey, Locale as CoreLocale, PhysicianId, PracticeId, SourceKey, TabId,
     WorkspaceId,
@@ -54,6 +58,14 @@ struct LiveServerFixture {
 
 impl LiveServerFixture {
     fn spawn(label: &str) -> Self {
+        Self::spawn_inner(label, false)
+    }
+
+    fn spawn_with_workflows(label: &str) -> Self {
+        Self::spawn_inner(label, true)
+    }
+
+    fn spawn_inner(label: &str, seed_workflows: bool) -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -124,6 +136,12 @@ impl LiveServerFixture {
                 external_url: None,
             })
             .expect("seed citation");
+
+        if seed_workflows {
+            service
+                .seed_demo_workflows(&workspace_id, "Avery, Jordan (Streaming E2E)")
+                .expect("seed demo workflows");
+        }
 
         let server = TcpClinicServer::bind("127.0.0.1:0", service).expect("bind live server");
         Self {
@@ -570,6 +588,402 @@ fn clinic_desktop_ui_handles_streaming_draft_escape_cancel_and_retry_button() {
             .resource::<DesktopWorkspaceState>()
             .prompts_submitted,
         before_retry + 1
+    );
+}
+
+#[test]
+fn live_worker_syncs_today_standing_memory_and_connected_care_invite_over_tcp() {
+    let fixture = LiveServerFixture::spawn_with_workflows("workflows");
+    let session_id = fixture.sign_in_session();
+    let worker = LivePromptWorker::spawn(fixture.addr(), Duration::from_secs(5));
+
+    // 1. Fetch initial live Today + Scheduled Visits + Longitudinal Memory snapshot over TCP.
+    worker
+        .fetch_workflow_snapshot(session_id.clone(), fixture.workspace_id.clone())
+        .expect("queue workflow snapshot fetch");
+    let initial = worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for WorkflowSnapshotLoaded");
+    let (urgent_item_id, urgent_version_id) = match initial {
+        LivePromptOutcome::WorkflowSnapshotLoaded {
+            workspace_id,
+            today_items,
+            scheduled_visits,
+            memory_entries,
+            ..
+        } => {
+            assert_eq!(workspace_id, fixture.workspace_id);
+            assert!(
+                today_items.len() >= 2,
+                "expected >= 2 live seeded Today items, got {today_items:?}"
+            );
+            assert_eq!(
+                today_items[0].item.urgency,
+                TodayUrgency::Now,
+                "Now item must sort ahead of Today item"
+            );
+            assert!(!today_items[0].seen);
+            assert!(!today_items[0].done);
+            assert!(
+                !scheduled_visits.is_empty(),
+                "expected live seeded scheduled visits"
+            );
+            assert!(
+                memory_entries
+                    .iter()
+                    .any(|e| e.authority == MemoryAuthority::ChartRecord),
+                "expected ChartRecord memory entry from live server"
+            );
+            assert!(
+                memory_entries
+                    .iter()
+                    .any(|e| e.authority == MemoryAuthority::PhysicianInstruction),
+                "expected PhysicianInstruction memory entry from live server"
+            );
+            (
+                today_items[0].item.item_id.clone(),
+                today_items[0].item.version_id,
+            )
+        }
+        other => panic!("expected WorkflowSnapshotLoaded, got {other:?}"),
+    };
+
+    // 2. Mark urgent Today item as Seen and confirm live persistence on subsequent snapshot fetch.
+    worker
+        .update_today_standing(
+            session_id.clone(),
+            urgent_item_id.clone(),
+            TodayStandingUpdate::Seen,
+            urgent_version_id,
+        )
+        .expect("queue mark seen");
+    match worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for TodayStandingUpdated(Seen)")
+    {
+        LivePromptOutcome::TodayStandingUpdated {
+            item_id,
+            standing,
+            version_id,
+        } => {
+            assert_eq!(item_id, urgent_item_id);
+            assert_eq!(standing, TodayStandingUpdate::Seen);
+            assert_eq!(version_id, urgent_version_id);
+        }
+        other => panic!("expected TodayStandingUpdated(Seen), got {other:?}"),
+    }
+
+    worker
+        .fetch_workflow_snapshot(session_id.clone(), fixture.workspace_id.clone())
+        .expect("queue snapshot fetch after Seen");
+    match worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for snapshot after Seen")
+    {
+        LivePromptOutcome::WorkflowSnapshotLoaded { today_items, .. } => {
+            let updated = today_items
+                .iter()
+                .find(|r| r.item.item_id == urgent_item_id)
+                .expect("seen item should remain in Today queue");
+            assert!(updated.seen, "seen standing must persist on live server");
+            assert!(!updated.done);
+        }
+        other => panic!("expected WorkflowSnapshotLoaded after Seen, got {other:?}"),
+    }
+
+    // 3. Mark urgent Today item as Done and confirm it leaves the active Today queue on the server.
+    worker
+        .update_today_standing(
+            session_id.clone(),
+            urgent_item_id.clone(),
+            TodayStandingUpdate::Done,
+            urgent_version_id,
+        )
+        .expect("queue mark done");
+    match worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for TodayStandingUpdated(Done)")
+    {
+        LivePromptOutcome::TodayStandingUpdated {
+            item_id,
+            standing,
+            version_id,
+        } => {
+            assert_eq!(item_id, urgent_item_id);
+            assert_eq!(standing, TodayStandingUpdate::Done);
+            assert_eq!(version_id, urgent_version_id);
+        }
+        other => panic!("expected TodayStandingUpdated(Done), got {other:?}"),
+    }
+
+    worker
+        .fetch_workflow_snapshot(session_id.clone(), fixture.workspace_id.clone())
+        .expect("queue snapshot fetch after Done");
+    match worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for snapshot after Done")
+    {
+        LivePromptOutcome::WorkflowSnapshotLoaded { today_items, .. } => {
+            assert!(
+                !today_items.iter().any(|r| r.item.item_id == urgent_item_id),
+                "done item must be persisted and omitted from active Today queue"
+            );
+        }
+        other => panic!("expected WorkflowSnapshotLoaded after Done, got {other:?}"),
+    }
+
+    // 4. Issue a live Connected Care EF-XXXXXX invitation over HTTP 201 Created.
+    worker
+        .issue_connected_care_invite(
+            session_id,
+            fixture.workspace_id.clone(),
+            "pat-stream-e2e".to_owned(),
+            "1985-04-12".to_owned(),
+        )
+        .expect("queue connected care invite");
+    match worker
+        .recv_timeout(Duration::from_secs(5))
+        .expect("timed out waiting for ConnectedCareInviteIssued")
+    {
+        LivePromptOutcome::ConnectedCareInviteIssued {
+            workspace_id,
+            invite_code,
+            invitation_id,
+        } => {
+            assert_eq!(workspace_id, fixture.workspace_id);
+            assert!(
+                invite_code.starts_with("EF-") && invite_code.len() == 9,
+                "expected 6-digit EF-XXXXXX invite code, got {invite_code}"
+            );
+            assert!(
+                !invitation_id.trim().is_empty(),
+                "expected non-empty invitation_id"
+            );
+        }
+        other => panic!("expected ConnectedCareInviteIssued, got {other:?}"),
+    }
+}
+
+#[test]
+fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
+    let fixture = LiveServerFixture::spawn_with_workflows("ui-workflows");
+    let addr = fixture.addr();
+    let base_url = format!("http://{addr}");
+
+    let cfg = DesktopLaunchConfig {
+        backend: LaunchBackend::Server {
+            base_url,
+            socket_addr: addr,
+            email: Some(fixture.email.clone()),
+            token: None,
+        },
+        locale: Locale::En,
+        theme: ThemeMode::Dark,
+        zoom: ZoomLevel::Pct100,
+        ..DesktopLaunchConfig::default()
+    };
+    let (transport, conn_mode, boot_email, boot_token, patients, citation_catalog) =
+        create_transport_for_backend(&cfg.backend);
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(LivePromptWorker::spawn(addr, Duration::from_secs(5)))
+        .insert_resource(DesktopClipboard::in_memory())
+        .insert_resource(ClientClock {
+            now_secs: fixture.now_secs,
+            now_ms: fixture.now_secs * 1_000,
+        })
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: Vec::new(),
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            streaming_draft: None,
+            last_failed_prompt: None,
+            status_message: String::new(),
+            status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("w19-ui-workflows-tab").expect("tab"),
+            ClientBootConfig::from_location("/elysianfields/?lang=en").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, boot_email, boot_token);
+    app.update();
+    app.update();
+
+    let active_ws = app
+        .world()
+        .resource::<DesktopWorkspaceState>()
+        .active_patient()
+        .expect("active patient")
+        .workspace_id
+        .clone();
+    assert_eq!(active_ws, fixture.workspace_id);
+
+    // 1. Switching to Today tab fetches the live server snapshot into ClinicWorkflowState.
+    app.world_mut()
+        .write_message(DesktopUiEvent::SelectTab(ClinicWorkspaceTab::Today));
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .live_today
+        .is_none()
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+
+    let (initial_count, first_item_id) = {
+        let wf = app.world().resource::<ClinicWorkflowState>();
+        let items = wf.visible_today_items();
+        assert!(
+            items.len() >= 2,
+            "expected live Today items after tab switch, got {items:?}"
+        );
+        assert!(
+            wf.memory_entries_for(&active_ws)
+                .iter()
+                .any(|e| e.authority == MemoryAuthority::ChartRecord)
+        );
+        assert!(
+            wf.memory_entries_for(&active_ws)
+                .iter()
+                .any(|e| e.authority == MemoryAuthority::PhysicianInstruction)
+        );
+        (items.len(), items[0].item.item_id.clone())
+    };
+
+    // 2. Clicking MarkSeen dispatches UpdateTodayStanding(Seen) to the live server.
+    app.world_mut()
+        .write_message(DesktopUiEvent::TodayMarkSeen(0));
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .visible_today_items()
+        .first()
+        .is_some_and(|r| r.seen)
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+    assert!(
+        app.world()
+            .resource::<DesktopWorkspaceState>()
+            .status_message
+            .contains(&first_item_id)
+    );
+
+    // 3. Clicking MarkDone dispatches UpdateTodayStanding(Done) and removes the item from live Today.
+    app.world_mut()
+        .write_message(DesktopUiEvent::TodayMarkDone(0));
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .visible_today_items()
+        .len()
+        >= initial_count
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+    assert_eq!(
+        app.world()
+            .resource::<ClinicWorkflowState>()
+            .visible_today_items()
+            .len(),
+        initial_count - 1
+    );
+
+    // 4. Switching to Memory & Care and clicking IssueInvite fetches a live EF-XXXXXX invite code.
+    app.world_mut()
+        .write_message(DesktopUiEvent::SelectTab(ClinicWorkspaceTab::MemoryCare));
+    app.world_mut()
+        .write_message(DesktopUiEvent::MemoryIssueInvite);
+    app.update();
+
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_invite_code_for(&active_ws)
+        .is_none()
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    app.update();
+
+    let code = app
+        .world()
+        .resource::<ClinicWorkflowState>()
+        .active_invite_code_for(&active_ws)
+        .expect("live EF-XXXXXX invite code")
+        .to_owned();
+    assert!(
+        code.starts_with("EF-") && code.len() == 9,
+        "expected EF-XXXXXX code, got {code}"
+    );
+    assert_eq!(
+        app.world()
+            .resource::<ClinicWorkflowState>()
+            .connected_care_state_for(&active_ws),
+        ConnectedCareState::Invited
+    );
+    assert!(
+        app.world()
+            .resource::<DesktopWorkspaceState>()
+            .status_message
+            .contains(&code),
+        "status bar must display live invite code {code}"
+    );
+
+    let mut q = app.world_mut().query::<(&DesktopUiSlot, &Text)>();
+    let invite_slot_text = q
+        .iter(app.world())
+        .find(|(slot, _)| **slot == DesktopUiSlot::MemoryActiveInviteCodeText)
+        .map(|(_, text)| text.0.clone())
+        .expect("MemoryActiveInviteCodeText slot");
+    assert!(
+        invite_slot_text.contains(&code),
+        "MemoryActiveInviteCodeText must render live EF-XXXXXX code: {invite_slot_text}"
     );
 }
 
