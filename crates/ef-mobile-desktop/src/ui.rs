@@ -20,9 +20,13 @@ use crate::forms::{
     paste_clipboard_into_surface,
 };
 use crate::state::{
-    DesktopAction, DesktopActionQueue, MobileDesktopUiState, process_desktop_actions_system,
+    DesktopAction, DesktopActionQueue, MobileDesktopUiState, OwedRecoveryBannerState,
+    process_desktop_actions_system,
 };
-use crate::worker::poll_live_server_worker_system;
+use crate::worker::{LiveServerWorker, PendingWorkerState, poll_live_server_worker_system};
+
+/// Product-local action label for the clickable owed sign-out flush control.
+pub const FLUSH_OWED_SIGN_OUTS_LABEL: &str = "Flush Owed Sign-Outs";
 
 fn desktop_text_font(size_px: f32) -> TextFont {
     TextFont {
@@ -76,6 +80,10 @@ pub struct CardSurfaceNode;
 #[derive(Component)]
 pub struct CrisisBannerNode;
 
+/// Marker component for the Connection & Owed Sign-Out recovery status banner.
+#[derive(Component)]
+pub struct OwedRecoveryBannerNode;
+
 /// Marker component for the curated note composer visual box.
 #[derive(Component)]
 pub struct ComposerBoxNode;
@@ -111,11 +119,13 @@ pub enum TextSlot {
     CrisisBody,
     AccountHeading,
     AccountSummary,
+    OwedRecoveryBanner,
     EmailInputLabel,
     EmailInputContent,
     SignInBtnLabel,
     ConnectivityBtnLabel,
     SignOutBtnLabel,
+    FlushOwedBtnLabel,
     ConnectedCareHeading,
     ConnectedCareSummary,
     InviteInputLabel,
@@ -359,6 +369,38 @@ fn spawn_mobile_desktop_ui(
                     TextSlot::AccountSummary,
                     TextTone::Secondary,
                 ));
+                let initial_recovery_text = OwedRecoveryBannerState::SyncedOnline {
+                    worker: PendingWorkerState::Idle,
+                }
+                .format_banner(locale);
+                let mut recovery_a11y = accesskit::Node::new(accesskit::Role::Status);
+                recovery_a11y.set_label(initial_recovery_text.clone());
+                card.spawn((
+                    OwedRecoveryBannerNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(tokens.canvas_bg.to_bevy_color()),
+                    BorderColor::all(tokens.text_secondary.to_bevy_color()),
+                    A11yNodeMarker {
+                        key: A11ySemanticKey::PoliteLiveRegion,
+                        reading_order: 13,
+                        interactivity: NodeInteractivity::Structural,
+                    },
+                    AccessibilityNode(recovery_a11y),
+                ))
+                .with_children(|banner| {
+                    banner.spawn((
+                        Text::new(initial_recovery_text),
+                        desktop_text_font(11.5),
+                        TextColor(tokens.text_primary.to_bevy_color()),
+                        TextSlot::OwedRecoveryBanner,
+                        TextTone::Primary,
+                    ));
+                });
                 spawn_form_input_field(
                     card,
                     MobileInputFocus::Email,
@@ -368,7 +410,7 @@ fn spawn_mobile_desktop_ui(
                     desktop.email_field.text(),
                     desktop.active_focus == MobileInputFocus::Email,
                     34.0,
-                    13,
+                    14,
                     &tokens,
                 );
                 card.spawn((
@@ -390,7 +432,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::SignInBtnLabel,
                         &chrome.sign_in,
                         A11ySemanticKey::ListRow(1),
-                        14,
+                        15,
                         &tokens,
                     );
                     spawn_action_button(
@@ -400,7 +442,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ConnectivityBtnLabel,
                         translate(locale, UiKey::MobileActionGoOffline),
                         A11ySemanticKey::ListRow(2),
-                        15,
+                        16,
                         &tokens,
                     );
                     spawn_action_button(
@@ -410,7 +452,17 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::SignOutBtnLabel,
                         &chrome.sign_out,
                         A11ySemanticKey::ListRow(3),
-                        16,
+                        17,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::FlushOwedSignOuts,
+                        ButtonStyle::Secondary,
+                        TextSlot::FlushOwedBtnLabel,
+                        FLUSH_OWED_SIGN_OUTS_LABEL,
+                        A11ySemanticKey::TryAgainButton,
+                        18,
                         &tokens,
                     );
                 });
@@ -463,7 +515,7 @@ fn spawn_mobile_desktop_ui(
                     desktop.invite_code_field.text(),
                     desktop.active_focus == MobileInputFocus::InviteCode,
                     34.0,
-                    17,
+                    19,
                     &tokens,
                 );
                 spawn_form_input_field(
@@ -475,7 +527,7 @@ fn spawn_mobile_desktop_ui(
                     desktop.dob_field.text(),
                     desktop.active_focus == MobileInputFocus::DateOfBirth,
                     34.0,
-                    18,
+                    20,
                     &tokens,
                 );
                 card.spawn((
@@ -497,7 +549,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::VerifyDobBtnLabel,
                         &chrome.verify_dob,
                         A11ySemanticKey::ListRow(4),
-                        19,
+                        21,
                         &tokens,
                     );
                     spawn_action_button(
@@ -507,7 +559,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ShareBtnLabel,
                         &chrome.share,
                         A11ySemanticKey::ListRow(5),
-                        20,
+                        22,
                         &tokens,
                     );
                 });
@@ -544,7 +596,7 @@ fn spawn_mobile_desktop_ui(
                     translate(locale, UiKey::MobileCuratedNotePlaceholder),
                     desktop.active_focus == MobileInputFocus::CuratedNote,
                     64.0,
-                    21,
+                    23,
                     &tokens,
                 );
                 card.spawn((
@@ -564,7 +616,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ReviewSendBtnLabel,
                         &chrome.review_and_send,
                         A11ySemanticKey::CitationChip(0),
-                        22,
+                        24,
                         &tokens,
                     );
                 });
@@ -932,6 +984,7 @@ fn sync_desktop_visuals_system(
     ui_theme: Res<UiTheme>,
     desktop: Res<MobileDesktopUiState>,
     mobile_state: Res<MobileClientState>,
+    live_worker: Option<Res<LiveServerWorker>>,
     composer: Res<ComposerSurface>,
     mut root_q: Query<&mut BackgroundColor, With<RootCanvasNode>>,
     mut card_q: Query<
@@ -940,6 +993,7 @@ fn sync_desktop_visuals_system(
             With<CardSurfaceNode>,
             Without<RootCanvasNode>,
             Without<CrisisBannerNode>,
+            Without<OwedRecoveryBannerNode>,
             Without<FormInputBoxNode>,
             Without<ActionButton>,
         ),
@@ -950,8 +1004,21 @@ fn sync_desktop_visuals_system(
             With<CrisisBannerNode>,
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
+            Without<OwedRecoveryBannerNode>,
             Without<FormInputBoxNode>,
             Without<ActionButton>,
+        ),
+    >,
+    mut recovery_banner_q: Query<
+        (&mut Node, &mut BackgroundColor, &mut BorderColor),
+        (
+            With<OwedRecoveryBannerNode>,
+            Without<RootCanvasNode>,
+            Without<CardSurfaceNode>,
+            Without<CrisisBannerNode>,
+            Without<FormInputBoxNode>,
+            Without<ActionButton>,
+            Without<MirroredRowNode>,
         ),
     >,
     mut input_box_q: Query<
@@ -965,6 +1032,7 @@ fn sync_desktop_visuals_system(
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
             Without<CrisisBannerNode>,
+            Without<OwedRecoveryBannerNode>,
             Without<ActionButton>,
             Without<MirroredRowNode>,
         ),
@@ -975,16 +1043,33 @@ fn sync_desktop_visuals_system(
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
             Without<CrisisBannerNode>,
+            Without<OwedRecoveryBannerNode>,
             Without<FormInputBoxNode>,
         ),
     >,
-    mut rows_q: Query<&mut Node, (With<MirroredRowNode>, Without<FormInputBoxNode>)>,
+    mut rows_q: Query<
+        &mut Node,
+        (
+            With<MirroredRowNode>,
+            Without<FormInputBoxNode>,
+            Without<OwedRecoveryBannerNode>,
+        ),
+    >,
     mut text_q: Query<(&TextSlot, &TextTone, &mut Text, &mut TextColor)>,
 ) {
     let tokens = ui_theme.tokens;
     let crisis = CrisisBannerPalette::for_mode(ui_theme.mode);
     let chrome = localized_chrome(ui_locale.current, ChromeProduct::Mobile);
     let row_dir = ui_locale.current.row_flex_direction();
+    let owed_count = mobile_state.auth_device.owed_sign_outs().len();
+    let worker_state = live_worker
+        .as_deref()
+        .map_or(PendingWorkerState::Idle, LiveServerWorker::pending_state);
+    let recovery_state = OwedRecoveryBannerState::from_runtime(
+        mobile_state.auth_device.connectivity(),
+        owed_count,
+        worker_state,
+    );
 
     for mut bg in &mut root_q {
         *bg = BackgroundColor(tokens.canvas_bg.to_bevy_color());
@@ -997,6 +1082,25 @@ fn sync_desktop_visuals_system(
         *bg = BackgroundColor(crisis.bg.to_bevy_color());
         *border = BorderColor::all(crisis.border.to_bevy_color());
     }
+    for (mut node, mut bg, mut border) in &mut recovery_banner_q {
+        match &recovery_state {
+            OwedRecoveryBannerState::SyncedOnline { .. } => {
+                node.border = UiRect::all(Val::Px(1.0));
+                *bg = BackgroundColor(tokens.canvas_bg.to_bevy_color());
+                *border = BorderColor::all(tokens.text_secondary.to_bevy_color());
+            }
+            OwedRecoveryBannerState::OfflineHolding { .. } => {
+                node.border = UiRect::all(Val::Px(2.0));
+                *bg = BackgroundColor(tokens.surface_bg.to_bevy_color());
+                *border = BorderColor::all(crisis.border.to_bevy_color());
+            }
+            OwedRecoveryBannerState::OnlineFlushPending { .. } => {
+                node.border = UiRect::all(Val::Px(2.0));
+                *bg = BackgroundColor(tokens.surface_bg.to_bevy_color());
+                *border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+            }
+        }
+    }
     for (input_box, mut node, mut bg, mut border) in &mut input_box_q {
         *bg = BackgroundColor(tokens.input_bg.to_bevy_color());
         if input_box.field == desktop.active_focus {
@@ -1008,6 +1112,13 @@ fn sync_desktop_visuals_system(
         }
     }
     for (btn, mut bg, mut border) in &mut btn_q {
+        let prominent_flush = btn.action == DesktopAction::FlushOwedSignOuts
+            && recovery_state.flush_action_prominent();
+        if prominent_flush {
+            *bg = BackgroundColor(tokens.accent_fill.to_bevy_color());
+            *border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+            continue;
+        }
         match btn.style {
             ButtonStyle::Primary => {
                 *bg = BackgroundColor(tokens.accent_fill.to_bevy_color());
@@ -1137,15 +1248,28 @@ fn sync_desktop_visuals_system(
     let crisis_911 = translate(locale, UiKey::MobileCrisisLine911);
     let crisis_samhsa = translate(locale, UiKey::MobileCrisisLineSamhsa);
 
+    let recovery_banner_text = recovery_state.format_banner(locale);
+    let flush_btn_text = if owed_count > 0 {
+        format!("{FLUSH_OWED_SIGN_OUTS_LABEL} ({owed_count})")
+    } else {
+        FLUSH_OWED_SIGN_OUTS_LABEL.to_owned()
+    };
+
     for (slot, tone, mut text, mut color) in &mut text_q {
-        *color = TextColor(match tone {
-            TextTone::Primary => tokens.text_primary.to_bevy_color(),
-            TextTone::Secondary => tokens.text_secondary.to_bevy_color(),
-            TextTone::AccentLabel => tokens.accent_label.to_bevy_color(),
-            TextTone::CrisisHeading => crisis.highlight.to_bevy_color(),
-            TextTone::CrisisBody => crisis.text.to_bevy_color(),
-            TextTone::Input => tokens.input_fg.to_bevy_color(),
-        });
+        let effective_color =
+            if *slot == TextSlot::FlushOwedBtnLabel && recovery_state.flush_action_prominent() {
+                tokens.accent_label.to_bevy_color()
+            } else {
+                match tone {
+                    TextTone::Primary => tokens.text_primary.to_bevy_color(),
+                    TextTone::Secondary => tokens.text_secondary.to_bevy_color(),
+                    TextTone::AccentLabel => tokens.accent_label.to_bevy_color(),
+                    TextTone::CrisisHeading => crisis.highlight.to_bevy_color(),
+                    TextTone::CrisisBody => crisis.text.to_bevy_color(),
+                    TextTone::Input => tokens.input_fg.to_bevy_color(),
+                }
+            };
+        *color = TextColor(effective_color);
 
         let next_text = match slot {
             TextSlot::BrandTitle => chrome.app_brand.clone(),
@@ -1170,11 +1294,13 @@ fn sync_desktop_visuals_system(
                 connectivity_label,
                 translate(locale, UiKey::MobileLabelOwedSignOuts),
             ),
+            TextSlot::OwedRecoveryBanner => recovery_banner_text.clone(),
             TextSlot::EmailInputLabel => translate(locale, UiKey::MobileLabelEmail).to_owned(),
             TextSlot::EmailInputContent => email_input_display.clone(),
             TextSlot::SignInBtnLabel => chrome.sign_in.clone(),
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
+            TextSlot::FlushOwedBtnLabel => flush_btn_text.clone(),
             TextSlot::ConnectedCareHeading => chrome.nav_connected_care.clone(),
             TextSlot::ConnectedCareSummary => format!(
                 "{}\n{}: {} | {}: {}\n{} | {}",

@@ -27,7 +27,8 @@ use crate::forms::{
     replace_surface_text,
 };
 use crate::worker::{
-    LiveServerWorker, LiveWorkerRequest, WorkerOperation, clear_visible_account_state,
+    LiveServerWorker, LiveWorkerRequest, PendingWorkerState, WorkerOperation,
+    clear_visible_account_state,
 };
 
 /// Canonical crisis helpline details pinned at the top of Curie Mobile.
@@ -80,6 +81,87 @@ impl DesktopActionQueue {
 pub enum MobileModeKind {
     Demo,
     LiveServer { raw_url: String },
+}
+
+/// Explicit typed state for the Connection & Owed Sign-Out recovery banner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwedRecoveryBannerState {
+    /// Online with zero queued owed sign-outs.
+    SyncedOnline { worker: PendingWorkerState },
+    /// Offline; sign-outs taken while offline stay queued locally until reconnect.
+    OfflineHolding { owed_count: usize },
+    /// Online with one or more queued owed sign-outs ready to flush to the server.
+    OnlineFlushPending {
+        owed_count: usize,
+        worker: PendingWorkerState,
+    },
+}
+
+impl OwedRecoveryBannerState {
+    /// Derives the single authoritative recovery banner state from connectivity, queue depth, and worker state.
+    #[must_use]
+    pub fn from_runtime(
+        connectivity: ConnectivityState,
+        owed_count: usize,
+        worker: PendingWorkerState,
+    ) -> Self {
+        match connectivity {
+            ConnectivityState::Offline => Self::OfflineHolding { owed_count },
+            ConnectivityState::Online => {
+                if owed_count > 0 {
+                    Self::OnlineFlushPending { owed_count, worker }
+                } else {
+                    Self::SyncedOnline { worker }
+                }
+            }
+        }
+    }
+
+    /// Formats the localized Connection & Owed Sign-Out banner line using existing `UiKey` terms.
+    #[must_use]
+    pub fn format_banner(&self, locale: Locale) -> String {
+        let owed_label = translate(locale, UiKey::MobileLabelOwedSignOuts);
+        match self {
+            Self::SyncedOnline { worker } => {
+                let conn = translate(locale, UiKey::MobileConnectivityOnline);
+                match worker {
+                    PendingWorkerState::Idle => format!("{conn} | {owed_label}: 0"),
+                    PendingWorkerState::InFlight { operation, .. } => {
+                        format!("{conn} | {owed_label}: 0 | {}", operation.in_flight_label())
+                    }
+                }
+            }
+            Self::OfflineHolding { owed_count } => {
+                let conn = translate(locale, UiKey::MobileConnectivityOffline);
+                if *owed_count == 0 {
+                    format!("{conn} | {owed_label}: 0")
+                } else {
+                    format!("{conn} | {owed_label}: {owed_count} (reconnect to flush)")
+                }
+            }
+            Self::OnlineFlushPending { owed_count, worker } => {
+                let conn = translate(locale, UiKey::MobileConnectivityOnline);
+                match worker {
+                    PendingWorkerState::InFlight {
+                        operation: WorkerOperation::FlushOwedSignOuts,
+                        ..
+                    } => format!(
+                        "{conn} | {owed_label}: {owed_count} | {}",
+                        WorkerOperation::FlushOwedSignOuts.in_flight_label()
+                    ),
+                    PendingWorkerState::Idle | PendingWorkerState::InFlight { .. } => {
+                        format!("{conn} | {owed_label}: {owed_count} (ready to flush)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Returns `true` when the Flush Owed Sign-Outs action button should be visually highlighted.
+    #[must_use]
+    pub const fn flush_action_prominent(&self) -> bool {
+        matches!(self, Self::OnlineFlushPending { .. })
+    }
 }
 
 /// Single authoritative Curie Mobile desktop presentation state.
