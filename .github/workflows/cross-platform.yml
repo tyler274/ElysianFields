@@ -36,7 +36,7 @@ jobs:
   desktop-macos:
     name: Desktop macOS ARM64 & ElyMalloc probe
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -331,7 +331,7 @@ jobs:
   desktop-windows:
     name: Desktop Windows MSVC & ElyMalloc probe
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash

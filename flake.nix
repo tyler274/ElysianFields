@@ -112,6 +112,7 @@
           ];
 
           linuxGuiLibs = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            fontconfig.lib
             libxkbcommon
             wayland
             xorg.libX11
