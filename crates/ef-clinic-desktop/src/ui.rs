@@ -50,6 +50,8 @@ pub enum DesktopActionButton {
     SelectCitation(usize),
     CopyTranscript,
     SubmitPrompt,
+    CancelPrompt,
+    RetryPrompt,
     DismissPrivacyCover,
     DismissShortcuts,
 }
@@ -89,6 +91,11 @@ pub enum DesktopUiSlot {
     ComposerLabel,
     ComposerBox,
     ComposerText,
+    ComposerActionRow,
+    CancelButton,
+    CancelButtonLabel,
+    RetryButton,
+    RetryButtonLabel,
     SendButton,
     SendButtonLabel,
     EvidencePanel,
@@ -137,6 +144,8 @@ pub enum DesktopUiEvent {
     UndoComposer,
     RedoComposer,
     SubmitPrompt,
+    CancelPrompt,
+    RetryPrompt,
     TogglePrivacyCover,
     ToggleShortcuts,
     DismissOverlays,
@@ -603,32 +612,106 @@ fn spawn_clinic_desktop_ui_system(
                             ));
                         });
 
+                    let cancel_label = translate(locale, UiKey::Cancel);
+                    let mut cancel_a11y = accesskit::Node::new(accesskit::Role::Button);
+                    cancel_a11y.set_label(cancel_label);
+
+                    let retry_label = translate(locale, UiKey::Retry);
+                    let mut retry_a11y = accesskit::Node::new(accesskit::Role::Button);
+                    retry_a11y.set_label(retry_label);
+
                     let mut send_a11y = accesskit::Node::new(accesskit::Role::Button);
                     send_a11y.set_label(chrome.send.clone());
+
                     center
                         .spawn((
-                            DesktopActionButton::SubmitPrompt,
-                            DesktopUiSlot::SendButton,
+                            DesktopUiSlot::ComposerActionRow,
                             Node {
-                                align_self: AlignSelf::FlexEnd,
-                                padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
-                                border: UiRect::all(Val::Px(1.0)),
+                                width: Val::Percent(100.0),
+                                flex_direction: locale.row_flex_direction(),
+                                justify_content: JustifyContent::FlexEnd,
+                                align_items: AlignItems::Center,
+                                column_gap: Val::Px(8.0),
                                 ..default()
                             },
-                            BackgroundColor(tokens.accent_fill.to_bevy_color()),
-                            BorderColor::all(tokens.focus_ring.to_bevy_color()),
-                            AccessibilityNode(send_a11y),
                         ))
-                        .with_children(|btn| {
-                            btn.spawn((
-                                DesktopUiSlot::SendButtonLabel,
-                                Text::new(chrome.send.clone()),
-                                TextFont {
-                                    font_size: FontSize::Px(14.0 * scale),
-                                    ..default()
-                                },
-                                TextColor(tokens.accent_label.to_bevy_color()),
-                            ));
+                        .with_children(|actions| {
+                            actions
+                                .spawn((
+                                    DesktopActionButton::CancelPrompt,
+                                    DesktopUiSlot::CancelButton,
+                                    Node {
+                                        padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
+                                        border: UiRect::all(Val::Px(1.0)),
+                                        display: Display::None,
+                                        ..default()
+                                    },
+                                    BackgroundColor(tokens.input_bg.to_bevy_color()),
+                                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                                    AccessibilityNode(cancel_a11y),
+                                ))
+                                .with_children(|btn| {
+                                    btn.spawn((
+                                        DesktopUiSlot::CancelButtonLabel,
+                                        Text::new(cancel_label),
+                                        TextFont {
+                                            font_size: FontSize::Px(14.0 * scale),
+                                            ..default()
+                                        },
+                                        TextColor(tokens.text_primary.to_bevy_color()),
+                                    ));
+                                });
+
+                            actions
+                                .spawn((
+                                    DesktopActionButton::RetryPrompt,
+                                    DesktopUiSlot::RetryButton,
+                                    Node {
+                                        padding: UiRect::axes(Val::Px(14.0), Val::Px(10.0)),
+                                        border: UiRect::all(Val::Px(1.0)),
+                                        display: Display::None,
+                                        ..default()
+                                    },
+                                    BackgroundColor(tokens.input_bg.to_bevy_color()),
+                                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                                    AccessibilityNode(retry_a11y),
+                                ))
+                                .with_children(|btn| {
+                                    btn.spawn((
+                                        DesktopUiSlot::RetryButtonLabel,
+                                        Text::new(retry_label),
+                                        TextFont {
+                                            font_size: FontSize::Px(14.0 * scale),
+                                            ..default()
+                                        },
+                                        TextColor(tokens.text_primary.to_bevy_color()),
+                                    ));
+                                });
+
+                            actions
+                                .spawn((
+                                    DesktopActionButton::SubmitPrompt,
+                                    DesktopUiSlot::SendButton,
+                                    Node {
+                                        padding: UiRect::axes(Val::Px(16.0), Val::Px(10.0)),
+                                        border: UiRect::all(Val::Px(1.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(tokens.accent_fill.to_bevy_color()),
+                                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                                    AccessibilityNode(send_a11y),
+                                ))
+                                .with_children(|btn| {
+                                    btn.spawn((
+                                        DesktopUiSlot::SendButtonLabel,
+                                        Text::new(chrome.send.clone()),
+                                        TextFont {
+                                            font_size: FontSize::Px(14.0 * scale),
+                                            ..default()
+                                        },
+                                        TextColor(tokens.accent_label.to_bevy_color()),
+                                    ));
+                                });
                         });
                 });
 
@@ -975,6 +1058,8 @@ fn handle_desktop_button_presses_system(
             DesktopActionButton::SelectCitation(idx) => DesktopUiEvent::SelectCitation(idx),
             DesktopActionButton::CopyTranscript => DesktopUiEvent::CopyTranscript,
             DesktopActionButton::SubmitPrompt => DesktopUiEvent::SubmitPrompt,
+            DesktopActionButton::CancelPrompt => DesktopUiEvent::CancelPrompt,
+            DesktopActionButton::RetryPrompt => DesktopUiEvent::RetryPrompt,
             DesktopActionButton::DismissPrivacyCover | DesktopActionButton::DismissShortcuts => {
                 DesktopUiEvent::DismissOverlays
             }
@@ -1020,6 +1105,11 @@ fn handle_desktop_keyboard_input_system(
         if event.key_code == KeyCode::Escape {
             if router.is_privacy_cover_active() || ws_state.shortcuts_modal_open {
                 desktop_events.write(DesktopUiEvent::DismissOverlays);
+            } else if matches!(
+                ws_state.live_submission,
+                LiveSubmissionState::InFlight { .. }
+            ) {
+                desktop_events.write(DesktopUiEvent::CancelPrompt);
             } else if ws_state.input_focus == DesktopInputFocus::PatientSearch {
                 desktop_events.write(DesktopUiEvent::ClearPatientSearch);
             } else {
@@ -1403,43 +1493,20 @@ fn process_desktop_events_system(
                 if live_worker.is_enabled()
                     && let Some(session_id) = session.view_state.held_session().cloned()
                     && let Some(ref open_ws) = active_workspace.open_workspace
-                    && let Ok(key) = IdempotencyKey::new(format!(
-                        "desktop-live-prompt-{}",
-                        ws_state.prompts_submitted
-                    ))
                 {
-                    let req_id = ws_state.next_live_request_id;
-                    ws_state.next_live_request_id = ws_state.next_live_request_id.saturating_add(1);
-                    let now_secs = clock.as_ref().map_or(1_760_000_000, |c| c.now_secs);
-                    let req = LivePromptRequest {
-                        request_id: req_id,
-                        session_id,
-                        workspace_id: open_ws.workspace_id.clone(),
-                        chat_id: open_ws.chat_id.clone(),
-                        idempotency_key: key,
-                        prompt,
-                        since_event_id: active_workspace.last_event_id,
-                        now_secs,
-                    };
                     let _ = composer.apply(ComposerAction::SelectAll);
                     let _ = composer.apply(ComposerAction::Backspace);
-                    match live_worker.submit(req) {
-                        Ok(()) => {
-                            ws_state.live_submission = LiveSubmissionState::InFlight {
-                                request_id: req_id,
-                                workspace_id: open_ws.workspace_id.clone(),
-                            };
-                            ws_state.status_override = None;
-                            ws_state.status_banner = DesktopStatusBanner::Sending;
-                        }
-                        Err(reason) => {
-                            ws_state.live_submission = LiveSubmissionState::Failed {
-                                reason: reason.clone(),
-                            };
-                            ws_state.status_override = None;
-                            ws_state.status_banner = DesktopStatusBanner::SendFailed(reason);
-                        }
-                    }
+                    let now_secs = clock.as_ref().map_or(1_760_000_000, |c| c.now_secs);
+                    dispatch_live_prompt(
+                        &live_worker,
+                        &mut ws_state,
+                        session_id,
+                        open_ws.workspace_id.clone(),
+                        open_ws.chat_id.clone(),
+                        prompt,
+                        active_workspace.last_event_id,
+                        now_secs,
+                    );
                     gate.request_redraw(RedrawReason::StreamDelta);
                     continue;
                 }
@@ -1452,6 +1519,8 @@ fn process_desktop_events_system(
                     speaker: "Curie".to_owned(),
                     body: cited_summary,
                 });
+                ws_state.streaming_draft = None;
+                ws_state.last_failed_prompt = None;
                 ws_state.status_override = None;
                 ws_state.status_banner = DesktopStatusBanner::DefaultReady;
 
@@ -1471,6 +1540,62 @@ fn process_desktop_events_system(
                     let _ = composer.apply(ComposerAction::Backspace);
                 }
                 gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            DesktopUiEvent::CancelPrompt => {
+                if let LiveSubmissionState::InFlight { request_id, .. } =
+                    ws_state.live_submission.clone()
+                {
+                    let _ = live_worker.cancel(request_id);
+                    if let Some(partial) = ws_state.streaming_draft.take() {
+                        let trimmed = partial.trim();
+                        if !trimmed.is_empty() {
+                            ws_state.transcript.push(DesktopTranscriptEntry {
+                                speaker: format!(
+                                    "Curie ({})",
+                                    translate(ui_locale.current, UiKey::Cancelled)
+                                ),
+                                body: trimmed.to_owned(),
+                            });
+                        }
+                    }
+                    ws_state.live_submission = LiveSubmissionState::Idle;
+                    ws_state.last_failed_prompt = None;
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Cancelled;
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                }
+            }
+            DesktopUiEvent::RetryPrompt => {
+                if !matches!(ws_state.live_submission, LiveSubmissionState::Failed { .. }) {
+                    continue;
+                }
+                let Some(prompt) = ws_state.last_failed_prompt.clone() else {
+                    continue;
+                };
+                ws_state.prompts_submitted = ws_state.prompts_submitted.saturating_add(1);
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ref open_ws) = active_workspace.open_workspace
+                {
+                    let now_secs = clock.as_ref().map_or(1_760_000_000, |c| c.now_secs);
+                    dispatch_live_prompt(
+                        &live_worker,
+                        &mut ws_state,
+                        session_id,
+                        open_ws.workspace_id.clone(),
+                        open_ws.chat_id.clone(),
+                        prompt,
+                        active_workspace.last_event_id,
+                        now_secs,
+                    );
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                } else {
+                    ws_state.live_submission = LiveSubmissionState::Idle;
+                    ws_state.last_failed_prompt = None;
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::DefaultReady;
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                }
             }
             DesktopUiEvent::TogglePrivacyCover => {
                 let was_active = router.is_privacy_cover_active();
@@ -1551,30 +1676,165 @@ fn select_patient_by_real_index(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn dispatch_live_prompt(
+    live_worker: &LivePromptWorker,
+    ws_state: &mut DesktopWorkspaceState,
+    session_id: ef_core::SessionId,
+    workspace_id: ef_core::WorkspaceId,
+    chat_id: ef_core::ChatId,
+    prompt: String,
+    since_event_id: u64,
+    now_secs: u64,
+) {
+    let req_id = ws_state.next_live_request_id;
+    ws_state.next_live_request_id = ws_state.next_live_request_id.saturating_add(1);
+    let Ok(key) = IdempotencyKey::new(format!(
+        "desktop-live-prompt-{}-{req_id}",
+        ws_state.prompts_submitted
+    )) else {
+        return;
+    };
+    ws_state.last_failed_prompt = Some(prompt.clone());
+    let req = LivePromptRequest {
+        request_id: req_id,
+        session_id,
+        workspace_id: workspace_id.clone(),
+        chat_id,
+        idempotency_key: key,
+        prompt,
+        since_event_id,
+        now_secs,
+    };
+    match live_worker.submit(req) {
+        Ok(()) => {
+            ws_state.live_submission = LiveSubmissionState::InFlight {
+                request_id: req_id,
+                workspace_id,
+            };
+            ws_state.streaming_draft = Some(String::new());
+            ws_state.status_override = None;
+            ws_state.status_banner = DesktopStatusBanner::Sending;
+        }
+        Err(reason) => {
+            ws_state.streaming_draft = None;
+            ws_state.live_submission = LiveSubmissionState::Failed {
+                reason: reason.clone(),
+            };
+            ws_state.status_override = None;
+            ws_state.status_banner = DesktopStatusBanner::SendFailed(reason);
+        }
+    }
+}
+
 fn poll_live_worker_outcomes_system(
     live_worker: Res<LivePromptWorker>,
+    ui_locale: Res<UiLocale>,
     mut ws_state: ResMut<DesktopWorkspaceState>,
     mut active_workspace: ResMut<ActiveWorkspaceView>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
     while let Some(outcome) = live_worker.try_recv() {
+        let active_request_id = match ws_state.live_submission {
+            LiveSubmissionState::InFlight { request_id, .. } => Some(request_id),
+            LiveSubmissionState::Idle | LiveSubmissionState::Failed { .. } => None,
+        };
+
         match outcome {
+            LivePromptOutcome::DeltaChunk {
+                request_id,
+                text_delta,
+                last_event_id,
+                ..
+            } => {
+                active_workspace.last_event_id = active_workspace.last_event_id.max(last_event_id);
+                if active_request_id != Some(request_id) {
+                    continue;
+                }
+                ws_state
+                    .streaming_draft
+                    .get_or_insert_with(String::new)
+                    .push_str(&text_delta);
+                ws_state.status_override = None;
+                if !matches!(ws_state.status_banner, DesktopStatusBanner::Streaming(_)) {
+                    ws_state.status_banner = DesktopStatusBanner::Streaming(None);
+                }
+                gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            LivePromptOutcome::StepRecorded {
+                request_id,
+                step_label,
+                last_event_id,
+                ..
+            } => {
+                active_workspace.last_event_id = active_workspace.last_event_id.max(last_event_id);
+                if active_request_id != Some(request_id) {
+                    continue;
+                }
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Streaming(Some(step_label));
+                gate.request_redraw(RedrawReason::StreamDelta);
+            }
             LivePromptOutcome::Completed {
+                request_id,
                 assistant_text,
                 last_event_id,
                 ..
             } => {
-                ws_state.live_submission = LiveSubmissionState::Idle;
                 active_workspace.last_event_id = active_workspace.last_event_id.max(last_event_id);
+                if active_request_id != Some(request_id) {
+                    continue;
+                }
+                let draft = ws_state.streaming_draft.take().unwrap_or_default();
+                let final_body = if assistant_text.trim().is_empty() {
+                    draft
+                } else {
+                    assistant_text
+                };
+                ws_state.live_submission = LiveSubmissionState::Idle;
+                ws_state.last_failed_prompt = None;
                 ws_state.transcript.push(DesktopTranscriptEntry {
                     speaker: "Curie".to_owned(),
-                    body: assistant_text,
+                    body: final_body,
                 });
                 ws_state.status_override = None;
                 ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 gate.request_redraw(RedrawReason::StreamDelta);
             }
-            LivePromptOutcome::Failed { detail, .. } => {
+            LivePromptOutcome::Cancelled {
+                request_id,
+                last_event_id,
+                ..
+            } => {
+                active_workspace.last_event_id = active_workspace.last_event_id.max(last_event_id);
+                if active_request_id != Some(request_id) {
+                    continue;
+                }
+                if let Some(partial) = ws_state.streaming_draft.take() {
+                    let trimmed = partial.trim();
+                    if !trimmed.is_empty() {
+                        ws_state.transcript.push(DesktopTranscriptEntry {
+                            speaker: format!(
+                                "Curie ({})",
+                                translate(ui_locale.current, UiKey::Cancelled)
+                            ),
+                            body: trimmed.to_owned(),
+                        });
+                    }
+                }
+                ws_state.live_submission = LiveSubmissionState::Idle;
+                ws_state.last_failed_prompt = None;
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::Cancelled;
+                gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            LivePromptOutcome::Failed {
+                request_id, detail, ..
+            } => {
+                if active_request_id != Some(request_id) {
+                    continue;
+                }
+                ws_state.streaming_draft = None;
                 ws_state.live_submission = LiveSubmissionState::Failed {
                     reason: detail.clone(),
                 };
@@ -1652,6 +1912,13 @@ fn sync_desktop_ui_visuals_system(
                 DesktopStatusBanner::Sending => {
                     translate(locale, UiKey::ClinicStatusSending).to_owned()
                 }
+                DesktopStatusBanner::Streaming(Some(step)) => {
+                    format!("{} ({step})", translate(locale, UiKey::Streaming))
+                }
+                DesktopStatusBanner::Streaming(None) => {
+                    translate(locale, UiKey::Streaming).to_owned()
+                }
+                DesktopStatusBanner::Cancelled => translate(locale, UiKey::Cancelled).to_owned(),
                 DesktopStatusBanner::Copied => {
                     translate(locale, UiKey::ClinicStatusCopied).to_owned()
                 }
@@ -1675,6 +1942,14 @@ fn sync_desktop_ui_visuals_system(
         ws_state.patient_search_query.clone()
     };
     let copy_label = translate(locale, UiKey::ClinicCopyTranscriptButton);
+    let cancel_label = translate(locale, UiKey::Cancel);
+    let retry_label = translate(locale, UiKey::Retry);
+    let is_in_flight = matches!(
+        ws_state.live_submission,
+        LiveSubmissionState::InFlight { .. }
+    );
+    let can_retry = matches!(ws_state.live_submission, LiveSubmissionState::Failed { .. })
+        && ws_state.last_failed_prompt.is_some();
 
     for (slot, mut node, bg, border, text, font, text_color, a11y) in &mut nodes {
         match *slot {
@@ -1876,7 +2151,14 @@ fn sync_desktop_ui_visuals_system(
                 set_border(border, tokens.text_secondary.to_bevy_color());
             }
             DesktopUiSlot::TranscriptBody => {
-                set_text(text, &format_transcript(&ws_state.transcript, locale));
+                set_text(
+                    text,
+                    &format_transcript_with_draft(
+                        &ws_state.transcript,
+                        ws_state.streaming_draft.as_deref(),
+                        locale,
+                    ),
+                );
                 set_font(font, 14.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
@@ -1902,6 +2184,39 @@ fn sync_desktop_ui_visuals_system(
                 set_text(text, &composer_display);
                 set_font(font, 14.0 * scale);
                 set_color(text_color, tokens.input_fg.to_bevy_color());
+            }
+            DesktopUiSlot::ComposerActionRow => {
+                node.flex_direction = locale.row_flex_direction();
+            }
+            DesktopUiSlot::CancelButton => {
+                node.display = if is_in_flight {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, cancel_label);
+            }
+            DesktopUiSlot::CancelButtonLabel => {
+                set_text(text, cancel_label);
+                set_font(font, 14.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::RetryButton => {
+                node.display = if can_retry {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, retry_label);
+            }
+            DesktopUiSlot::RetryButtonLabel => {
+                set_text(text, retry_label);
+                set_font(font, 14.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::SendButton => {
                 set_bg(bg, tokens.accent_fill.to_bevy_color());
@@ -2072,14 +2387,30 @@ fn theme_button_label(locale: Locale, mode: ThemeMode) -> String {
 }
 
 fn format_transcript(entries: &[DesktopTranscriptEntry], locale: Locale) -> String {
-    if entries.is_empty() {
-        return translate(locale, UiKey::ClinicTranscriptEmpty).to_owned();
-    }
-    entries
+    format_transcript_with_draft(entries, None, locale)
+}
+
+fn format_transcript_with_draft(
+    entries: &[DesktopTranscriptEntry],
+    streaming_draft: Option<&str>,
+    locale: Locale,
+) -> String {
+    let mut parts: Vec<String> = entries
         .iter()
         .map(|e| format!("[{}] {}", e.speaker, e.body))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+        .collect();
+    if let Some(draft) = streaming_draft {
+        let streaming_tag = translate(locale, UiKey::Streaming);
+        if draft.is_empty() {
+            parts.push(format!("[Curie] {streaming_tag}"));
+        } else {
+            parts.push(format!("[Curie ({streaming_tag})] {draft}"));
+        }
+    }
+    if parts.is_empty() {
+        return translate(locale, UiKey::ClinicTranscriptEmpty).to_owned();
+    }
+    parts.join("\n\n")
 }
 
 fn set_bg(bg: Option<Mut<'_, BackgroundColor>>, color: Color) {

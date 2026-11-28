@@ -165,9 +165,9 @@ mod tests {
             assert_eq!(ltr_locale.citation_panel_edge(), HorizontalEdge::Right);
         }
 
-        // Compile-time exhaustive check: all 12 locales x 103 keys (1,236 entries) are non-empty.
+        // Compile-time exhaustive check: all 12 locales x 107 keys (1,284 entries) are non-empty.
         assert_eq!(Locale::ALL.len(), 12);
-        assert_eq!(UiKey::ALL.len(), 103);
+        assert_eq!(UiKey::ALL.len(), 107);
         for locale in Locale::ALL {
             for key in UiKey::ALL {
                 let text = translate(locale, key);
@@ -175,6 +175,17 @@ mod tests {
                     !text.trim().is_empty(),
                     "empty translation for {locale:?} / {key:?}"
                 );
+            }
+            for streaming_key in [
+                UiKey::Cancel,
+                UiKey::Retry,
+                UiKey::Streaming,
+                UiKey::Cancelled,
+            ] {
+                let text = translate(locale, streaming_key);
+                assert!(!text.trim().is_empty());
+                assert!(!text.contains("TODO"));
+                assert!(!text.contains("TBD"));
             }
             assert!(translate(locale, UiKey::MobileCrisisLine988).contains("988"));
             assert!(translate(locale, UiKey::MobileCrisisLine911).contains("911"));

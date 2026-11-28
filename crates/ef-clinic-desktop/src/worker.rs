@@ -1,13 +1,16 @@
-//! Non-blocking background HTTP worker for live `--server <url>` prompt submission.
+//! Non-blocking background HTTP worker for live `--server <url>` progressive SSE streaming.
 //!
-//! Executes `LiveHttpClinicTransport` command submission and SSE polling on a dedicated OS thread
+//! Executes `LiveHttpClinicTransport` command submission, progressive SSE delta streaming,
+//! and mid-flight cancellation (`CommandPayload::WorkStop`) on a dedicated OS thread
 //! communicating over `std::sync::mpsc` so the Bevy desktop UI thread never blocks on network I/O.
 
 use std::net::SocketAddr;
-use std::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Receiver, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bevy::prelude::Resource;
@@ -40,13 +43,37 @@ pub struct LivePromptRequest {
     pub now_secs: u64,
 }
 
-/// Typed completion or failure returned by the background worker over `mpsc::Receiver`.
+/// Typed command dispatched from the Bevy UI thread to the background HTTP worker.
+#[derive(Debug, Clone)]
+pub enum LiveWorkerCommand {
+    Submit(LivePromptRequest),
+    Cancel { request_id: u64 },
+}
+
+/// Progressive streaming event, completion, cancellation, or failure emitted by the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LivePromptOutcome {
+    DeltaChunk {
+        request_id: u64,
+        workspace_id: WorkspaceId,
+        text_delta: String,
+        last_event_id: u64,
+    },
+    StepRecorded {
+        request_id: u64,
+        workspace_id: WorkspaceId,
+        step_label: String,
+        last_event_id: u64,
+    },
     Completed {
         request_id: u64,
         workspace_id: WorkspaceId,
         assistant_text: String,
+        last_event_id: u64,
+    },
+    Cancelled {
+        request_id: u64,
+        workspace_id: WorkspaceId,
         last_event_id: u64,
     },
     Failed {
@@ -56,9 +83,11 @@ pub enum LivePromptOutcome {
     },
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct LiveWorkerChannel {
-    tx: Sender<LivePromptRequest>,
+    tx: Sender<LiveWorkerCommand>,
     rx: Mutex<Receiver<LivePromptOutcome>>,
+    cancelled_request_id: Arc<AtomicU64>,
 }
 
 /// Bevy [`Resource`] owning the non-blocking background HTTP worker channel.
@@ -66,6 +95,7 @@ struct LiveWorkerChannel {
 /// Disabled (`None`) under `--demo`, `--headless-smoke`, and `wasm32`.
 #[derive(Default, Resource)]
 pub struct LivePromptWorker {
+    #[cfg(not(target_arch = "wasm32"))]
     channel: Option<LiveWorkerChannel>,
 }
 
@@ -73,26 +103,32 @@ impl LivePromptWorker {
     /// Returns a disabled no-op worker (for `--demo`, `--headless-smoke`, and `wasm32`).
     #[must_use]
     pub const fn disabled() -> Self {
-        Self { channel: None }
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            channel: None,
+        }
     }
 
     /// Spawns a dedicated background OS thread talking to `ef-clinic-server` at `socket_addr`.
     #[cfg(not(target_arch = "wasm32"))]
     #[must_use]
     pub fn spawn(socket_addr: SocketAddr, timeout: Duration) -> Self {
-        let (req_tx, req_rx) = mpsc::channel::<LivePromptRequest>();
+        let (req_tx, req_rx) = mpsc::channel::<LiveWorkerCommand>();
         let (resp_tx, resp_rx) = mpsc::channel::<LivePromptOutcome>();
+        let cancelled_request_id = Arc::new(AtomicU64::new(0));
+        let worker_cancel_token = Arc::clone(&cancelled_request_id);
 
         let _ = std::thread::Builder::new()
             .name("ef-clinic-live-http-worker".to_owned())
             .spawn(move || {
-                run_worker_loop(socket_addr, timeout, req_rx, resp_tx);
+                run_worker_loop(socket_addr, timeout, req_rx, resp_tx, worker_cancel_token);
             });
 
         Self {
             channel: Some(LiveWorkerChannel {
                 tx: req_tx,
                 rx: Mutex::new(resp_rx),
+                cancelled_request_id,
             }),
         }
     }
@@ -105,28 +141,76 @@ impl LivePromptWorker {
 
     #[must_use]
     pub const fn is_enabled(&self) -> bool {
-        self.channel.is_some()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.channel.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
     }
 
     /// Queues a prompt submission without blocking the Bevy UI thread.
     pub fn submit(&self, req: LivePromptRequest) -> Result<(), String> {
-        let Some(ref ch) = self.channel else {
-            return Err("live background worker is disabled".to_owned());
-        };
-        ch.tx
-            .send(req)
-            .map_err(|err| format!("live worker channel closed: {err}"))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            let _ = ch.cancelled_request_id.compare_exchange(
+                req.request_id,
+                0,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
+            ch.tx
+                .send(LiveWorkerCommand::Submit(req))
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = req;
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
     }
 
-    /// Non-blocking poll for completed or failed outcomes (called once per Bevy frame).
+    /// Signals mid-flight cancellation for `request_id` via both the atomic cancel token
+    /// (observed immediately inside the worker's SSE poll loop) and the command channel.
+    pub fn cancel(&self, request_id: u64) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.cancelled_request_id.store(request_id, Ordering::SeqCst);
+            ch.tx
+                .send(LiveWorkerCommand::Cancel { request_id })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = request_id;
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
+    /// Non-blocking poll for progressive deltas, steps, completion, cancellation, or failure.
     #[must_use]
     pub fn try_recv(&self) -> Option<LivePromptOutcome> {
-        let ch = self.channel.as_ref()?;
-        let guard = ch.rx.lock().ok()?;
-        guard.try_recv().ok()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let ch = self.channel.as_ref()?;
+            let guard = ch.rx.lock().ok()?;
+            guard.try_recv().ok()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            None
+        }
     }
 
-    /// Bounded blocking wait used exclusively by integration tests to await a worker response.
+    /// Bounded blocking wait used exclusively by integration tests to await a worker event.
     #[cfg(not(target_arch = "wasm32"))]
     #[must_use]
     pub fn recv_timeout(&self, timeout: Duration) -> Option<LivePromptOutcome> {
@@ -137,12 +221,74 @@ impl LivePromptWorker {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn format_exchange_step(step: &ef_clinic_domain::chat::ExchangeStep) -> String {
+    use ef_clinic_domain::chat::ExchangeStep;
+    match step {
+        ExchangeStep::SearchedChart { query, .. } => format!("Searched chart ({query})"),
+        ExchangeStep::ReadRecords { requested, .. } => {
+            format!("Read {} record(s)", requested.len())
+        }
+        ExchangeStep::ReadConversation { .. } => "Read conversation".to_owned(),
+        ExchangeStep::SavedMemoryNote { .. } => "Saved memory note".to_owned(),
+        ExchangeStep::EditedMemory { .. } => "Edited memory".to_owned(),
+        ExchangeStep::CreatedFollowUp { .. } => "Created follow-up".to_owned(),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_cancelled(
+    request_id: u64,
+    cancelled_request_id: &AtomicU64,
+    req_rx: &Receiver<LiveWorkerCommand>,
+    deferred_submits: &mut std::collections::VecDeque<LivePromptRequest>,
+) -> bool {
+    while let Ok(cmd) = req_rx.try_recv() {
+        match cmd {
+            LiveWorkerCommand::Cancel {
+                request_id: cancel_id,
+            } => {
+                cancelled_request_id.store(cancel_id, Ordering::SeqCst);
+            }
+            LiveWorkerCommand::Submit(next_req) => {
+                deferred_submits.push_back(next_req);
+            }
+        }
+    }
+    cancelled_request_id.load(Ordering::SeqCst) == request_id
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn send_server_stop_command(
+    transport: &mut ef_clinic_client::LiveHttpClinicTransport,
+    req: &LivePromptRequest,
+    work_item_id: ef_core::WorkItemId,
+) {
+    use ef_clinic_client::ClinicTransport;
+    use ef_clinic_domain::chat::{CommandEnvelope, CommandPayload, StopWorkPayload};
+
+    if let Ok(cancel_key) = IdempotencyKey::new(format!("desktop-cancel-{}", req.request_id)) {
+        let stop_envelope = CommandEnvelope {
+            idempotency_key: cancel_key,
+            command: CommandPayload::WorkStop(StopWorkPayload {
+                patient_workspace_id: req.workspace_id.clone(),
+                chat_id: req.chat_id.clone(),
+                work_item_id,
+            }),
+        };
+        let _ = transport.submit_command(&req.session_id, &stop_envelope, req.now_secs);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn run_worker_loop(
     socket_addr: SocketAddr,
     timeout: Duration,
-    req_rx: Receiver<LivePromptRequest>,
+    req_rx: Receiver<LiveWorkerCommand>,
     resp_tx: Sender<LivePromptOutcome>,
+    cancelled_request_id: Arc<AtomicU64>,
 ) {
+    use std::collections::VecDeque;
+
     use ef_clinic_client::{ClinicTransport, LiveHttpClinicTransport};
     use ef_clinic_domain::chat::{
         ChatStreamEvent, CommandEnvelope, CommandPayload, SubmitMessagePayload,
@@ -150,8 +296,41 @@ fn run_worker_loop(
 
     let mut transport = LiveHttpClinicTransport::new(socket_addr);
     transport.set_timeout(timeout);
+    let mut deferred_submits: VecDeque<LivePromptRequest> = VecDeque::new();
 
-    while let Ok(req) = req_rx.recv() {
+    loop {
+        let req = if let Some(queued) = deferred_submits.pop_front() {
+            queued
+        } else {
+            match req_rx.recv() {
+                Ok(LiveWorkerCommand::Submit(req)) => req,
+                Ok(LiveWorkerCommand::Cancel { request_id }) => {
+                    cancelled_request_id.store(request_id, Ordering::SeqCst);
+                    continue;
+                }
+                Err(_) => break,
+            }
+        };
+
+        if is_cancelled(
+            req.request_id,
+            &cancelled_request_id,
+            &req_rx,
+            &mut deferred_submits,
+        ) {
+            if resp_tx
+                .send(LivePromptOutcome::Cancelled {
+                    request_id: req.request_id,
+                    workspace_id: req.workspace_id,
+                    last_event_id: req.since_event_id,
+                })
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
+
         let envelope = CommandEnvelope {
             idempotency_key: req.idempotency_key.clone(),
             command: CommandPayload::MessageSubmit(SubmitMessagePayload {
@@ -163,24 +342,56 @@ fn run_worker_loop(
             }),
         };
 
-        if let Err(err) = transport.submit_command(&req.session_id, &envelope, req.now_secs) {
-            let _ = resp_tx.send(LivePromptOutcome::Failed {
-                request_id: req.request_id,
-                workspace_id: req.workspace_id,
-                detail: err.to_string(),
-            });
-            continue;
-        }
+        let acceptance = match transport.submit_command(&req.session_id, &envelope, req.now_secs) {
+            Ok(acc) => acc,
+            Err(err) => {
+                if resp_tx
+                    .send(LivePromptOutcome::Failed {
+                        request_id: req.request_id,
+                        workspace_id: req.workspace_id,
+                        detail: err.to_string(),
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+        };
 
+        let work_item_id = acceptance.work_item_id;
         let mut since_id = req.since_event_id;
         let mut assistant_text = String::new();
         let mut terminal_reached = false;
+        let mut was_cancelled = false;
         let mut failure_detail: Option<String> = None;
 
-        for _attempt in 0..30 {
+        for _attempt in 0..100 {
+            if is_cancelled(
+                req.request_id,
+                &cancelled_request_id,
+                &req_rx,
+                &mut deferred_submits,
+            ) {
+                send_server_stop_command(&mut transport, &req, work_item_id.clone());
+                was_cancelled = true;
+                break;
+            }
+
             match transport.poll_stream_events(&req.session_id, since_id, req.now_secs) {
                 Ok(events) => {
                     for event in events {
+                        if is_cancelled(
+                            req.request_id,
+                            &cancelled_request_id,
+                            &req_rx,
+                            &mut deferred_submits,
+                        ) {
+                            send_server_stop_command(&mut transport, &req, work_item_id.clone());
+                            was_cancelled = true;
+                            break;
+                        }
+
                         match event {
                             ChatStreamEvent::DeltaChunk {
                                 event_id,
@@ -189,9 +400,32 @@ fn run_worker_loop(
                             } => {
                                 since_id = since_id.max(event_id);
                                 assistant_text.push_str(&text_delta);
+                                if resp_tx
+                                    .send(LivePromptOutcome::DeltaChunk {
+                                        request_id: req.request_id,
+                                        workspace_id: req.workspace_id.clone(),
+                                        text_delta,
+                                        last_event_id: since_id,
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
                             }
-                            ChatStreamEvent::StepRecorded { event_id, .. } => {
+                            ChatStreamEvent::StepRecorded { event_id, step, .. } => {
                                 since_id = since_id.max(event_id);
+                                let step_label = format_exchange_step(&step);
+                                if resp_tx
+                                    .send(LivePromptOutcome::StepRecorded {
+                                        request_id: req.request_id,
+                                        workspace_id: req.workspace_id.clone(),
+                                        step_label,
+                                        last_event_id: since_id,
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
                             }
                             ChatStreamEvent::Completed { event_id, .. } => {
                                 since_id = since_id.max(event_id);
@@ -199,6 +433,7 @@ fn run_worker_loop(
                             }
                             ChatStreamEvent::Cancelled { event_id, .. } => {
                                 since_id = since_id.max(event_id);
+                                was_cancelled = true;
                                 terminal_reached = true;
                             }
                             ChatStreamEvent::CouldntFinish {
@@ -218,19 +453,35 @@ fn run_worker_loop(
                             ChatStreamEvent::KeepAlive => {}
                         }
                     }
-                    if terminal_reached {
+
+                    if was_cancelled || terminal_reached {
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(err) => {
-                    failure_detail = Some(err.to_string());
+                    if is_cancelled(
+                        req.request_id,
+                        &cancelled_request_id,
+                        &req_rx,
+                        &mut deferred_submits,
+                    ) {
+                        was_cancelled = true;
+                    } else {
+                        failure_detail = Some(err.to_string());
+                    }
                     break;
                 }
             }
         }
 
-        let outcome = if let Some(detail) = failure_detail {
+        let outcome = if was_cancelled {
+            LivePromptOutcome::Cancelled {
+                request_id: req.request_id,
+                workspace_id: req.workspace_id,
+                last_event_id: since_id,
+            }
+        } else if let Some(detail) = failure_detail {
             LivePromptOutcome::Failed {
                 request_id: req.request_id,
                 workspace_id: req.workspace_id,
