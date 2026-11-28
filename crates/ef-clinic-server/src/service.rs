@@ -542,8 +542,14 @@ impl ClinicService {
         let (pathname, _) = req.split_target();
         let is_sse_route = pathname.ends_with("/stream")
             || pathname == "/elysianfields/api/patient-workspaces/events";
+        let request_id = ef_core::HttpRequestId::parse_or_generate(
+            req.header(ef_core::REQUEST_ID_HEADER),
+            "clinic",
+        );
 
-        let resp = if pathname == "/elysianfields/api/health" {
+        let mut resp = if pathname == "/elysianfields/api/health"
+            || pathname == "/elysianfields/api/healthz"
+        {
             // Live DB liveness probe bypasses WAL replay so a broken DB immediately reports 503.
             self.route_health(req)
         } else if pathname == "/elysianfields/api/metrics" {
@@ -553,6 +559,7 @@ impl ClinicService {
             self.handle_locked_request_from_ip(req, client_ip)
         };
 
+        resp.set_header(ef_core::REQUEST_ID_HEADER, request_id.as_str());
         self.metrics.record_status(resp.status);
         if is_sse_route && resp.status == 200 {
             self.metrics.record_sse_stream();

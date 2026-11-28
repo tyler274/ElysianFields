@@ -32,6 +32,7 @@ pub struct PublicRequest {
     pub method: String,
     pub path_and_query: String,
     pub client_ip: String,
+    pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
 }
 
@@ -42,6 +43,7 @@ impl PublicRequest {
             method: "GET".to_owned(),
             path_and_query: path_and_query.into(),
             client_ip: client_ip.into(),
+            headers: BTreeMap::new(),
             body: Vec::new(),
         }
     }
@@ -56,8 +58,25 @@ impl PublicRequest {
             method: "POST".to_owned(),
             path_and_query: path_and_query.into(),
             client_ip: client_ip.into(),
+            headers: BTreeMap::new(),
             body,
         }
+    }
+
+    /// Attaches an HTTP request header (stored normalized to lowercase ASCII).
+    #[must_use]
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers
+            .insert(name.into().to_ascii_lowercase(), value.into());
+        self
+    }
+
+    /// Looks up a request header value case-insensitively.
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
     }
 }
 
@@ -320,11 +339,25 @@ impl PublicSiteRouter {
         &self.demo
     }
 
-    /// Dispatches a public HTTP request with ingress checks, cache headers, and semantic HTML rendering.
+    /// Dispatches a public HTTP request with ingress checks, cache headers, `X-Request-Id`
+    /// propagation, and semantic HTML rendering.
     pub fn handle(&mut self, req: &PublicRequest, now_ms: u64) -> PublicResponse {
-        let resp = self.dispatch_handle(req, now_ms);
+        let request_id = ef_core::HttpRequestId::parse_or_generate(
+            req.header(ef_core::REQUEST_ID_HEADER),
+            "public",
+        );
+        let mut resp = self.dispatch_handle(req, now_ms);
+        resp.headers.insert(
+            ef_core::REQUEST_ID_HEADER.to_owned(),
+            request_id.as_str().to_owned(),
+        );
         self.metrics.record_status(resp.status);
         resp
+    }
+
+    /// Alias for [`Self::handle`] matching the server request-handler naming convention.
+    pub fn handle_request(&mut self, req: &PublicRequest, now_ms: u64) -> PublicResponse {
+        self.handle(req, now_ms)
     }
 
     fn dispatch_handle(&mut self, req: &PublicRequest, now_ms: u64) -> PublicResponse {
@@ -451,7 +484,7 @@ impl PublicSiteRouter {
                 "public, max-age=3600",
                 self.render_sitemap_xml(),
             ),
-            ("GET", "/health") | ("GET", "/readyz") => {
+            ("GET", "/health") | ("GET", "/healthz") | ("GET", "/readyz") => {
                 let body = serde_json::to_string(&HealthPayload { status: "ok" })
                     .unwrap_or_else(|_| "{\"status\":\"ok\"}".to_owned());
                 PublicResponse::text(200, "application/json", "no-store", body)

@@ -363,7 +363,12 @@ impl MobileService {
 
     /// Routes an HTTP/1.1 request strictly under `/elysianfields/mobile-api/...`.
     pub fn handle_request(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
-        let resp = self.dispatch_request(req);
+        let request_id = ef_core::HttpRequestId::parse_or_generate(
+            req.header(ef_core::REQUEST_ID_HEADER),
+            "mobile",
+        );
+        let mut resp = self.dispatch_request(req);
+        resp.set_header(ef_core::REQUEST_ID_HEADER, request_id.as_str());
         self.metrics.record_status(resp.status);
         resp
     }
@@ -378,7 +383,7 @@ impl MobileService {
         };
         let segments: Vec<&str> = api_rel.split('/').filter(|s| !s.is_empty()).collect();
 
-        if segments.as_slice() == ["readyz"] {
+        if segments.as_slice() == ["readyz"] || segments.as_slice() == ["healthz"] {
             return self.handle_readyz(req);
         }
         if segments.as_slice() == ["metrics"] {
