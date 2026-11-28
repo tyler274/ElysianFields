@@ -61,6 +61,7 @@ pub struct MobileDesktopConfig {
     pub cli_overrides: MobilePrefOverrides,
     pub initial_focus: MobileInputFocus,
     pub owed_demo: bool,
+    pub signed_in_demo: bool,
 }
 
 impl Default for MobileDesktopConfig {
@@ -77,6 +78,7 @@ impl Default for MobileDesktopConfig {
             cli_overrides: MobilePrefOverrides::default(),
             initial_focus: MobileInputFocus::CuratedNote,
             owed_demo: false,
+            signed_in_demo: false,
         }
     }
 }
@@ -102,6 +104,8 @@ pub enum ConfigError {
     InvalidEmail { value: String },
     #[error("cannot combine --demo with --server")]
     ConflictingLaunchModes,
+    #[error("cannot combine --owed-demo with --signed-in-demo")]
+    ConflictingDemoPreviews,
 }
 
 impl MobileDesktopConfig {
@@ -198,6 +202,9 @@ impl MobileDesktopConfig {
                 "--owed-demo" => {
                     config.owed_demo = true;
                 }
+                "--signed-in-demo" => {
+                    config.signed_in_demo = true;
+                }
                 _ => {
                     if let Some(val) = arg.strip_prefix("--server=") {
                         let addr = parse_server_addr(val)?;
@@ -250,6 +257,9 @@ impl MobileDesktopConfig {
         if saw_demo && saw_server {
             return Err(ConfigError::ConflictingLaunchModes);
         }
+        if config.owed_demo && config.signed_in_demo {
+            return Err(ConfigError::ConflictingDemoPreviews);
+        }
 
         config.target = if headless_smoke {
             RunTarget::HeadlessSmoke
@@ -285,6 +295,7 @@ impl MobileDesktopConfig {
            --focus <email|invite|dob|note>\n\
                                        Select initial focused form field (default: note)\n\
            --owed-demo                 Seed 1 offline-queued owed sign-out for demo recovery preview\n\
+           --signed-in-demo            Launch signed-in demo with populated Health Trends & Records\n\
            --headless-smoke            Execute headless Bevy verification suite and emit JSON\n\
            --screenshot <PATH.PNG>     Capture primary window PNG after initial render and exit\n\
            --no-prefs                  Bypass reading and writing OS-native saved preferences\n\

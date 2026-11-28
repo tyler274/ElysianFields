@@ -18,7 +18,10 @@ use ef_core::IdempotencyKey;
 use ef_mobile_client::{
     LiveHttpMobileTransport, MobileClientState, MobileClientTransport, MobileTransportError,
 };
-use ef_mobile_domain::{MobileAuthAuthority, MobileSessionId, VerifiedMobileSession};
+use ef_mobile_domain::{
+    AccountFencedHealthBatch, HealthSampleEntry, IncomingBatchItem, MobileAuthAuthority,
+    MobileSessionId, PatientRecord, VerifiedMobileSession,
+};
 use ef_ui_catalog::{ComposerAction, ComposerSurface, IdleRedrawGate, RedrawReason};
 use thiserror::Error;
 
@@ -33,6 +36,7 @@ pub enum WorkerOperation {
     VerifyDob,
     ShareConnectedCare,
     SendForMyDoctor,
+    SyncHealthSnapshot,
 }
 
 impl WorkerOperation {
@@ -45,6 +49,7 @@ impl WorkerOperation {
             Self::VerifyDob => "Verifying date of birth with live server...",
             Self::ShareConnectedCare => "Submitting Connected Care sharing consent...",
             Self::SendForMyDoctor => "Delivering curated note to your doctor...",
+            Self::SyncHealthSnapshot => "Syncing personal health trends & records...",
         }
     }
 }
@@ -92,6 +97,12 @@ pub enum LiveWorkerRequest {
         part2_consent: Option<Part2WrittenConsent>,
         now_secs: u64,
     },
+    SyncHealthSnapshot {
+        session_id: MobileSessionId,
+        batch: AccountFencedHealthBatch,
+        records: Vec<IncomingBatchItem>,
+        now_secs: u64,
+    },
 }
 
 impl LiveWorkerRequest {
@@ -104,6 +115,7 @@ impl LiveWorkerRequest {
             Self::VerifyDob { .. } => WorkerOperation::VerifyDob,
             Self::ShareConnectedCare { .. } => WorkerOperation::ShareConnectedCare,
             Self::SendForMyDoctor { .. } => WorkerOperation::SendForMyDoctor,
+            Self::SyncHealthSnapshot { .. } => WorkerOperation::SyncHealthSnapshot,
         }
     }
 }
@@ -129,6 +141,9 @@ pub enum LiveWorkerResponse {
     },
     SendForMyDoctor {
         result: Result<TransferEnvelope, MobileTransportError>,
+    },
+    SyncHealthSnapshot {
+        result: Result<(Vec<HealthSampleEntry>, Vec<PatientRecord>), MobileTransportError>,
     },
 }
 
@@ -308,6 +323,22 @@ fn run_worker_loop(
                     now_secs,
                 ),
             },
+            LiveWorkerRequest::SyncHealthSnapshot {
+                session_id,
+                batch,
+                records,
+                now_secs,
+            } => {
+                let result = transport
+                    .upload_health_batch(&session_id, batch, now_secs)
+                    .and_then(|_| transport.ingest_records(&session_id, records, now_secs))
+                    .and_then(|_| {
+                        let trends = transport.fetch_health_trends(&session_id, now_secs)?;
+                        let fetched_records = transport.fetch_records(&session_id, now_secs)?;
+                        Ok((trends, fetched_records))
+                    });
+                LiveWorkerResponse::SyncHealthSnapshot { result }
+            }
         };
 
         if resp_tx.send(response).is_err() {
@@ -436,6 +467,26 @@ pub fn poll_live_server_worker_system(
                 Err(err) => {
                     mobile_state.errors.push(err.to_string());
                     desktop.set_status_message(format!("Send note failed: {err}"));
+                }
+            },
+            LiveWorkerResponse::SyncHealthSnapshot { result } => match result {
+                Ok((trends, records)) => {
+                    if matches!(
+                        mobile_state.auth_device.screen(),
+                        ef_mobile_domain::MobileClientScreen::SignedIn { .. }
+                    ) {
+                        let trend_count = trends.len();
+                        let record_count = records.len();
+                        mobile_state.visible_health_trends = trends;
+                        mobile_state.visible_records = records;
+                        desktop.set_status_message(format!(
+                            "Synced {trend_count} health trend sample(s) and {record_count} personal record(s)."
+                        ));
+                    }
+                }
+                Err(err) => {
+                    mobile_state.errors.push(err.to_string());
+                    desktop.set_status_message(format!("Health sync failed: {err}"));
                 }
             },
         }

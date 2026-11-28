@@ -20,8 +20,9 @@ use crate::forms::{
     paste_clipboard_into_surface,
 };
 use crate::state::{
-    DesktopAction, DesktopActionQueue, MobileDesktopUiState, OwedRecoveryBannerState,
-    process_desktop_actions_system,
+    DesktopAction, DesktopActionQueue, HEALTH_TRENDS_HEADING, MobileDesktopUiState,
+    OwedRecoveryBannerState, PersonalHealthPanelView, SIGNED_OUT_HEALTH_NOTICE,
+    SYNC_DEMO_HEALTH_LABEL, process_desktop_actions_system,
 };
 use crate::worker::{LiveServerWorker, PendingWorkerState, poll_live_server_worker_system};
 
@@ -84,6 +85,10 @@ pub struct CrisisBannerNode;
 #[derive(Component)]
 pub struct OwedRecoveryBannerNode;
 
+/// Marker component for the Personal Health Trends & Records card.
+#[derive(Component)]
+pub struct HealthTrendsCardNode;
+
 /// Marker component for the curated note composer visual box.
 #[derive(Component)]
 pub struct ComposerBoxNode;
@@ -126,6 +131,10 @@ pub enum TextSlot {
     ConnectivityBtnLabel,
     SignOutBtnLabel,
     FlushOwedBtnLabel,
+    HealthTrendsHeading,
+    HealthTrendsBody,
+    HealthRecordsBody,
+    SyncHealthBtnLabel,
     ConnectedCareHeading,
     ConnectedCareSummary,
     InviteInputLabel,
@@ -468,7 +477,77 @@ fn spawn_mobile_desktop_ui(
                 });
             });
 
-            // 4. Connected Care Section (Interactive Invite Code + DOB Verify + Explicit Share).
+            // 4. Personal Health Trends & Records Section (SignInHoldsNothing enforced).
+            let mut health_region_a11y = accesskit::Node::new(accesskit::Role::Region);
+            health_region_a11y.set_label(HEALTH_TRENDS_HEADING.to_owned());
+            root.spawn((
+                CardSurfaceNode,
+                HealthTrendsCardNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+                A11yNodeMarker {
+                    key: A11ySemanticKey::CitationChip(2),
+                    reading_order: 19,
+                    interactivity: NodeInteractivity::Structural,
+                },
+                AccessibilityNode(health_region_a11y),
+            ))
+            .with_children(|card| {
+                card.spawn((
+                    Text::new(HEALTH_TRENDS_HEADING.to_owned()),
+                    desktop_text_font(14.5),
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                    TextSlot::HealthTrendsHeading,
+                    TextTone::Primary,
+                ));
+                card.spawn((
+                    Text::new(SIGNED_OUT_HEALTH_NOTICE.to_owned()),
+                    desktop_text_font(12.0),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::HealthTrendsBody,
+                    TextTone::Secondary,
+                ));
+                card.spawn((
+                    Text::new(String::new()),
+                    desktop_text_font(11.5),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::HealthRecordsBody,
+                    TextTone::Secondary,
+                ));
+                card.spawn((
+                    MirroredRowNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: row_dir,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(6.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    },
+                ))
+                .with_children(|row| {
+                    spawn_action_button(
+                        row,
+                        DesktopAction::SyncDemoHealthSnapshot,
+                        ButtonStyle::Secondary,
+                        TextSlot::SyncHealthBtnLabel,
+                        SYNC_DEMO_HEALTH_LABEL,
+                        A11ySemanticKey::CitationChip(1),
+                        20,
+                        &tokens,
+                    );
+                });
+            });
+
+            // 5. Connected Care Section (Interactive Invite Code + DOB Verify + Explicit Share).
             root.spawn((
                 CardSurfaceNode,
                 Node {
@@ -515,7 +594,7 @@ fn spawn_mobile_desktop_ui(
                     desktop.invite_code_field.text(),
                     desktop.active_focus == MobileInputFocus::InviteCode,
                     34.0,
-                    19,
+                    21,
                     &tokens,
                 );
                 spawn_form_input_field(
@@ -527,7 +606,7 @@ fn spawn_mobile_desktop_ui(
                     desktop.dob_field.text(),
                     desktop.active_focus == MobileInputFocus::DateOfBirth,
                     34.0,
-                    20,
+                    22,
                     &tokens,
                 );
                 card.spawn((
@@ -549,7 +628,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::VerifyDobBtnLabel,
                         &chrome.verify_dob,
                         A11ySemanticKey::ListRow(4),
-                        21,
+                        23,
                         &tokens,
                     );
                     spawn_action_button(
@@ -559,13 +638,13 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ShareBtnLabel,
                         &chrome.share,
                         A11ySemanticKey::ListRow(5),
-                        22,
+                        24,
                         &tokens,
                     );
                 });
             });
 
-            // 5. For My Doctor Section (Curated Note ComposerSurface + Review & Send).
+            // 6. For My Doctor Section (Curated Note ComposerSurface + Review & Send).
             root.spawn((
                 CardSurfaceNode,
                 Node {
@@ -596,7 +675,7 @@ fn spawn_mobile_desktop_ui(
                     translate(locale, UiKey::MobileCuratedNotePlaceholder),
                     desktop.active_focus == MobileInputFocus::CuratedNote,
                     64.0,
-                    23,
+                    25,
                     &tokens,
                 );
                 card.spawn((
@@ -616,7 +695,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ReviewSendBtnLabel,
                         &chrome.review_and_send,
                         A11ySemanticKey::CitationChip(0),
-                        24,
+                        26,
                         &tokens,
                     );
                 });
@@ -1254,6 +1333,9 @@ fn sync_desktop_visuals_system(
     } else {
         FLUSH_OWED_SIGN_OUTS_LABEL.to_owned()
     };
+    let health_panel_view = PersonalHealthPanelView::from_client_state(&mobile_state);
+    let health_trends_body = health_panel_view.trends_body();
+    let health_records_body = health_panel_view.records_body();
 
     for (slot, tone, mut text, mut color) in &mut text_q {
         let effective_color =
@@ -1301,6 +1383,10 @@ fn sync_desktop_visuals_system(
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
             TextSlot::FlushOwedBtnLabel => flush_btn_text.clone(),
+            TextSlot::HealthTrendsHeading => HEALTH_TRENDS_HEADING.to_owned(),
+            TextSlot::HealthTrendsBody => health_trends_body.clone(),
+            TextSlot::HealthRecordsBody => health_records_body.clone(),
+            TextSlot::SyncHealthBtnLabel => SYNC_DEMO_HEALTH_LABEL.to_owned(),
             TextSlot::ConnectedCareHeading => chrome.nav_connected_care.clone(),
             TextSlot::ConnectedCareSummary => format!(
                 "{}\n{}: {} | {}: {}\n{} | {}",
