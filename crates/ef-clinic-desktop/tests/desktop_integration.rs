@@ -943,3 +943,158 @@ fn non_blocking_live_worker_streams_over_live_tcp_clinic_server_and_reports_erro
 
     let _ = fs::remove_dir_all(&wal_dir);
 }
+
+#[test]
+fn cli_preview_flags_search_and_streaming_demo_parse_and_render_deterministically() {
+    use bevy::asset::AssetPlugin;
+    use bevy::prelude::*;
+    use ef_clinic_client::{
+        ClientBootConfig, CurieClinicClientPlugin, SharedBrowserSessionHub, SharedLocaleStorage,
+    };
+    use ef_clinic_desktop::{STREAMING_DEMO_DRAFT, STREAMING_DEMO_STEP};
+    use ef_core::TabId;
+
+    // 1. CLI parsing & validation for `--search` and `--streaming-demo`.
+    let parsed = DesktopLaunchConfig::parse_args([
+        "--demo",
+        "--search",
+        "Patel",
+        "--streaming-demo",
+        "--headless-smoke",
+    ])
+    .expect("valid preview flags");
+    assert_eq!(parsed.search_query.as_deref(), Some("Patel"));
+    assert!(parsed.streaming_demo);
+
+    let eq_parsed =
+        DesktopLaunchConfig::parse_args(["--search=Cohen"]).expect("equals search form");
+    assert_eq!(eq_parsed.search_query.as_deref(), Some("Cohen"));
+    assert!(!eq_parsed.streaming_demo);
+
+    assert_eq!(
+        DesktopLaunchConfig::parse_args(["--search"]),
+        Err(DesktopConfigError::MissingValue {
+            flag: "--search".to_owned(),
+        })
+    );
+    assert_eq!(
+        DesktopLaunchConfig::parse_args(["--search", "   "]),
+        Err(DesktopConfigError::InvalidSearchQuery)
+    );
+
+    // 2. `--headless-smoke` passes cleanly with BOTH `--search` and `--streaming-demo` enabled.
+    let report = run_headless_smoke(&parsed).expect("smoke with preview flags must pass");
+    assert!(report.passed);
+    assert_eq!(report.duplicate_a11y_nodes, 0);
+
+    // 3. Direct Bevy UI verification: filtered roster, search focus ring, streaming draft, and Cancel button.
+    let ui_cfg = DesktopLaunchConfig::parse_args([
+        "--demo",
+        "--search",
+        "Patel",
+        "--streaming-demo",
+        "--no-prefs",
+    ])
+    .expect("ui preview cfg");
+    let (transport, conn_mode, email, token, patients, citation_catalog) =
+        create_transport_for_backend(&ui_cfg.backend);
+    let initial_citations = patients
+        .first()
+        .map(|p| citation_catalog.cards_for(&p.workspace_id))
+        .unwrap_or_default();
+    let mut ws_state = DesktopWorkspaceState {
+        connection_mode: conn_mode,
+        patients,
+        active_patient_index: 0,
+        citations: initial_citations,
+        selected_citation_index: 0,
+        transcript: Vec::new(),
+        streaming_draft: None,
+        last_failed_prompt: None,
+        status_message: String::new(),
+        status_override: None,
+        status_banner: DesktopStatusBanner::DefaultReady,
+        input_focus: DesktopInputFocus::Composer,
+        patient_search_query: String::new(),
+        search_highlight_index: 0,
+        live_submission: LiveSubmissionState::Idle,
+        next_live_request_id: 1,
+        shortcuts_modal_open: false,
+        zoom_percent: 100,
+        frames_rendered_ui: 0,
+        prompts_submitted: 0,
+    };
+    ws_state.apply_preview_config(&ui_cfg);
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(LivePromptWorker::disabled())
+        .insert_resource(DesktopClipboard::in_memory())
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(ws_state)
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("desktop-preview-flags-tab").expect("tab"),
+            ClientBootConfig::from_location("/elysianfields/?lang=en").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, email, token);
+
+    let ws = app.world().resource::<DesktopWorkspaceState>();
+    assert_eq!(ws.input_focus, DesktopInputFocus::PatientSearch);
+    assert_eq!(ws.patient_search_query, "Patel");
+    assert_eq!(ws.filtered_patient_indices(), vec![1]);
+    assert!(matches!(
+        ws.live_submission,
+        LiveSubmissionState::InFlight { .. }
+    ));
+    assert_eq!(ws.streaming_draft.as_deref(), Some(STREAMING_DEMO_DRAFT));
+    assert_eq!(
+        ws.status_banner,
+        DesktopStatusBanner::Streaming(Some(STREAMING_DEMO_STEP.to_owned()))
+    );
+
+    let mut q = app
+        .world_mut()
+        .query::<(&DesktopUiSlot, &Node, Option<&Text>)>();
+    let mut cancel_visible = false;
+    let mut search_border_2px = false;
+    let mut transcript_body = String::new();
+    let mut search_text = String::new();
+    for (slot, node, text) in q.iter(app.world()) {
+        match *slot {
+            DesktopUiSlot::CancelButton => cancel_visible = node.display == Display::Flex,
+            DesktopUiSlot::PatientSearchBox => {
+                search_border_2px = node.border == UiRect::all(Val::Px(2.0));
+            }
+            DesktopUiSlot::PatientSearchText => {
+                if let Some(t) = text {
+                    search_text = t.0.clone();
+                }
+            }
+            DesktopUiSlot::TranscriptBody => {
+                if let Some(t) = text {
+                    transcript_body = t.0.clone();
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        cancel_visible,
+        "CancelButton must be visible for --streaming-demo"
+    );
+    assert!(
+        search_border_2px,
+        "PatientSearchBox must show active 2px focus ring"
+    );
+    assert_eq!(search_text, "Patel");
+    assert!(transcript_body.contains(STREAMING_DEMO_DRAFT));
+}

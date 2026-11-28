@@ -856,3 +856,128 @@ fn mobile_cli_prefs_bypass_and_12_locale_chrome_and_persistence() {
 
     let _ = fs::remove_dir_all(&prefs_dir);
 }
+
+#[test]
+fn mobile_preview_cli_flags_focus_and_owed_demo_render_and_pass_headless_smoke() {
+    // 1. CLI parsing & validation for `--focus` and `--owed-demo`.
+    for (flag_val, expected) in [
+        ("email", MobileInputFocus::Email),
+        ("invite", MobileInputFocus::InviteCode),
+        ("dob", MobileInputFocus::DateOfBirth),
+        ("note", MobileInputFocus::CuratedNote),
+    ] {
+        let cfg = MobileDesktopConfig::parse_args(["--focus", flag_val]).expect("valid --focus");
+        assert_eq!(cfg.initial_focus, expected);
+        assert!(!cfg.owed_demo);
+
+        let eq_cfg =
+            MobileDesktopConfig::parse_args([format!("--focus={flag_val}")]).expect("--focus=");
+        assert_eq!(eq_cfg.initial_focus, expected);
+    }
+
+    assert_eq!(
+        MobileDesktopConfig::parse_args(["--focus"]),
+        Err(ConfigError::MissingValue {
+            flag: "--focus".to_owned(),
+        })
+    );
+    assert_eq!(
+        MobileDesktopConfig::parse_args(["--focus", "bogus"]),
+        Err(ConfigError::InvalidFocus {
+            value: "bogus".to_owned(),
+        })
+    );
+
+    // 2. `--headless-smoke` passes cleanly with `--focus dob --owed-demo`.
+    let smoke_cfg = MobileDesktopConfig::parse_args([
+        "--demo",
+        "--focus",
+        "dob",
+        "--owed-demo",
+        "--headless-smoke",
+    ])
+    .expect("smoke preview cfg");
+    assert_eq!(smoke_cfg.initial_focus, MobileInputFocus::DateOfBirth);
+    assert!(smoke_cfg.owed_demo);
+    let report = run_headless_smoke(&smoke_cfg).expect("mobile headless smoke with preview flags");
+    assert_eq!(report.a11y_duplicate_nodes, 0);
+
+    // 3. Direct Bevy UI verification: DOB box has active 2px focus ring, recovery banner is
+    //    `OnlineFlushPending(1)`, and Flush Owed Sign-Outs button displays `(1)`.
+    let ui_cfg =
+        MobileDesktopConfig::parse_args(["--demo", "--focus", "dob", "--owed-demo", "--no-prefs"])
+            .expect("ui preview cfg");
+    let mut app = build_headless_mobile_desktop_app(&ui_cfg);
+    app.update();
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<MobileDesktopUiState>().active_focus,
+        MobileInputFocus::DateOfBirth
+    );
+    let mobile = app.world().resource::<MobileClientState>();
+    assert_eq!(
+        mobile.auth_device.connectivity(),
+        ef_mobile_domain::ConnectivityState::Online
+    );
+    assert_eq!(mobile.auth_device.owed_sign_outs().len(), 1);
+    let banner_state = ef_mobile_desktop::OwedRecoveryBannerState::from_runtime(
+        mobile.auth_device.connectivity(),
+        mobile.auth_device.owed_sign_outs().len(),
+        ef_mobile_desktop::PendingWorkerState::Idle,
+    );
+    assert!(matches!(
+        banner_state,
+        ef_mobile_desktop::OwedRecoveryBannerState::OnlineFlushPending { owed_count: 1, .. }
+    ));
+
+    let expected_focus_border = bevy::prelude::BorderColor::all(
+        app.world()
+            .resource::<UiTheme>()
+            .tokens
+            .focus_ring
+            .to_bevy_color(),
+    );
+    let mut focus_boxes = app.world_mut().query::<(
+        &ef_mobile_desktop::FormInputBoxNode,
+        &bevy::prelude::Node,
+        &bevy::prelude::BorderColor,
+    )>();
+    let mut dob_focused = false;
+    let mut unfocused_count = 0usize;
+    for (box_node, node, border_color) in focus_boxes.iter(app.world()) {
+        if box_node.field == MobileInputFocus::DateOfBirth {
+            dob_focused = node.border == bevy::prelude::UiRect::all(bevy::prelude::Val::Px(3.0))
+                && *border_color == expected_focus_border;
+        } else if node.border == bevy::prelude::UiRect::all(bevy::prelude::Val::Px(1.0)) {
+            unfocused_count += 1;
+        }
+    }
+    assert!(
+        dob_focused,
+        "DateOfBirth FormInputBoxNode must render 3px WCAG focus ring for --focus dob"
+    );
+    assert_eq!(
+        unfocused_count, 3,
+        "other 3 input fields must remain 1px unfocused"
+    );
+
+    let mut texts = app.world_mut().query::<(&TextSlot, &bevy::prelude::Text)>();
+    let mut recovery_text = String::new();
+    let mut flush_label = String::new();
+    for (slot, text) in texts.iter(app.world()) {
+        match *slot {
+            TextSlot::OwedRecoveryBanner => recovery_text = text.0.clone(),
+            TextSlot::FlushOwedBtnLabel => flush_label = text.0.clone(),
+            _ => {}
+        }
+    }
+    assert!(
+        recovery_text.contains("ready to flush"),
+        "expected OnlineFlushPending banner text, got `{recovery_text}`"
+    );
+    assert_eq!(
+        flush_label,
+        format!("{} (1)", ef_mobile_desktop::FLUSH_OWED_SIGN_OUTS_LABEL)
+    );
+}

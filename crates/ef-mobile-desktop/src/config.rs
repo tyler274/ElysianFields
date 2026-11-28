@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use ef_ui_catalog::{DesktopPreferences, Locale, ThemeMode};
 use thiserror::Error;
 
+use crate::forms::MobileInputFocus;
+
 /// Canonical mobile-proportioned desktop window dimensions.
 pub const MOBILE_WINDOW_WIDTH: f32 = 420.0;
 pub const MOBILE_WINDOW_HEIGHT: f32 = 860.0;
@@ -57,6 +59,8 @@ pub struct MobileDesktopConfig {
     pub email: String,
     pub prefs_mode: PreferenceMode,
     pub cli_overrides: MobilePrefOverrides,
+    pub initial_focus: MobileInputFocus,
+    pub owed_demo: bool,
 }
 
 impl Default for MobileDesktopConfig {
@@ -71,6 +75,8 @@ impl Default for MobileDesktopConfig {
             email: DEFAULT_DEMO_EMAIL.to_owned(),
             prefs_mode: PreferenceMode::PersistOsConfig,
             cli_overrides: MobilePrefOverrides::default(),
+            initial_focus: MobileInputFocus::CuratedNote,
+            owed_demo: false,
         }
     }
 }
@@ -88,6 +94,8 @@ pub enum ConfigError {
     InvalidLocale { value: String },
     #[error("invalid theme '{value}' (expected 'dark' or 'light')")]
     InvalidTheme { value: String },
+    #[error("invalid focus target '{value}' (expected email, invite, dob, or note)")]
+    InvalidFocus { value: String },
     #[error("invalid server address '{value}': {detail}")]
     InvalidServerAddress { value: String, detail: String },
     #[error("invalid email address '{value}'")]
@@ -182,6 +190,14 @@ impl MobileDesktopConfig {
                     let raw = next_value(&mut iter, "--screenshot")?;
                     screenshot_path = Some(PathBuf::from(raw));
                 }
+                "--focus" => {
+                    let raw = next_value(&mut iter, "--focus")?;
+                    config.initial_focus = MobileInputFocus::parse_cli(&raw)
+                        .ok_or(ConfigError::InvalidFocus { value: raw })?;
+                }
+                "--owed-demo" => {
+                    config.owed_demo = true;
+                }
                 _ => {
                     if let Some(val) = arg.strip_prefix("--server=") {
                         let addr = parse_server_addr(val)?;
@@ -217,6 +233,13 @@ impl MobileDesktopConfig {
                         config.cli_overrides.theme = Some(config.theme);
                     } else if let Some(val) = arg.strip_prefix("--screenshot=") {
                         screenshot_path = Some(PathBuf::from(val));
+                    } else if let Some(val) = arg.strip_prefix("--focus=") {
+                        config.initial_focus =
+                            MobileInputFocus::parse_cli(val).ok_or_else(|| {
+                                ConfigError::InvalidFocus {
+                                    value: val.to_owned(),
+                                }
+                            })?;
                     } else {
                         return Err(ConfigError::UnknownArgument { arg });
                     }
@@ -259,6 +282,9 @@ impl MobileDesktopConfig {
            --email <ADDRESS>           Patient email for standalone account sign-in\n\
            --locale <BCP47>            Initial locale (en, es, fr, pt, de, zh-Hans, ja, ko, ar, he, vi, hi)\n\
            --theme <dark|light>        Initial WCAG 2.1 AA theme (default: dark)\n\
+           --focus <email|invite|dob|note>\n\
+                                       Select initial focused form field (default: note)\n\
+           --owed-demo                 Seed 1 offline-queued owed sign-out for demo recovery preview\n\
            --headless-smoke            Execute headless Bevy verification suite and emit JSON\n\
            --screenshot <PATH.PNG>     Capture primary window PNG after initial render and exit\n\
            --no-prefs                  Bypass reading and writing OS-native saved preferences\n\

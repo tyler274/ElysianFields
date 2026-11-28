@@ -12,9 +12,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::config::{LaunchMode, MobileDesktopConfig};
-use crate::state::{DesktopAction, DesktopActionQueue, MobileDesktopUiState};
+use crate::state::{
+    DesktopAction, DesktopActionQueue, MobileDesktopUiState, OwedRecoveryBannerState,
+    queue_owed_demo_preview,
+};
 use crate::ui::{CrisisBannerNode, MirroredRowNode, MobileDesktopUiPlugin, RootCanvasNode};
-use crate::worker::LiveServerWorker;
+use crate::worker::{LiveServerWorker, PendingWorkerState};
 
 /// Structured JSON summary emitted by `ef-mobile-desktop --headless-smoke`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +65,7 @@ pub fn build_headless_mobile_desktop_app(config: &MobileDesktopConfig) -> App {
     app.world_mut()
         .resource_mut::<UiTheme>()
         .set_mode(config.theme);
+    queue_owed_demo_preview(&mut app, config);
 
     app
 }
@@ -83,6 +87,33 @@ pub fn run_headless_smoke(
 ) -> Result<MobileDesktopSmokeReport, SmokeError> {
     let mut app = build_headless_mobile_desktop_app(config);
     app.update();
+    app.update();
+
+    // 0. Verify deterministic preview CLI flags (`--focus`, `--owed-demo`).
+    if app.world().resource::<MobileDesktopUiState>().active_focus != config.initial_focus {
+        return Err(SmokeError::Invariant(format!(
+            "--focus {:?} did not initialize active_focus",
+            config.initial_focus
+        )));
+    }
+    if config.owed_demo && matches!(config.mode, LaunchMode::Demo) {
+        let mobile = app.world().resource::<MobileClientState>();
+        let banner = OwedRecoveryBannerState::from_runtime(
+            mobile.auth_device.connectivity(),
+            mobile.auth_device.owed_sign_outs().len(),
+            PendingWorkerState::Idle,
+        );
+        if !matches!(
+            banner,
+            OwedRecoveryBannerState::OnlineFlushPending { owed_count: 1, .. }
+        ) {
+            return Err(SmokeError::Invariant(format!(
+                "--owed-demo expected OnlineFlushPending(1), got {banner:?}"
+            )));
+        }
+        // Clear seeded demo owed sign-out before running step 4's clean sign-in/offline cycle.
+        dispatch_action(&mut app, DesktopAction::FlushOwedSignOuts);
+    }
 
     // 1. Verify Crisis-First Banner is spawned.
     let crisis_banner_count = app

@@ -21,7 +21,8 @@ pub use config::{
 pub use demo::{
     ConnectionMode, DemoSeedBundle, DesktopCitationCard, DesktopCitationCatalog, DesktopInputFocus,
     DesktopPatientEntry, DesktopStatusBanner, DesktopTranscriptEntry, DesktopWorkspaceState,
-    bootstrap_clinic_session, build_demo_seed, create_transport_for_backend, fetch_live_whoami,
+    STREAMING_DEMO_DRAFT, STREAMING_DEMO_STEP, bootstrap_clinic_session, build_demo_seed,
+    create_transport_for_backend, fetch_live_whoami,
 };
 pub use smoke::{HeadlessSmokeError, HeadlessSmokeReport, SmokeCheckOutcome, run_headless_smoke};
 pub use ui::{
@@ -149,22 +150,7 @@ fn run_windowed_gpu_app(
         DesktopClipboard::system()
     };
 
-    let mut app = App::new();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "Elysian Fields — Curie Clinic".to_owned(),
-            resolution: (1280, 820).into(),
-            ..default()
-        }),
-        ..default()
-    }))
-    .insert_resource(winit_settings)
-    .insert_resource(prefs_store)
-    .insert_resource(live_worker)
-    .insert_resource(clipboard)
-    .insert_resource(transport)
-    .insert_resource(citation_catalog)
-    .insert_resource(DesktopWorkspaceState {
+    let mut ws_state = DesktopWorkspaceState {
         connection_mode: conn_mode,
         patients,
         active_patient_index: 0,
@@ -185,7 +171,25 @@ fn run_windowed_gpu_app(
         zoom_percent: effective_config.zoom.percent(),
         frames_rendered_ui: 0,
         prompts_submitted: 0,
-    })
+    };
+    ws_state.apply_preview_config(&effective_config);
+
+    let mut app = App::new();
+    app.add_plugins(DefaultPlugins.set(WindowPlugin {
+        primary_window: Some(Window {
+            title: "Elysian Fields — Curie Clinic".to_owned(),
+            resolution: (1280, 820).into(),
+            ..default()
+        }),
+        ..default()
+    }))
+    .insert_resource(winit_settings)
+    .insert_resource(prefs_store)
+    .insert_resource(live_worker)
+    .insert_resource(clipboard)
+    .insert_resource(transport)
+    .insert_resource(citation_catalog)
+    .insert_resource(ws_state)
     .add_plugins(CurieClinicClientPlugin::new(
         tab_id,
         boot_config,

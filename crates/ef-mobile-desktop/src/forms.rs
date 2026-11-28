@@ -50,6 +50,18 @@ impl MobileInputFocus {
         }
     }
 
+    /// Parses a CLI `--focus` target (`email`, `invite`, `dob`, or `note`).
+    #[must_use]
+    pub fn parse_cli(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "email" => Some(Self::Email),
+            "invite" => Some(Self::InviteCode),
+            "dob" => Some(Self::DateOfBirth),
+            "note" => Some(Self::CuratedNote),
+            _ => None,
+        }
+    }
+
     /// Returns `true` only for multiline inputs (`CuratedNote`).
     #[must_use]
     pub const fn is_multiline(self) -> bool {

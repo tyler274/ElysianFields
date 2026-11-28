@@ -37,7 +37,7 @@ pub use smoke::{
 pub use state::{
     CRISIS_LINE_911, CRISIS_LINE_988, CRISIS_LINE_SAMHSA, DEMO_DOB_DAY, DEMO_DOB_MONTH,
     DEMO_DOB_YEAR, DesktopAction, DesktopActionQueue, MobileDesktopUiState, MobileModeKind,
-    OwedRecoveryBannerState, next_locale,
+    OwedRecoveryBannerState, next_locale, queue_owed_demo_preview,
 };
 pub use ui::{
     ActionButton, ButtonStyle, CardSurfaceNode, ComposerBoxNode, CrisisBannerNode,
@@ -107,6 +107,7 @@ pub fn run_windowed_app(config: &MobileDesktopConfig, screenshot_path: Option<Pa
     app.world_mut()
         .resource_mut::<UiTheme>()
         .set_mode(effective_config.theme);
+    queue_owed_demo_preview(&mut app, &effective_config);
 
     if let Some(path) = screenshot_path {
         app.insert_resource(WinitSettings::game())

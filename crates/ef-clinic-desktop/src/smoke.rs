@@ -99,34 +99,37 @@ pub fn run_headless_smoke(
     let tab_id = TabId::new("desktop-smoke-tab")
         .map_err(|err| HeadlessSmokeError::InvariantFailed(format!("tab id error: {err}")))?;
 
+    let mut ws_state = DesktopWorkspaceState {
+        connection_mode: conn_mode.clone(),
+        patients,
+        active_patient_index: 0,
+        citations: initial_citations,
+        selected_citation_index: 0,
+        transcript: Vec::new(),
+        streaming_draft: None,
+        last_failed_prompt: None,
+        status_message: String::new(),
+        status_override: None,
+        status_banner: DesktopStatusBanner::DefaultReady,
+        input_focus: DesktopInputFocus::Composer,
+        patient_search_query: String::new(),
+        search_highlight_index: 0,
+        live_submission: LiveSubmissionState::Idle,
+        next_live_request_id: 1,
+        shortcuts_modal_open: false,
+        zoom_percent: config.zoom.percent(),
+        frames_rendered_ui: 0,
+        prompts_submitted: 0,
+    };
+    ws_state.apply_preview_config(config);
+
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
         .insert_resource(LivePromptWorker::disabled())
         .insert_resource(DesktopClipboard::in_memory())
         .insert_resource(transport)
         .insert_resource(citation_catalog)
-        .insert_resource(DesktopWorkspaceState {
-            connection_mode: conn_mode.clone(),
-            patients,
-            active_patient_index: 0,
-            citations: initial_citations,
-            selected_citation_index: 0,
-            transcript: Vec::new(),
-            streaming_draft: None,
-            last_failed_prompt: None,
-            status_message: String::new(),
-            status_override: None,
-            status_banner: DesktopStatusBanner::DefaultReady,
-            input_focus: DesktopInputFocus::Composer,
-            patient_search_query: String::new(),
-            search_highlight_index: 0,
-            live_submission: LiveSubmissionState::Idle,
-            next_live_request_id: 1,
-            shortcuts_modal_open: false,
-            zoom_percent: config.zoom.percent(),
-            frames_rendered_ui: 0,
-            prompts_submitted: 0,
-        })
+        .insert_resource(ws_state)
         .add_plugins(CurieClinicClientPlugin::new(
             tab_id,
             boot_config,
@@ -136,6 +139,29 @@ pub fn run_headless_smoke(
         .add_plugins(ClinicDesktopUiPlugin::new(config.theme, config.zoom, None));
 
     bootstrap_clinic_session(&mut app, email, token);
+
+    // 0. Verify deterministic preview flags (`--search`, `--streaming-demo`) when provided.
+    if let Some(ref query) = config.search_query {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        if ws.input_focus != DesktopInputFocus::PatientSearch || ws.patient_search_query != *query {
+            return Err(HeadlessSmokeError::InvariantFailed(format!(
+                "--search '{query}' did not focus PatientSearch with query"
+            )));
+        }
+        dispatch_ui(&mut app, DesktopUiEvent::ClearPatientSearch);
+    }
+    if config.streaming_demo {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        let streaming_ok = matches!(ws.live_submission, LiveSubmissionState::InFlight { .. })
+            && ws.streaming_draft.as_deref().is_some_and(|d| !d.is_empty());
+        let cancel_visible =
+            query_slot_display(&mut app, DesktopUiSlot::CancelButton)? == Display::Flex;
+        if !streaming_ok || !cancel_visible {
+            return Err(HeadlessSmokeError::InvariantFailed(format!(
+                "--streaming-demo preview failed (streaming_ok={streaming_ok}, cancel_visible={cancel_visible})"
+            )));
+        }
+    }
 
     // 1. Toggle Dark -> Light and verify root BackgroundColor matches WCAG AA Light token.
     dispatch_ui(&mut app, DesktopUiEvent::SetTheme(ThemeMode::Dark));

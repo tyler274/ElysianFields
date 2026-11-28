@@ -142,6 +142,8 @@ pub struct DesktopLaunchConfig {
     pub zoom: ZoomLevel,
     pub prefs_mode: PreferenceMode,
     pub cli_overrides: DesktopPrefOverrides,
+    pub search_query: Option<String>,
+    pub streaming_demo: bool,
 }
 
 impl Default for DesktopLaunchConfig {
@@ -154,6 +156,8 @@ impl Default for DesktopLaunchConfig {
             zoom: ZoomLevel::Pct100,
             prefs_mode: PreferenceMode::PersistOsConfig,
             cli_overrides: DesktopPrefOverrides::default(),
+            search_query: None,
+            streaming_demo: false,
         }
     }
 }
@@ -173,6 +177,8 @@ pub enum DesktopConfigError {
     InvalidTheme { value: String },
     #[error("invalid zoom '{value}' (expected 100, 150, or 200)")]
     InvalidZoom { value: String },
+    #[error("invalid search query (must not be empty)")]
+    InvalidSearchQuery,
     #[error("invalid server URL '{url}': {reason}")]
     InvalidServerUrl { url: String, reason: String },
     #[error("cannot combine --demo with --server")]
@@ -196,6 +202,8 @@ impl DesktopLaunchConfig {
            --locale <BCP47>            Initial UI locale (en, he, ar, zh-Hans, ja, vi, hi, es, fr, pt, de, ko)\n\
            --theme <dark|light>        Initial WCAG 2.1 AA theme (default: dark)\n\
            --zoom <100|150|200>        Initial UI text zoom percent (default: 100)\n\
+           --search <QUERY>            Pre-open Patient Roster Search with <QUERY> focused\n\
+           --streaming-demo            Pre-seed progressive synthetic streaming draft and Cancel button\n\
            --headless-smoke            Run deterministic headless UI smoke suite and print JSON\n\
            --screenshot <PATH.PNG>     Capture rendered GPU window PNG after layout settles and exit\n\
            --no-prefs                  Bypass reading and writing OS-native saved preferences\n\
@@ -245,6 +253,8 @@ impl DesktopLaunchConfig {
         let mut screenshot_path: Option<PathBuf> = None;
         let mut prefs_mode = PreferenceMode::PersistOsConfig;
         let mut cli_overrides = DesktopPrefOverrides::default();
+        let mut search_query: Option<String> = None;
+        let mut streaming_demo = false;
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -261,6 +271,21 @@ impl DesktopLaunchConfig {
                 }
                 "--no-prefs" => {
                     prefs_mode = PreferenceMode::Disabled;
+                }
+                "--streaming-demo" => {
+                    streaming_demo = true;
+                }
+                "--search" => {
+                    let val = iter
+                        .next()
+                        .ok_or_else(|| DesktopConfigError::MissingValue {
+                            flag: "--search".to_owned(),
+                        })?;
+                    let trimmed = val.trim();
+                    if trimmed.is_empty() {
+                        return Err(DesktopConfigError::InvalidSearchQuery);
+                    }
+                    search_query = Some(trimmed.to_owned());
                 }
                 "--server" => {
                     let val = iter
@@ -327,9 +352,17 @@ impl DesktopLaunchConfig {
                     screenshot_path = Some(PathBuf::from(val));
                 }
                 other => {
-                    return Err(DesktopConfigError::UnknownFlag {
-                        flag: other.to_owned(),
-                    });
+                    if let Some(val) = other.strip_prefix("--search=") {
+                        let trimmed = val.trim();
+                        if trimmed.is_empty() {
+                            return Err(DesktopConfigError::InvalidSearchQuery);
+                        }
+                        search_query = Some(trimmed.to_owned());
+                    } else {
+                        return Err(DesktopConfigError::UnknownFlag {
+                            flag: other.to_owned(),
+                        });
+                    }
                 }
             }
         }
@@ -374,6 +407,8 @@ impl DesktopLaunchConfig {
             zoom,
             prefs_mode,
             cli_overrides,
+            search_query,
+            streaming_demo,
         })
     }
 }
