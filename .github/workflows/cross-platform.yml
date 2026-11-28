@@ -13,9 +13,11 @@ on:
       - 'scripts/browser_e2e.py'
       - 'scripts/qa_multilingual_gui.py'
       - 'scripts/qa_ux_accessibility.py'
+      - 'scripts/package_desktop.py'
       - 'scripts/run_desktop.sh'
       - 'scripts/verify_postgres_migrations.sh'
       - 'scripts/verify_pgwire_live.sh'
+      - 'assets/desktop/**'
       - 'web/elysianfields/**'
       - 'extension/**'
       - 'deploy/**'
@@ -165,6 +167,29 @@ jobs:
               encoding="utf-8",
           )
           PY
+
+          if [ -x target/release/ef-clinic-desktop ] && [ -x target/release/ef-mobile-desktop ]; then
+            ver="0.1.0-${GITHUB_SHA:0:7}"
+            python3 scripts/package_desktop.py \
+              --platform macos-arm64 \
+              --version "${ver}" \
+              --clinic-bin target/release/ef-clinic-desktop \
+              --mobile-bin target/release/ef-mobile-desktop \
+              --out-dir dist/desktop-macos-arm64
+            python3 scripts/package_desktop.py --verify --out-dir dist/desktop-macos-arm64
+          fi
+
+      - name: Upload macOS packaged desktop bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-bundle-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/desktop-macos-arm64/*.tar.gz
+            dist/desktop-macos-arm64/SHA256SUMS.txt
+            dist/desktop-macos-arm64/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Cross-check iOS Simulator target (aarch64-apple-ios-sim) & Swift shims
         run: |
@@ -467,6 +492,29 @@ jobs:
           )
           PY
 
+          if [ -f target/release/ef-clinic-desktop.exe ] && [ -f target/release/ef-mobile-desktop.exe ]; then
+            ver="0.1.0-${GITHUB_SHA:0:7}"
+            $PY scripts/package_desktop.py \
+              --platform windows-x86_64 \
+              --version "${ver}" \
+              --clinic-bin target/release/ef-clinic-desktop.exe \
+              --mobile-bin target/release/ef-mobile-desktop.exe \
+              --out-dir dist/desktop-windows-x86_64
+            $PY scripts/package_desktop.py --verify --out-dir dist/desktop-windows-x86_64
+          fi
+
+      - name: Upload Windows packaged desktop bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-bundle-windows-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/desktop-windows-x86_64/*.zip
+            dist/desktop-windows-x86_64/SHA256SUMS.txt
+            dist/desktop-windows-x86_64/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Probe pinned ElyMalloc (cce11466) on Windows x86_64 MSVC
         continue-on-error: true
         run: |
@@ -667,6 +715,29 @@ jobs:
           out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
           print(out.read_text(encoding="utf-8"))
           PY
+
+          if [ -x target/release/ef-clinic-desktop ] && [ -x target/release/ef-mobile-desktop ]; then
+            ver="0.1.0-${GITHUB_SHA:0:7}"
+            python3 scripts/package_desktop.py \
+              --platform linux-x86_64 \
+              --version "${ver}" \
+              --clinic-bin target/release/ef-clinic-desktop \
+              --mobile-bin target/release/ef-mobile-desktop \
+              --out-dir dist/desktop-linux-x86_64
+            python3 scripts/package_desktop.py --verify --out-dir dist/desktop-linux-x86_64
+          fi
+
+      - name: Upload Linux packaged desktop bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-bundle-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/desktop-linux-x86_64/*.tar.gz
+            dist/desktop-linux-x86_64/SHA256SUMS.txt
+            dist/desktop-linux-x86_64/manifest.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload Linux desktop qualification evidence
         if: always()

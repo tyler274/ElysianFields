@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Curie Clinic">
+  <title>Curie Clinic</title>
+  <rect x="12" y="12" width="232" height="232" rx="48" fill="#0F4C5C"/>
+  <rect x="24" y="24" width="208" height="208" rx="38" fill="none" stroke="#5EEAD4" stroke-width="6" opacity="0.55"/>
+  <path d="M52 178 C88 152, 168 152, 204 178" fill="none" stroke="#99F6E4" stroke-width="10" stroke-linecap="round"/>
+  <rect x="110" y="56" width="36" height="96" rx="10" fill="#F8FAFC"/>
+  <rect x="80" y="86" width="96" height="36" rx="10" fill="#F8FAFC"/>
+  <circle cx="192" cy="64" r="12" fill="#E11D48"/>
+</svg>
