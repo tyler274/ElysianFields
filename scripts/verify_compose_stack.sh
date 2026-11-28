@@ -114,17 +114,23 @@ while [ "$#" -gt 0 ]; do
 done
 
 compose_files=(-f deploy/docker-compose.yml)
+override_file=$(mktemp "${TMPDIR:-/tmp}/verify-compose-override.XXXXXX.yml")
+cat >"$override_file" <<'EOF'
+services:
+  clinic:
+    environment:
+      EF_CLINIC_SEED_DEMO: "1"
+EOF
 if [ -n "$subnet" ]; then
-  override_file=$(mktemp "${TMPDIR:-/tmp}/verify-compose-subnet.XXXXXX.yml")
-  cat >"$override_file" <<EOF
+  cat >>"$override_file" <<EOF
 networks:
   default:
     ipam:
       config:
         - subnet: ${subnet}
 EOF
-  compose_files+=(-f "$override_file")
 fi
+compose_files+=(-f "$override_file")
 
 compose_cmd=(docker compose -p "$project" "${compose_files[@]}" --profile gateway)
 verify_log=$(mktemp "${TMPDIR:-/tmp}/verify-compose-stack.XXXXXX.log")
@@ -294,6 +300,25 @@ facility_markers = [
 assert min(idx_988, idx_911, idx_samhsa) >= 0 and facility_markers
 assert max(idx_988, idx_911, idx_samhsa) < min(facility_markers)
 
+dei_ca_code, dei_ca_hdrs, dei_ca_body = request("/dei?state=CA&service=crisis")
+assert dei_ca_code == 200, f"GET /dei?state=CA&service=crisis expected 200, got {dei_ca_code}"
+assert_gateway_headers(dei_ca_hdrs, "/dei?state=CA&service=crisis")
+assert_request_id(dei_ca_hdrs, "/dei?state=CA&service=crisis")
+assert "988" in dei_ca_body, "filtered /dei?state=CA&service=crisis missing pinned 988 banner"
+assert (
+    "Bay Area Crisis Stabilization" in dei_ca_body
+    or "Harborview Behavioral Crisis Center" in dei_ca_body
+), "filtered /dei?state=CA&service=crisis missing California crisis facility"
+ca_fac_idx = dei_ca_body.find('id="facilities"')
+assert ca_fac_idx >= 0 and dei_ca_body.find("988") < ca_fac_idx
+
+dei_xss_code, dei_xss_hdrs, dei_xss_body = request("/dei?q=%3Cscript%3Ealert(1)%3C/script%3E")
+assert dei_xss_code == 200, f"GET /dei?q=<script> expected 200, got {dei_xss_code}"
+assert_gateway_headers(dei_xss_hdrs, "/dei?q=<script>")
+assert_request_id(dei_xss_hdrs, "/dei?q=<script>")
+assert "&lt;script&gt;" in dei_xss_body, "GET /dei?q=<script> did not HTML-escape <script>"
+assert "<script>alert(1)" not in dei_xss_body, "raw <script>alert(1) leaked into /dei HTML"
+
 graf_code, graf_hdrs, _ = request("/grafana/")
 assert graf_code == 404, f"GET /grafana/ expected 404, got {graf_code}"
 assert_request_id(graf_hdrs, "/grafana/")
@@ -372,6 +397,41 @@ unauth_prompt_code, _, _ = request(
 )
 assert unauth_prompt_code == 401, f"unauthenticated chat command expected 401, got {unauth_prompt_code}"
 
+# 4b. Clinic Today workflow endpoint: 401 unauthenticated, 200 with items + scheduled_visits when authenticated.
+unauth_today_code, unauth_today_hdrs, _ = request("/elysianfields/api/today")
+assert unauth_today_code == 401, f"unauthenticated GET /elysianfields/api/today expected 401, got {unauth_today_code}"
+assert_request_id(unauth_today_hdrs, "/elysianfields/api/today (unauth)")
+
+demo_email = "demo@clinic.example"
+demo_link_code, _, demo_link_body = request(
+    "/elysianfields/api/auth/request-link",
+    method="POST",
+    body={"email": demo_email},
+)
+assert demo_link_code == 200, f"demo request-link expected 200, got {demo_link_code}: {demo_link_body}"
+demo_token = json.loads(demo_link_body).get("token") or "tok-1"
+demo_verify_code, _, demo_verify_body = request(
+    "/elysianfields/api/auth/verify",
+    method="POST",
+    body={"email": demo_email, "token": demo_token},
+)
+assert demo_verify_code == 200, f"demo verify expected 200, got {demo_verify_code}: {demo_verify_body}"
+clinic_session = json.loads(demo_verify_body)["session"]
+
+auth_today_code, auth_today_hdrs, auth_today_body = request(
+    "/elysianfields/api/today",
+    headers={"Authorization": f"Bearer {clinic_session}"},
+)
+assert auth_today_code == 200, f"authenticated GET /elysianfields/api/today expected 200, got {auth_today_code}: {auth_today_body}"
+assert_request_id(auth_today_hdrs, "/elysianfields/api/today")
+today_json = json.loads(auth_today_body)
+assert isinstance(today_json.get("items"), list) and len(today_json["items"]) >= 1, (
+    f"authenticated /elysianfields/api/today missing items: {today_json}"
+)
+assert isinstance(today_json.get("scheduled_visits"), list) and len(today_json["scheduled_visits"]) >= 1, (
+    f"authenticated /elysianfields/api/today missing scheduled_visits: {today_json}"
+)
+
 clinic_metrics_code, clinic_metrics_hdrs, clinic_metrics_body = request("/elysianfields/api/metrics")
 assert clinic_metrics_code == 200, f"GET /elysianfields/api/metrics expected 200, got {clinic_metrics_code}"
 assert_request_id(clinic_metrics_hdrs, "/elysianfields/api/metrics")
@@ -379,6 +439,7 @@ assert extract_gauge(clinic_metrics_body, "ef_clinic_db_ready") == 1
 wal_seq_before_restart = extract_gauge(clinic_metrics_body, "ef_clinic_wal_seq")
 assert wal_seq_before_restart >= 1, f"expected ef_clinic_wal_seq >= 1 after auth write, got {wal_seq_before_restart}"
 assert probe_email not in clinic_metrics_body, "PHI/email leaked into clinic /metrics!"
+assert demo_email not in clinic_metrics_body, "demo email leaked into clinic /metrics!"
 assert probe_email not in mobile_metrics_body, "PHI/email leaked into mobile /metrics!"
 
 # Verify durable row directly in PostgreSQL 18 `ef_clinic` database.
@@ -449,6 +510,8 @@ report = {
     "checks": {
         "public_root_status": pub_code,
         "public_dei_crisis_first": True,
+        "public_dei_ca_crisis_status": dei_ca_code,
+        "public_dei_xss_escaped": True,
         "public_grafana_404": graf_code == 404,
         "gateway_security_headers": True,
         "clinic_shell_status": clinic_shell_code,
@@ -456,6 +519,10 @@ report = {
         "clinic_metrics_db_ready": 1,
         "clinic_auth_request_link_status": auth_code,
         "clinic_unauth_prompt_status": unauth_prompt_code,
+        "clinic_today_unauth_status": unauth_today_code,
+        "clinic_today_auth_status": auth_today_code,
+        "clinic_today_items_count": len(today_json["items"]),
+        "clinic_today_scheduled_visits_count": len(today_json["scheduled_visits"]),
         "clinic_pg18_wal_rows": pg_wal_rows,
         "clinic_wal_seq_before_restart": wal_seq_before_restart,
         "clinic_wal_seq_after_restart": wal_seq_after_restart,
