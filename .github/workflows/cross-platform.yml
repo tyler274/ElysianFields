@@ -52,8 +52,8 @@ jobs:
       - name: Cache macOS Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-macos-arm64
-          shared-key: cross-macos-arm64
+          key: cross-macos-arm64-v2
+          shared-key: cross-macos-arm64-v2
           cache-on-failure: true
 
       - name: Run full workspace tests on macOS ARM64
@@ -350,8 +350,8 @@ jobs:
       - name: Cache Windows Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-windows-msvc
-          shared-key: cross-windows-msvc
+          key: cross-windows-msvc-v2
+          shared-key: cross-windows-msvc-v2
           cache-on-failure: true
 
       - name: Run full workspace tests on Windows x86_64 MSVC
@@ -594,8 +594,8 @@ jobs:
       - name: Cache Linux desktop Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-desktop-linux
-          shared-key: native
+          key: cross-desktop-linux-v2
+          shared-key: cross-desktop-linux-v2
           cache-on-failure: true
 
       - name: Build & headless-smoke native Bevy desktop release apps (Linux x86_64)
@@ -716,8 +716,8 @@ jobs:
         if: hashFiles('scripts/verify_pgwire_live.sh') != ''
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-pg18-linux
-          shared-key: native
+          key: cross-pg18-linux-v2
+          shared-key: cross-pg18-linux-v2
           cache-on-failure: true
 
       - name: Verify PostgreSQL 18 migrations and constraints
@@ -928,8 +928,8 @@ jobs:
       - name: Cache Linux Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-browsers-linux
-          shared-key: native
+          key: cross-browsers-linux-v2
+          shared-key: cross-browsers-linux-v2
           cache-on-failure: true
 
       - name: Build server binaries and release Wasm module for browser E2E
@@ -1463,8 +1463,8 @@ jobs:
       - name: Cache Android Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: cross-android-arm64
-          shared-key: cross-android-arm64
+          key: cross-android-arm64-v2
+          shared-key: cross-android-arm64-v2
           cache-on-failure: true
 
       - name: Cross-check Android mobile crates (aarch64-linux-android)

@@ -105,8 +105,8 @@ jobs:
       - name: Cache native Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: native
-          shared-key: native
+          key: native-v2
+          shared-key: native-v2
           cache-on-failure: true
       - name: Check formatting and host Clippy lints
         env:
@@ -234,8 +234,8 @@ jobs:
       - name: Cache wasm32 Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          key: wasm32-v2
-          shared-key: wasm32-v2
+          key: wasm32-v3
+          shared-key: wasm32-v3
           cache-on-failure: true
       - name: Select Wasm-targeted workspace crates
         id: wasm-crates
