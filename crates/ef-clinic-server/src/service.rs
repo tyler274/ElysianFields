@@ -3,8 +3,12 @@
 //! Cross-compiles cleanly on both native hosts and `wasm32-unknown-unknown`.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::fmt::Write as _;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use ef_clinic_domain::auth::{
     AuthAuthority, AuthError, EmailAddress, PhysicianAccount, SignInMode, VerificationTokenKind,
@@ -120,6 +124,124 @@ struct ClientChatSnapshotWire {
     archived: bool,
 }
 
+/// Zero-PHI atomic Prometheus counters/gauges for [`ClinicService`].
+#[derive(Debug)]
+struct ClinicMetrics {
+    requests_2xx: AtomicU64,
+    requests_3xx: AtomicU64,
+    requests_4xx: AtomicU64,
+    requests_5xx: AtomicU64,
+    sse_streams_total: AtomicU64,
+    initial_clock_secs: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    started_at: Instant,
+}
+
+impl ClinicMetrics {
+    fn new(initial_clock_secs: u64) -> Self {
+        Self {
+            requests_2xx: AtomicU64::new(0),
+            requests_3xx: AtomicU64::new(0),
+            requests_4xx: AtomicU64::new(0),
+            requests_5xx: AtomicU64::new(0),
+            sse_streams_total: AtomicU64::new(0),
+            initial_clock_secs,
+            #[cfg(not(target_arch = "wasm32"))]
+            started_at: Instant::now(),
+        }
+    }
+
+    fn record_status(&self, status: u16) {
+        match status {
+            200..=299 => {
+                self.requests_2xx.fetch_add(1, Ordering::Relaxed);
+            }
+            300..=399 => {
+                self.requests_3xx.fetch_add(1, Ordering::Relaxed);
+            }
+            400..=499 => {
+                self.requests_4xx.fetch_add(1, Ordering::Relaxed);
+            }
+            500..=599 => {
+                self.requests_5xx.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    fn record_sse_stream(&self) {
+        self.sse_streams_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn uptime_seconds(&self, current_clock_secs: u64) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (current_clock_secs, self.initial_clock_secs);
+            self.started_at.elapsed().as_secs()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            current_clock_secs.saturating_sub(self.initial_clock_secs)
+        }
+    }
+
+    fn render_prometheus(&self, wal_seq: u64, uptime_secs: u64, db_ready: bool) -> String {
+        let r2 = self.requests_2xx.load(Ordering::Relaxed);
+        let r3 = self.requests_3xx.load(Ordering::Relaxed);
+        let r4 = self.requests_4xx.load(Ordering::Relaxed);
+        let r5 = self.requests_5xx.load(Ordering::Relaxed);
+        let sse = self.sse_streams_total.load(Ordering::Relaxed);
+        let ready_val = u8::from(db_ready);
+        let mut out = String::with_capacity(640);
+        let _ = writeln!(
+            out,
+            "# HELP ef_clinic_http_requests_total Total HTTP requests handled by ef-clinic-server by status class."
+        );
+        let _ = writeln!(out, "# TYPE ef_clinic_http_requests_total counter");
+        let _ = writeln!(
+            out,
+            "ef_clinic_http_requests_total{{status_class=\"2xx\"}} {r2}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_clinic_http_requests_total{{status_class=\"3xx\"}} {r3}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_clinic_http_requests_total{{status_class=\"4xx\"}} {r4}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_clinic_http_requests_total{{status_class=\"5xx\"}} {r5}"
+        );
+        let _ = writeln!(
+            out,
+            "# HELP ef_clinic_sse_streams_total Total SSE streams served by ef-clinic-server."
+        );
+        let _ = writeln!(out, "# TYPE ef_clinic_sse_streams_total counter");
+        let _ = writeln!(out, "ef_clinic_sse_streams_total {sse}");
+        let _ = writeln!(
+            out,
+            "# HELP ef_clinic_wal_seq Highest durable WAL sequence number observed by ef-clinic-server."
+        );
+        let _ = writeln!(out, "# TYPE ef_clinic_wal_seq gauge");
+        let _ = writeln!(out, "ef_clinic_wal_seq {wal_seq}");
+        let _ = writeln!(
+            out,
+            "# HELP ef_clinic_uptime_seconds Seconds elapsed since ef-clinic-server started."
+        );
+        let _ = writeln!(out, "# TYPE ef_clinic_uptime_seconds gauge");
+        let _ = writeln!(out, "ef_clinic_uptime_seconds {uptime_secs}");
+        let _ = writeln!(
+            out,
+            "# HELP ef_clinic_db_ready Backing store liveness indicator (1 = ready, 0 = unavailable)."
+        );
+        let _ = writeln!(out, "# TYPE ef_clinic_db_ready gauge");
+        let _ = writeln!(out, "ef_clinic_db_ready {ready_val}");
+        out
+    }
+}
+
 /// Authoritative headless Curie Clinic vertical-slice service.
 pub struct ClinicService {
     auth: AuthAuthority,
@@ -145,6 +267,7 @@ pub struct ClinicService {
     pub(crate) connected_care: ConnectedCareBridge,
     pub(crate) invitation_pairs: BTreeMap<InvitationId, PairKey>,
     pub(crate) intelligence: crate::intelligence::ClinicIntelligenceState,
+    metrics: ClinicMetrics,
 }
 
 impl ClinicService {
@@ -179,6 +302,7 @@ impl ClinicService {
             connected_care: ConnectedCareBridge::new(),
             invitation_pairs: BTreeMap::new(),
             intelligence: crate::intelligence::ClinicIntelligenceState::default(),
+            metrics: ClinicMetrics::new(initial_clock_secs),
         }
     }
 
@@ -415,12 +539,32 @@ impl ClinicService {
     /// Routes and executes a single HTTP/1.1 request attributed to `client_ip` with
     /// per-IP sliding-window ingress rate limiting and cross-instance WAL synchronization.
     pub fn handle_request_from_ip(&mut self, req: &HttpRequest, client_ip: &str) -> HttpResponse {
-        // Live DB liveness probe bypasses WAL replay so a broken DB immediately reports 503.
         let (pathname, _) = req.split_target();
-        if pathname == "/elysianfields/api/health" {
-            return self.route_health(req);
-        }
+        let is_sse_route = pathname.ends_with("/stream")
+            || pathname == "/elysianfields/api/patient-workspaces/events";
 
+        let resp = if pathname == "/elysianfields/api/health" {
+            // Live DB liveness probe bypasses WAL replay so a broken DB immediately reports 503.
+            self.route_health(req)
+        } else if pathname == "/elysianfields/api/metrics" {
+            // Zero-PHI Prometheus scrape bypasses WAL replay so observability stays up during DB faults.
+            self.route_metrics(req)
+        } else {
+            self.handle_locked_request_from_ip(req, client_ip)
+        };
+
+        self.metrics.record_status(resp.status);
+        if is_sse_route && resp.status == 200 {
+            self.metrics.record_sse_stream();
+        }
+        resp
+    }
+
+    fn handle_locked_request_from_ip(
+        &mut self,
+        req: &HttpRequest,
+        client_ip: &str,
+    ) -> HttpResponse {
         let _lock = match self.wal.acquire_cross_instance_lock() {
             Ok(guard) => guard,
             Err(err) => return wal_failure_response(&err),
@@ -437,6 +581,20 @@ impl ClinicService {
             let _ = self.wal.release_pg_advisory_lock();
         }
         resp
+    }
+
+    fn route_metrics(&mut self, req: &HttpRequest) -> HttpResponse {
+        if !matches!(req.method, HttpMethod::Get | HttpMethod::Head) {
+            return HttpResponse::method_not_allowed();
+        }
+        let db_ready = self.wal.check_health().is_ok();
+        let wal_seq = self.wal.wal_seq();
+        let uptime_secs = self.metrics.uptime_seconds(self.clock_secs);
+        HttpResponse::prometheus_metrics(self.metrics.render_prometheus(
+            wal_seq,
+            uptime_secs,
+            db_ready,
+        ))
     }
 
     fn route_health(&mut self, req: &HttpRequest) -> HttpResponse {

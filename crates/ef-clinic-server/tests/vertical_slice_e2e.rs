@@ -991,3 +991,179 @@ fn deactivated_account_and_sse_last_event_id_filtering_over_tcp() {
     server.shutdown();
     let _ = fs::remove_dir_all(&wal_dir);
 }
+
+fn prometheus_metric_value(body: &str, metric_line_prefix: &str) -> u64 {
+    body.lines()
+        .find_map(|line| {
+            line.strip_prefix(metric_line_prefix)
+                .and_then(|rest| rest.trim().parse::<u64>().ok())
+        })
+        .unwrap_or_else(|| panic!("missing Prometheus metric `{metric_line_prefix}` in:\n{body}"))
+}
+
+#[test]
+fn clinic_prometheus_metrics_increment_counters_and_emit_zero_phi() {
+    let default_src = SourceKey::new("src-note-1").expect("src-note-1");
+    let practice_a = PracticeId::new("practice-metrics").expect("practice");
+    let doc_a = PhysicianId::new("phys-metrics-1").expect("phys");
+    let ws_a1 = WorkspaceId::new("ws-metrics-1").expect("ws");
+
+    let mut svc = ClinicService::new_in_memory(
+        SignInMode::LocalProof,
+        RetryBackoffMode::DeterministicTest,
+        default_src.clone(),
+        1_760_100_000,
+    );
+    svc.seed_account(PhysicianAccount {
+        physician_id: doc_a.clone(),
+        practice_id: practice_a.clone(),
+        email: EmailAddress::parse("phi.metrics.doc@example.invalid").expect("email"),
+        display_name: "Dr. Metrics".to_owned(),
+        role: PhysicianRole::Standard,
+        standing: AccountStanding::Active,
+        sessions_ended_before: None,
+    })
+    .expect("seed account");
+    svc.seed_workspace(
+        ws_a1.clone(),
+        practice_a,
+        "Jane Synthetic Patient DOB 1984-07-19",
+        vec![doc_a],
+    )
+    .expect("seed workspace");
+    svc.seed_source(synthetic_progress_note(ws_a1, default_src))
+        .expect("seed citation");
+
+    let server = TcpClinicServer::bind("127.0.0.1:0", svc).expect("bind clinic server");
+    let addr = server.local_addr();
+
+    // Generate 4xx (unauthenticated), 2xx (auth + submit + SSE stream), and WAL entries with synthetic PHI.
+    let unauth = send_tcp_request(addr, "GET", "/elysianfields/api/patients", &[], "");
+    assert_eq!(unauth.status, 401);
+
+    let link = send_tcp_request(
+        addr,
+        "POST",
+        "/elysianfields/api/auth/sign-in",
+        &[],
+        r#"{"email":"phi.metrics.doc@example.invalid"}"#,
+    );
+    assert_eq!(link.status, 200);
+    let proof_tok = link.json()["token"].as_str().expect("token").to_owned();
+
+    let verify = send_tcp_request(
+        addr,
+        "POST",
+        "/elysianfields/api/auth/verify",
+        &[],
+        &format!(r#"{{"email":"phi.metrics.doc@example.invalid","token":"{proof_tok}"}}"#),
+    );
+    assert_eq!(verify.status, 200);
+    let sess = verify.json()["session"]
+        .as_str()
+        .expect("session")
+        .to_owned();
+    let auth_header = format!("Bearer {sess}");
+    let auth_headers = [("Authorization", auth_header.as_str())];
+
+    let submit = send_tcp_request(
+        addr,
+        "POST",
+        "/elysianfields/api/workspaces/ws-metrics-1/chats/chat-metrics/commands",
+        &auth_headers,
+        r#"{
+            "type": "message.submit",
+            "idempotency_key": "idem-metrics-1",
+            "payload": {
+                "patient_workspace_id": "ws-metrics-1",
+                "chat_id": "chat-metrics",
+                "text": "Review Jane Synthetic Patient DOB 1984-07-19 labs."
+            }
+        }"#,
+    );
+    assert_eq!(submit.status, 200);
+
+    let sse = send_tcp_request(
+        addr,
+        "GET",
+        "/elysianfields/api/workspaces/ws-metrics-1/chats/chat-metrics/stream",
+        &auth_headers,
+        "",
+    );
+    assert_eq!(sse.status, 200);
+
+    let metrics_1 = send_tcp_request(addr, "GET", "/elysianfields/api/metrics", &[], "");
+    assert_eq!(metrics_1.status, 200);
+    assert_eq!(
+        metrics_1.header("content-type"),
+        Some("text/plain; version=0.0.4; charset=utf-8")
+    );
+    assert!(
+        metrics_1
+            .header("cache-control")
+            .unwrap_or_default()
+            .contains("no-store")
+    );
+    assert!(
+        metrics_1
+            .body
+            .contains("# TYPE ef_clinic_http_requests_total counter")
+    );
+    assert!(
+        metrics_1
+            .body
+            .contains("# TYPE ef_clinic_sse_streams_total counter")
+    );
+    assert!(metrics_1.body.contains("# TYPE ef_clinic_wal_seq gauge"));
+    assert!(
+        metrics_1
+            .body
+            .contains("# TYPE ef_clinic_uptime_seconds gauge")
+    );
+    assert!(metrics_1.body.contains("# TYPE ef_clinic_db_ready gauge"));
+
+    let c2xx_1 = prometheus_metric_value(
+        &metrics_1.body,
+        "ef_clinic_http_requests_total{status_class=\"2xx\"} ",
+    );
+    let c4xx_1 = prometheus_metric_value(
+        &metrics_1.body,
+        "ef_clinic_http_requests_total{status_class=\"4xx\"} ",
+    );
+    let sse_total = prometheus_metric_value(&metrics_1.body, "ef_clinic_sse_streams_total ");
+    let wal_seq = prometheus_metric_value(&metrics_1.body, "ef_clinic_wal_seq ");
+    let db_ready = prometheus_metric_value(&metrics_1.body, "ef_clinic_db_ready ");
+    let _uptime = prometheus_metric_value(&metrics_1.body, "ef_clinic_uptime_seconds ");
+
+    assert!(c2xx_1 >= 4, "expected >= 4 2xx requests, got {c2xx_1}");
+    assert!(c4xx_1 >= 1, "expected >= 1 4xx request, got {c4xx_1}");
+    assert_eq!(sse_total, 1);
+    assert!(wal_seq >= 4, "expected >= 4 WAL entries, got {wal_seq}");
+    assert_eq!(db_ready, 1);
+
+    // Second scrape proves request counter increments monotonically.
+    let metrics_2 = send_tcp_request(addr, "GET", "/elysianfields/api/metrics", &[], "");
+    assert_eq!(metrics_2.status, 200);
+    let c2xx_2 = prometheus_metric_value(
+        &metrics_2.body,
+        "ef_clinic_http_requests_total{status_class=\"2xx\"} ",
+    );
+    assert!(c2xx_2 > c2xx_1);
+
+    // Strictly ZERO PHI/PII or credential leakage in Prometheus output.
+    for forbidden in [
+        "phi.metrics.doc@example.invalid",
+        "Jane Synthetic Patient",
+        "1984-07-19",
+        "ws-metrics-1",
+        proof_tok.as_str(),
+        sess.as_str(),
+    ] {
+        assert!(
+            !metrics_1.body.contains(forbidden) && !metrics_2.body.contains(forbidden),
+            "Prometheus output leaked forbidden string `{forbidden}`"
+        );
+    }
+
+    server.shutdown();
+}

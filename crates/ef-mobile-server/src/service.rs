@@ -6,8 +6,12 @@
 //! create-only [`PrivacyReceiptJournal`].
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use ef_connected_care::{
     AccountIncarnation as BridgeAccountIncarnation, BridgeError, ConnectedCareBridge, ConnectionId,
@@ -100,6 +104,101 @@ struct ConnectedCareDisconnectBody {
     connection_id: ConnectionId,
 }
 
+/// Zero-PHI atomic Prometheus counters/gauges for [`MobileService`].
+#[derive(Debug)]
+struct MobileMetrics {
+    requests_2xx: AtomicU64,
+    requests_4xx: AtomicU64,
+    requests_5xx: AtomicU64,
+    initial_clock_secs: u64,
+    #[cfg(not(target_arch = "wasm32"))]
+    started_at: Instant,
+}
+
+impl MobileMetrics {
+    fn new(initial_clock_secs: u64) -> Self {
+        Self {
+            requests_2xx: AtomicU64::new(0),
+            requests_4xx: AtomicU64::new(0),
+            requests_5xx: AtomicU64::new(0),
+            initial_clock_secs,
+            #[cfg(not(target_arch = "wasm32"))]
+            started_at: Instant::now(),
+        }
+    }
+
+    fn record_status(&self, status: u16) {
+        match status {
+            200..=299 => {
+                self.requests_2xx.fetch_add(1, Ordering::Relaxed);
+            }
+            400..=499 => {
+                self.requests_4xx.fetch_add(1, Ordering::Relaxed);
+            }
+            500..=599 => {
+                self.requests_5xx.fetch_add(1, Ordering::Relaxed);
+            }
+            _ => {}
+        }
+    }
+
+    fn uptime_seconds(&self, current_clock_secs: u64) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = (current_clock_secs, self.initial_clock_secs);
+            self.started_at.elapsed().as_secs()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            current_clock_secs.saturating_sub(self.initial_clock_secs)
+        }
+    }
+
+    fn render_prometheus(&self, wal_seq: u64, uptime_secs: u64, db_ready: bool) -> String {
+        let r2 = self.requests_2xx.load(Ordering::Relaxed);
+        let r4 = self.requests_4xx.load(Ordering::Relaxed);
+        let r5 = self.requests_5xx.load(Ordering::Relaxed);
+        let ready_val = u8::from(db_ready);
+        let mut out = String::with_capacity(512);
+        let _ = writeln!(
+            out,
+            "# HELP ef_mobile_http_requests_total Total HTTP requests handled by ef-mobile-server by status class."
+        );
+        let _ = writeln!(out, "# TYPE ef_mobile_http_requests_total counter");
+        let _ = writeln!(
+            out,
+            "ef_mobile_http_requests_total{{status_class=\"2xx\"}} {r2}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_mobile_http_requests_total{{status_class=\"4xx\"}} {r4}"
+        );
+        let _ = writeln!(
+            out,
+            "ef_mobile_http_requests_total{{status_class=\"5xx\"}} {r5}"
+        );
+        let _ = writeln!(
+            out,
+            "# HELP ef_mobile_wal_seq Highest durable WAL sequence number observed by ef-mobile-server."
+        );
+        let _ = writeln!(out, "# TYPE ef_mobile_wal_seq gauge");
+        let _ = writeln!(out, "ef_mobile_wal_seq {wal_seq}");
+        let _ = writeln!(
+            out,
+            "# HELP ef_mobile_uptime_seconds Seconds elapsed since ef-mobile-server started."
+        );
+        let _ = writeln!(out, "# TYPE ef_mobile_uptime_seconds gauge");
+        let _ = writeln!(out, "ef_mobile_uptime_seconds {uptime_secs}");
+        let _ = writeln!(
+            out,
+            "# HELP ef_mobile_db_ready Backing store liveness indicator (1 = ready, 0 = unavailable)."
+        );
+        let _ = writeln!(out, "# TYPE ef_mobile_db_ready gauge");
+        let _ = writeln!(out, "ef_mobile_db_ready {ready_val}");
+        out
+    }
+}
+
 /// Authoritative headless Curie Mobile service strictly isolated from Curie Clinic.
 pub struct MobileService {
     pub auth: MobileAuthAuthority,
@@ -114,6 +213,7 @@ pub struct MobileService {
     clock_secs: u64,
     wal: Box<dyn MobileWalSink>,
     journal: Box<dyn PrivacyReceiptJournal>,
+    metrics: MobileMetrics,
 }
 
 impl MobileService {
@@ -138,25 +238,18 @@ impl MobileService {
             clock_secs: initial_clock_secs,
             wal,
             journal,
+            metrics: MobileMetrics::new(initial_clock_secs),
         }
     }
 
     #[must_use]
     pub fn new_in_memory(initial_clock_secs: u64) -> Self {
-        Self {
-            auth: MobileAuthAuthority::new(),
-            records: PatientRecordStore::new(),
-            health: MobileHealthIngestStore::new(),
-            push_tokens: PushTokenRegistry::new(),
-            doctor_workspaces: BTreeMap::new(),
-            bridge_staging: PracticeSendReceiver::new(),
-            connected_care: ConnectedCareBridge::new(),
-            migration_version: EXPECTED_MIGRATION_VERSION,
-            restore_replay_verified: true,
-            clock_secs: initial_clock_secs,
-            wal: Box::new(InMemoryMobileWal::new()),
-            journal: Box::new(InMemoryReceiptJournal::new()),
-        }
+        Self::new_with_wal(
+            Box::new(InMemoryMobileWal::new()),
+            Box::new(InMemoryReceiptJournal::new()),
+            initial_clock_secs,
+            false,
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -167,20 +260,12 @@ impl MobileService {
         require_restore_replay: bool,
     ) -> Result<Self, MobileServiceError> {
         let (store, entries) = DurableMobileStore::open(data_dir)?;
-        let mut svc = Self {
-            auth: MobileAuthAuthority::new(),
-            records: PatientRecordStore::new(),
-            health: MobileHealthIngestStore::new(),
-            push_tokens: PushTokenRegistry::new(),
-            doctor_workspaces: BTreeMap::new(),
-            bridge_staging: PracticeSendReceiver::new(),
-            connected_care: ConnectedCareBridge::new(),
-            migration_version: EXPECTED_MIGRATION_VERSION,
-            restore_replay_verified: !require_restore_replay,
-            clock_secs: initial_clock_secs,
-            wal: Box::new(store),
+        let mut svc = Self::new_with_wal(
+            Box::new(store),
             journal,
-        };
+            initial_clock_secs,
+            require_restore_replay,
+        );
         for entry in entries {
             svc.replay_wal_entry(entry);
         }
@@ -197,20 +282,12 @@ impl MobileService {
         require_restore_replay: bool,
     ) -> Result<Self, MobileServiceError> {
         let (store, entries) = PgMobileStore::open(config)?;
-        let mut svc = Self {
-            auth: MobileAuthAuthority::new(),
-            records: PatientRecordStore::new(),
-            health: MobileHealthIngestStore::new(),
-            push_tokens: PushTokenRegistry::new(),
-            doctor_workspaces: BTreeMap::new(),
-            bridge_staging: PracticeSendReceiver::new(),
-            connected_care: ConnectedCareBridge::new(),
-            migration_version: EXPECTED_MIGRATION_VERSION,
-            restore_replay_verified: !require_restore_replay,
-            clock_secs: initial_clock_secs,
-            wal: Box::new(store),
+        let mut svc = Self::new_with_wal(
+            Box::new(store),
             journal,
-        };
+            initial_clock_secs,
+            require_restore_replay,
+        );
         for entry in entries {
             svc.replay_wal_entry(entry);
         }
@@ -286,6 +363,12 @@ impl MobileService {
 
     /// Routes an HTTP/1.1 request strictly under `/elysianfields/mobile-api/...`.
     pub fn handle_request(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        let resp = self.dispatch_request(req);
+        self.metrics.record_status(resp.status);
+        resp
+    }
+
+    fn dispatch_request(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
         let (pathname, query) = req.split_target();
         if !Subpath::is_within_mount(pathname) {
             return MobileHttpResponse::not_found();
@@ -297,6 +380,9 @@ impl MobileService {
 
         if segments.as_slice() == ["readyz"] {
             return self.handle_readyz(req);
+        }
+        if segments.as_slice() == ["metrics"] {
+            return self.handle_metrics(req);
         }
 
         if !self.restore_replay_verified || self.migration_version != EXPECTED_MIGRATION_VERSION {
@@ -341,6 +427,20 @@ impl MobileService {
             }
             _ => MobileHttpResponse::not_found(),
         }
+    }
+
+    fn handle_metrics(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {
+        if req.method != MobileHttpMethod::Get {
+            return MobileHttpResponse::method_not_allowed();
+        }
+        let db_ready = self.wal.check_health().is_ok();
+        let wal_seq = self.wal.wal_seq();
+        let uptime_secs = self.metrics.uptime_seconds(self.clock_secs);
+        MobileHttpResponse::prometheus_metrics(self.metrics.render_prometheus(
+            wal_seq,
+            uptime_secs,
+            db_ready,
+        ))
     }
 
     fn handle_readyz(&mut self, req: &MobileHttpRequest) -> MobileHttpResponse {

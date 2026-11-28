@@ -77,6 +77,11 @@ pub trait MobileWalSink: Send {
     fn check_health(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    /// Returns the highest durable WAL sequence number observed by this sink.
+    fn wal_seq(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Debug, Default)]
@@ -98,6 +103,10 @@ impl MobileWalSink for InMemoryMobileWal {
         self.entries.push(entry.clone());
         Ok(())
     }
+
+    fn wal_seq(&self) -> u64 {
+        self.entries.len() as u64
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -105,6 +114,7 @@ impl MobileWalSink for InMemoryMobileWal {
 pub struct DurableMobileStore {
     wal_path: PathBuf,
     file: File,
+    entries_count: u64,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -133,7 +143,15 @@ impl DurableMobileStore {
             .create(true)
             .append(true)
             .open(&wal_path)?;
-        Ok((Self { wal_path, file }, entries))
+        let entries_count = entries.len() as u64;
+        Ok((
+            Self {
+                wal_path,
+                file,
+                entries_count,
+            },
+            entries,
+        ))
     }
 
     #[must_use]
@@ -151,7 +169,12 @@ impl MobileWalSink for DurableMobileStore {
         self.file.write_all(line.as_bytes())?;
         self.file.flush()?;
         self.file.sync_all()?;
+        self.entries_count = self.entries_count.saturating_add(1);
         Ok(())
+    }
+
+    fn wal_seq(&self) -> u64 {
+        self.entries_count
     }
 }
 
@@ -246,5 +269,9 @@ impl MobileWalSink for PgMobileStore {
 
     fn check_health(&mut self) -> Result<(), String> {
         self.client.ping().map_err(|err| err.to_string())
+    }
+
+    fn wal_seq(&self) -> u64 {
+        u64::try_from(self.last_synced_seq).unwrap_or(0)
     }
 }

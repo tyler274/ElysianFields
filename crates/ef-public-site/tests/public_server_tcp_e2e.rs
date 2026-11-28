@@ -184,3 +184,90 @@ fn public_server_enforces_per_ip_429_rate_limit_over_tcp() {
 
     server.shutdown();
 }
+
+fn public_prometheus_value(body: &str, prefix: &str) -> u64 {
+    body.lines()
+        .find_map(|line| {
+            line.strip_prefix(prefix)
+                .and_then(|rest| rest.trim().parse::<u64>().ok())
+        })
+        .unwrap_or_else(|| panic!("missing Prometheus metric `{prefix}` in:\n{body}"))
+}
+
+#[test]
+fn public_prometheus_metrics_increment_counters_and_emit_zero_phi() {
+    let router = PublicSiteRouter::new(DeploymentMode::Production);
+    let server = TcpPublicSiteServer::bind("127.0.0.1:0", router).expect("bind public site");
+    let addr = server.local_addr();
+
+    assert_eq!(tcp_request(addr, "GET", "/", "").status, 200);
+    assert_eq!(tcp_request(addr, "GET", "/does-not-exist", "").status, 404);
+    let demo = tcp_request(
+        addr,
+        "POST",
+        "/demo/turn",
+        r#"{"visitor_id":"visitor.phi@example.invalid","prompt":"Patient DOB 1979-11-05 token_secret_99"}"#,
+    );
+    assert_eq!(demo.status, 200);
+
+    let metrics_1 = tcp_request(addr, "GET", "/metrics", "");
+    assert_eq!(metrics_1.status, 200);
+    assert_eq!(
+        metrics_1.header("content-type"),
+        Some("text/plain; version=0.0.4; charset=utf-8")
+    );
+    assert!(
+        metrics_1
+            .header("cache-control")
+            .unwrap_or_default()
+            .contains("no-store")
+    );
+    assert!(
+        metrics_1
+            .body
+            .contains("# TYPE ef_public_http_requests_total counter")
+    );
+    assert!(
+        metrics_1
+            .body
+            .contains("# TYPE ef_public_uptime_seconds gauge")
+    );
+
+    let c2xx_1 = public_prometheus_value(
+        &metrics_1.body,
+        "ef_public_http_requests_total{status_class=\"2xx\"} ",
+    );
+    let c4xx_1 = public_prometheus_value(
+        &metrics_1.body,
+        "ef_public_http_requests_total{status_class=\"4xx\"} ",
+    );
+    let _c5xx_1 = public_prometheus_value(
+        &metrics_1.body,
+        "ef_public_http_requests_total{status_class=\"5xx\"} ",
+    );
+    let _uptime = public_prometheus_value(&metrics_1.body, "ef_public_uptime_seconds ");
+
+    assert!(c2xx_1 >= 2, "expected >= 2 2xx requests, got {c2xx_1}");
+    assert!(c4xx_1 >= 1, "expected >= 1 4xx request, got {c4xx_1}");
+
+    let metrics_2 = tcp_request(addr, "GET", "/metrics", "");
+    assert_eq!(metrics_2.status, 200);
+    let c2xx_2 = public_prometheus_value(
+        &metrics_2.body,
+        "ef_public_http_requests_total{status_class=\"2xx\"} ",
+    );
+    assert!(c2xx_2 > c2xx_1);
+
+    for forbidden in [
+        "visitor.phi@example.invalid",
+        "1979-11-05",
+        "token_secret_99",
+    ] {
+        assert!(
+            !metrics_1.body.contains(forbidden) && !metrics_2.body.contains(forbidden),
+            "Public Prometheus output leaked forbidden string `{forbidden}`"
+        );
+    }
+
+    server.shutdown();
+}

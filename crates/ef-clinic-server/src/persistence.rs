@@ -347,6 +347,11 @@ pub trait WalSink: Send {
     fn check_health(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    /// Returns the highest durable WAL sequence number observed by this sink.
+    fn wal_seq(&self) -> u64 {
+        0
+    }
 }
 
 /// Pure in-memory WAL sink used for cross-platform router unit checks.
@@ -373,6 +378,10 @@ impl WalSink for InMemoryWal {
     fn append(&mut self, entry: &WalEntry) -> Result<(), WalError> {
         self.entries.push(entry.clone());
         Ok(())
+    }
+
+    fn wal_seq(&self) -> u64 {
+        self.entries.len() as u64
     }
 }
 
@@ -531,6 +540,10 @@ impl WalSink for DurableClinicStore {
             }
         }
     }
+
+    fn wal_seq(&self) -> u64 {
+        self.lines_read as u64
+    }
 }
 
 /// PostgreSQL 18 durable WAL store backed by [`ef_pgwire::PgClient`].
@@ -623,5 +636,9 @@ impl WalSink for PgClinicStore {
 
     fn check_health(&mut self) -> Result<(), String> {
         self.client.ping().map_err(|err| err.to_string())
+    }
+
+    fn wal_seq(&self) -> u64 {
+        u64::try_from(self.last_synced_seq).unwrap_or(0)
     }
 }
