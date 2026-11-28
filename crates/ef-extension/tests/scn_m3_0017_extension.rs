@@ -2,12 +2,15 @@
 //! Chrome MV3 extension pairing, memory-only credentials, declared named reads,
 //! billing/price/PII redaction, SHA-256 receipts, and Decision D2 popup size budget.
 
+use std::fs;
 use std::path::PathBuf;
 
 use ef_extension::{
-    ChromeStorageArea, DeclaredReadOperation, ExtensionOutbox, JobValidationError, LeasedReadJob,
-    MV3_POPUP_MAX_BYTES, MemoryOnlySessionStore, OutboxStatus, PairingState, SessionCredentials,
-    SessionError, audit_extension_package, verify_payload_receipt,
+    ChromeStorageArea, DeclaredReadOperation, ExtensionAuditViolation, ExtensionOutbox,
+    JobValidationError, LeasedReadJob, MV3_POPUP_MAX_BYTES, MV3_POPUP_STRICT_UNCOMPRESSED_BYTES,
+    MemoryOnlySessionStore, OutboxStatus, POPUP_REQUIRED_LOCALES, POPUP_RTL_LOCALES, PairingState,
+    SessionCredentials, SessionError, audit_extension_package, audit_popup_parity,
+    verify_payload_receipt,
 };
 use serde_json::json;
 
@@ -205,4 +208,67 @@ fn scn_m3_0017_billing_and_price_redaction_produces_verified_sha256_receipt_in_o
         .mark_delivered("job-201", "lease-aa11")
         .expect("mark delivered");
     assert!(outbox.pending().is_empty());
+}
+
+#[test]
+fn mv3_popup_passes_12_locale_rtl_theme_triage_and_strict_20kib_parity_audit() {
+    let report = audit_popup_parity(&extension_dir())
+        .expect("extension/ popup must pass 12-locale RTL, Light/Dark, triage, and < 20 KiB audit");
+    assert_eq!(report.base.manifest_version, 3);
+    assert_eq!(report.locale_count, POPUP_REQUIRED_LOCALES.len());
+    assert_eq!(report.rtl_locale_count, POPUP_RTL_LOCALES.len());
+    assert!(
+        report.base.popup_total_bytes < MV3_POPUP_STRICT_UNCOMPRESSED_BYTES,
+        "popup size {} B must stay strictly < 20 KiB ({} B)",
+        report.base.popup_total_bytes,
+        MV3_POPUP_STRICT_UNCOMPRESSED_BYTES
+    );
+}
+
+#[test]
+fn mv3_popup_parity_audit_rejects_missing_locale_inline_handler_and_phi_persistence() {
+    let tmp = std::env::temp_dir().join(format!("ef-ext-popup-neg-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).expect("create temp extension dir");
+
+    for file in [
+        "manifest.json",
+        "worker.js",
+        "connector.js",
+        "popup.html",
+        "popup.css",
+        "popup.js",
+    ] {
+        let src = extension_dir().join(file);
+        fs::copy(&src, tmp.join(file)).expect("copy extension fixture");
+    }
+
+    // Corrupt popup.js: remove Hebrew locale & inject forbidden localStorage persistence.
+    let mut js = fs::read_to_string(tmp.join("popup.js")).expect("read popup.js");
+    js = js.replace("he:", "xx:");
+    js.push_str("\n// bad\nlocalStorage.setItem('raw', 'leak');\n");
+    fs::write(tmp.join("popup.js"), js).expect("write bad popup.js");
+
+    let errs = audit_popup_parity(&tmp).expect_err("corrupted popup must fail parity audit");
+    assert!(errs.iter().any(|e| matches!(
+        e,
+        ExtensionAuditViolation::MissingPopupLocale { locale: "he", .. }
+    )));
+    assert!(
+        errs.iter()
+            .any(|e| matches!(e, ExtensionAuditViolation::TriagePrivacyViolation { .. }))
+    );
+
+    // Corrupt popup.html with inline event handler -> caught by base audit.
+    let mut html = fs::read_to_string(tmp.join("popup.html")).expect("read popup.html");
+    html = html.replace("<button ", "<button onclick=\"alert(1)\" ");
+    fs::write(tmp.join("popup.html"), html).expect("write bad popup.html");
+
+    let base_errs = audit_extension_package(&tmp).expect_err("inline handler must fail audit");
+    assert!(base_errs.iter().any(|e| matches!(
+        e,
+        ExtensionAuditViolation::InlineScriptDetected { file } if file == "popup.html"
+    )));
+
+    let _ = fs::remove_dir_all(&tmp);
 }

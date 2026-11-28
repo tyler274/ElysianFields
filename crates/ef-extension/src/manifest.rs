@@ -9,6 +9,17 @@ use thiserror::Error;
 /// Decision D2 hard upper bound (1.0 MiB) on extension popup asset bundle size.
 pub const MV3_POPUP_MAX_BYTES: usize = 1_048_576;
 
+/// Strict semantic popup uncompressed ceiling (20 KiB, < 2% of 1.0 MiB MV3 cap).
+pub const MV3_POPUP_STRICT_UNCOMPRESSED_BYTES: usize = 20_480;
+
+/// All 12 shipped UI locales required in the MV3 extension popup.
+pub const POPUP_REQUIRED_LOCALES: [&str; 12] = [
+    "en", "es", "fr", "pt", "de", "zh-Hans", "ja", "ko", "ar", "he", "vi", "hi",
+];
+
+/// RTL locales that must mirror layout (`dir="rtl"`) in the MV3 extension popup.
+pub const POPUP_RTL_LOCALES: [&str; 2] = ["ar", "he"];
+
 /// Forbidden vendor, host, and chart-part names that must never appear in core extension files.
 const FORBIDDEN_NEUTRALITY_TOKENS: &[&str] = &[
     "epic",
@@ -52,6 +63,19 @@ pub enum ExtensionAuditViolation {
     InlineScriptDetected { file: String },
     #[error("MV3 popup bundle size {actual_bytes} B exceeds 1.0 MiB Decision D2 budget")]
     PopupBudgetExceeded { actual_bytes: usize },
+    #[error("MV3 popup uncompressed size {actual_bytes} B exceeds strict {limit_bytes} B cap")]
+    PopupStrictBudgetExceeded {
+        actual_bytes: usize,
+        limit_bytes: usize,
+    },
+    #[error("popup missing required locale '{locale}' in '{file}'")]
+    MissingPopupLocale { file: String, locale: &'static str },
+    #[error("popup missing RTL or logical CSS support: {detail}")]
+    MissingRtlSupport { detail: &'static str },
+    #[error("popup missing Light/Dark theme token or toggle: {detail}")]
+    MissingThemeSupport { detail: &'static str },
+    #[error("popup quick-capture triage violated zero-PHI / local-hash rule: {detail}")]
+    TriagePrivacyViolation { detail: &'static str },
 }
 
 /// Summary produced when an MV3 extension package passes every security and budget audit.
@@ -60,6 +84,14 @@ pub struct ExtensionAuditReport {
     pub manifest_version: u64,
     pub popup_total_bytes: usize,
     pub audited_files: Vec<String>,
+}
+
+/// Summary produced when the MV3 popup passes 12-locale RTL, theme, triage, and < 20 KiB checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopupParityReport {
+    pub base: ExtensionAuditReport,
+    pub locale_count: usize,
+    pub rtl_locale_count: usize,
 }
 
 /// Audits an MV3 extension directory (`manifest.json`, `worker.js`, `connector.js`, `popup.html`, `popup.css`, `popup.js`).
@@ -169,6 +201,147 @@ pub fn audit_extension_package(
         manifest_version,
         popup_total_bytes,
         audited_files,
+    })
+}
+
+/// Audits the MV3 popup for 12-locale RTL parity, WCAG Light/Dark theme tokens,
+/// local-hash Quick-Capture Triage with zero raw PHI persistence, and `< 20 KiB` size.
+pub fn audit_popup_parity(
+    extension_dir: &Path,
+) -> Result<PopupParityReport, Vec<ExtensionAuditViolation>> {
+    let base = audit_extension_package(extension_dir)?;
+    let mut violations = Vec::new();
+
+    if base.popup_total_bytes >= MV3_POPUP_STRICT_UNCOMPRESSED_BYTES {
+        violations.push(ExtensionAuditViolation::PopupStrictBudgetExceeded {
+            actual_bytes: base.popup_total_bytes,
+            limit_bytes: MV3_POPUP_STRICT_UNCOMPRESSED_BYTES,
+        });
+    }
+
+    let read_file = |name: &str| -> Result<String, ExtensionAuditViolation> {
+        let p = extension_dir.join(name);
+        fs::read_to_string(&p).map_err(|err| ExtensionAuditViolation::Io {
+            path: p.display().to_string(),
+            message: err.to_string(),
+        })
+    };
+
+    let popup_html = match read_file("popup.html") {
+        Ok(c) => c,
+        Err(err) => return Err(vec![err]),
+    };
+    let popup_css = match read_file("popup.css") {
+        Ok(c) => c,
+        Err(err) => return Err(vec![err]),
+    };
+    let popup_js = match read_file("popup.js") {
+        Ok(c) => c,
+        Err(err) => return Err(vec![err]),
+    };
+
+    for locale in POPUP_REQUIRED_LOCALES {
+        let html_option = format!("value=\"{locale}\"");
+        if !popup_html.contains(&html_option) {
+            violations.push(ExtensionAuditViolation::MissingPopupLocale {
+                file: "popup.html".to_owned(),
+                locale,
+            });
+        }
+        let js_unquoted = format!("{locale}:");
+        let js_quoted = format!("\"{locale}\":");
+        if !popup_js.contains(&js_unquoted) && !popup_js.contains(&js_quoted) {
+            violations.push(ExtensionAuditViolation::MissingPopupLocale {
+                file: "popup.js".to_owned(),
+                locale,
+            });
+        }
+    }
+
+    for rtl in POPUP_RTL_LOCALES {
+        let quoted = format!("\"{rtl}\"");
+        if !popup_js.contains(&quoted) {
+            violations.push(ExtensionAuditViolation::MissingRtlSupport {
+                detail: "popup.js must register both 'ar' and 'he' as RTL locales",
+            });
+            break;
+        }
+    }
+    if !popup_js.contains("document.documentElement.dir")
+        || !popup_js.contains("document.documentElement.lang")
+    {
+        violations.push(ExtensionAuditViolation::MissingRtlSupport {
+            detail: "popup.js must set document.documentElement.lang and .dir",
+        });
+    }
+    for css_prop in [
+        "inset-inline-",
+        "margin-inline-",
+        "padding-inline:",
+        "text-align: start",
+    ] {
+        if !popup_css.contains(css_prop) {
+            violations.push(ExtensionAuditViolation::MissingRtlSupport {
+                detail: "popup.css must use logical RTL properties (inset-inline-*, margin-inline-*, padding-inline, text-align: start)",
+            });
+            break;
+        }
+    }
+
+    if !popup_css.contains(":root[data-theme=\"light\"]")
+        || !popup_css.contains(":root[data-theme=\"dark\"]")
+    {
+        violations.push(ExtensionAuditViolation::MissingThemeSupport {
+            detail: "popup.css must define both [data-theme=\"light\"] and [data-theme=\"dark\"]",
+        });
+    }
+    if !popup_html.contains("id=\"btn-theme\"") || !popup_js.contains("dataset.theme") {
+        violations.push(ExtensionAuditViolation::MissingThemeSupport {
+            detail: "popup must wire interactive #btn-theme toggle updating dataset.theme",
+        });
+    }
+
+    if !popup_html.contains("id=\"triage-form\"")
+        || !popup_html.contains("id=\"triage-input\"")
+        || !popup_html.contains("id=\"triage-status\"")
+    {
+        violations.push(ExtensionAuditViolation::TriagePrivacyViolation {
+            detail: "popup.html missing Quick-Capture Triage controls",
+        });
+    }
+    if !popup_js.contains("SHA-256") || !popup_js.contains("sha256FallbackHex") {
+        violations.push(ExtensionAuditViolation::TriagePrivacyViolation {
+            detail: "popup.js must hash triage metadata via Web Crypto SHA-256 with fallback",
+        });
+    }
+    if !popup_js.contains("triageInputEl.value = \"\"") {
+        violations.push(ExtensionAuditViolation::TriagePrivacyViolation {
+            detail: "popup.js must immediately clear triage input after local hashing",
+        });
+    }
+    for forbidden in [
+        "localStorage",
+        "sessionStorage",
+        "innerHTML",
+        "chrome.storage.session.set",
+        "eval(",
+    ] {
+        if popup_js.contains(forbidden) {
+            violations.push(ExtensionAuditViolation::TriagePrivacyViolation {
+                detail: "popup.js must never persist raw triage input or use unsafe DOM/eval APIs",
+            });
+            break;
+        }
+    }
+
+    if !violations.is_empty() {
+        return Err(violations);
+    }
+
+    Ok(PopupParityReport {
+        base,
+        locale_count: POPUP_REQUIRED_LOCALES.len(),
+        rtl_locale_count: POPUP_RTL_LOCALES.len(),
     })
 }
 

@@ -1,37 +1,39 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Elysian Fields Connector</title>
-  <link rel="stylesheet" href="./popup.css">
-</head>
+<html lang="en" dir="ltr" data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Elysian Fields</title><link rel="stylesheet" href="./popup.css"></head>
 <body>
-  <main class="popup-shell">
-    <header class="popup-header">
-      <h1>Elysian Fields Connector</h1>
-      <p id="connector-status" class="status-pill" role="status" aria-live="polite">
-        Checking memory-only session...
-      </p>
-    </header>
-
-    <section class="card" aria-label="Session details">
-      <dl class="detail-grid">
-        <dt>Pairing State</dt>
-        <dd id="detail-pairing">unpaired</dd>
-        <dt>Credential Storage</dt>
-        <dd id="detail-storage">chrome.storage.session (memory-only)</dd>
-        <dt>Queued Outbox Jobs</dt>
-        <dd id="detail-outbox">0</dd>
-      </dl>
-    </section>
-
-    <section class="actions" aria-label="Connector actions">
-      <button id="btn-refresh" type="button" class="btn btn-primary">Refresh status</button>
-      <button id="btn-disconnect" type="button" class="btn btn-secondary">Clear session</button>
-    </section>
-  </main>
-
-  <script type="module" src="./popup.js"></script>
+<main class="shell">
+<header class="hdr">
+<div class="bar">
+<h1 data-i18n="title">Elysian Fields</h1>
+<div class="ctrls">
+<label class="sr" for="locale-select" data-i18n="lang">Language</label>
+<select id="locale-select" class="sel-sm" aria-label="Language"><option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="pt">Português</option><option value="de">Deutsch</option><option value="zh-Hans">简体中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="ar">العربية</option><option value="he">עברית</option><option value="vi">Tiếng Việt</option><option value="hi">हिन्दी</option></select>
+<button id="btn-theme" type="button" class="btn-sm" aria-pressed="false" data-i18n="dark">Dark</button>
+</div>
+</div>
+<p id="connector-status" class="pill" role="status" aria-live="polite">Checking session...</p>
+</header>
+<section class="card" aria-label="Session">
+<dl class="grid"><dt data-i18n="pairing">Pairing</dt><dd id="detail-pairing">unpaired</dd><dt data-i18n="storage">Storage</dt><dd id="detail-storage">chrome.storage.session</dd><dt data-i18n="outbox">Outbox</dt><dd id="detail-outbox">0</dd></dl>
+</section>
+<section class="card" aria-labelledby="triage-heading">
+<h2 id="triage-heading" class="sub" data-i18n="triage">Quick-Capture Triage</h2>
+<form id="triage-form" class="form">
+<div class="row">
+<select id="triage-kind" class="inp" aria-label="Category"><option value="follow_up">follow-up</option><option value="inbox_item">inbox</option><option value="lab_review">lab</option></select>
+<select id="triage-priority" class="inp" aria-label="Priority"><option value="routine">routine</option><option value="today">today</option><option value="urgent">urgent</option></select>
+</div>
+<label class="lbl" for="triage-input"><span data-i18n="capture">Capture (hashed locally, never stored)</span><textarea id="triage-input" class="inp txt" rows="2" autocomplete="off" spellcheck="false"></textarea></label>
+<button id="btn-triage" type="submit" class="btn pri" data-i18n="submit">Hash &amp; triage</button>
+</form>
+<p id="triage-status" class="badge" role="status" aria-live="polite" data-i18n="idle">Ready (zero raw text stored).</p>
+</section>
+<section class="acts" aria-label="Actions">
+<button id="btn-refresh" type="button" class="btn pri" data-i18n="refresh">Refresh</button>
+<button id="btn-disconnect" type="button" class="btn sec" data-i18n="clear">Clear</button>
+</section>
+</main>
+<script type="module" src="./popup.js"></script>
 </body>
 </html>

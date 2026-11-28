@@ -9,7 +9,9 @@ pub mod sha256;
 
 pub use jobs::{DeclaredReadOperation, JobValidationError, LeasedReadJob};
 pub use manifest::{
-    ExtensionAuditReport, ExtensionAuditViolation, MV3_POPUP_MAX_BYTES, audit_extension_package,
+    ExtensionAuditReport, ExtensionAuditViolation, MV3_POPUP_MAX_BYTES,
+    MV3_POPUP_STRICT_UNCOMPRESSED_BYTES, POPUP_REQUIRED_LOCALES, POPUP_RTL_LOCALES,
+    PopupParityReport, audit_extension_package, audit_popup_parity,
 };
 pub use redaction::{
     ExtensionOutbox, OutboxEntry, OutboxError, OutboxStatus, RedactedPayload, RedactionReport,
