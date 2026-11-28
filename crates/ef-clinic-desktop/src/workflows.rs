@@ -26,7 +26,7 @@ use ef_connected_care::{
 use ef_core::{PatientId, PhysicianId, PracticeId, SourceKey, WorkspaceId};
 use ef_ui_catalog::{Locale, UiKey, translate};
 
-use crate::worker::TodayStandingUpdate;
+use crate::worker::{LiveReplyCard, LiveReplyOrigin, TodayStandingUpdate};
 
 /// Live-server Today snapshot received asynchronously from `GET /elysianfields/api/today`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +108,8 @@ pub struct ClinicWorkflowState {
     pub live_today: Option<LiveTodaySnapshot>,
     pub live_memories: BTreeMap<WorkspaceId, Vec<MemoryEntry>>,
     pub live_invites: BTreeMap<WorkspaceId, LiveIssuedInvite>,
+    pub live_replies: BTreeMap<WorkspaceId, Vec<LiveReplyCard>>,
+    pub reply_draft_editor: String,
 }
 
 impl Default for ClinicWorkflowState {
@@ -307,6 +309,8 @@ impl ClinicWorkflowState {
             live_today: None,
             live_memories: BTreeMap::new(),
             live_invites: BTreeMap::new(),
+            live_replies: BTreeMap::new(),
+            reply_draft_editor: String::new(),
         }
     }
 
@@ -318,13 +322,58 @@ impl ClinicWorkflowState {
         scheduled_visits: Vec<ScheduledVisitEntry>,
         channel_banners: Vec<TodayChannelBanner>,
         memory_entries: Vec<MemoryEntry>,
+        reply_cards: Vec<LiveReplyCard>,
     ) {
         self.live_today = Some(LiveTodaySnapshot {
             items: today_items,
             scheduled_visits,
             channel_banners,
         });
-        self.live_memories.insert(workspace_id, memory_entries);
+        self.live_memories
+            .insert(workspace_id.clone(), memory_entries);
+        if let Some(first) = reply_cards.first() {
+            self.active_conversation_id = first.conversation_id.clone();
+            if self.reply_draft_editor.is_empty()
+                && let Some(ref visible) = first.visible_reply_text
+            {
+                self.reply_draft_editor = visible.clone();
+            }
+        }
+        self.live_replies.insert(workspace_id, reply_cards);
+    }
+
+    /// Updates or inserts a server-confirmed [`LiveReplyCard`] for `workspace_id`.
+    pub fn apply_live_reply_card(&mut self, workspace_id: WorkspaceId, card: LiveReplyCard) {
+        self.active_conversation_id = card.conversation_id.clone();
+        self.reply_draft_editor = card.visible_reply_text.clone().unwrap_or_default();
+        let cards = self.live_replies.entry(workspace_id).or_default();
+        if let Some(existing) = cards
+            .iter_mut()
+            .find(|c| c.conversation_id == card.conversation_id)
+        {
+            *existing = card;
+        } else {
+            cards.push(card);
+        }
+    }
+
+    /// Returns the active live reply card for `workspace_id`, when synchronized from `--server`.
+    #[must_use]
+    pub fn active_live_reply_card(
+        &self,
+        workspace_id: Option<&WorkspaceId>,
+    ) -> Option<&LiveReplyCard> {
+        let ws = workspace_id?;
+        self.live_replies.get(ws).and_then(|cards| cards.first())
+    }
+
+    /// Returns the active reply conversation ID for `workspace_id` (live when present, else demo).
+    #[must_use]
+    pub fn active_reply_conversation_id(&self, workspace_id: Option<&WorkspaceId>) -> String {
+        if let Some(card) = self.active_live_reply_card(workspace_id) {
+            return card.conversation_id.clone();
+        }
+        self.active_conversation_id.clone()
     }
 
     /// Applies a server-confirmed Today standing update (`Seen` or `Done`).
@@ -465,6 +514,25 @@ impl ClinicWorkflowState {
     /// Derives the physician-scoped reply card through `MessageReplyEngine::derive_reply_card`.
     pub fn derive_active_reply_card(&self) -> Result<DerivedReplyCard, ReplyError> {
         self.reply_engine.derive_reply_card(
+            &self.physician_id,
+            &self.active_conversation_id,
+            |_, _| true,
+        )
+    }
+
+    /// Saves a physician-scoped personal draft edit (`YourDraft`) on the local demo engine.
+    pub fn edit_active_personal_draft(&mut self, draft_text: String) -> Result<(), ReplyError> {
+        self.reply_engine.edit_personal_draft(
+            &self.physician_id,
+            &self.active_conversation_id,
+            draft_text,
+            |_, _| true,
+        )
+    }
+
+    /// Discards the physician's personal draft and restores the underlying system AI reply.
+    pub fn restore_active_system_reply(&mut self) -> Result<(), ReplyError> {
+        self.reply_engine.restore_system_reply(
             &self.physician_id,
             &self.active_conversation_id,
             |_, _| true,
@@ -644,40 +712,102 @@ impl ClinicWorkflowState {
             .join("\n\n")
     }
 
+    /// Returns `(has_ready_reply, is_personal_draft, can_undo_close)` for `workspace_id`,
+    /// preferring the authoritative live server card when connected.
+    #[must_use]
+    pub fn reply_card_action_flags(
+        &self,
+        workspace_id: Option<&WorkspaceId>,
+    ) -> (bool, bool, bool) {
+        if let Some(card) = self.active_live_reply_card(workspace_id) {
+            return (
+                card.visible_reply_text.is_some(),
+                card.visible_reply_origin == LiveReplyOrigin::PersonalDraft,
+                card.undo_available,
+            );
+        }
+        if let Ok(card) = self.derive_active_reply_card() {
+            return (
+                card.visible_reply_text.is_some(),
+                card.visible_reply_origin == VisibleReplyOrigin::PersonalDraft,
+                card.undo_available,
+            );
+        }
+        (false, false, false)
+    }
+
+    /// Formats the derived Messages reply card text (`SystemReply` vs `PersonalDraft` + citations + concern)
+    /// for `workspace_id`, preferring live server state when present.
+    #[must_use]
+    pub fn format_messages_card_for(
+        &self,
+        workspace_id: Option<&WorkspaceId>,
+        locale: Locale,
+    ) -> String {
+        if let Some(card) = self.active_live_reply_card(workspace_id) {
+            return format_reply_card_parts(
+                &card.open_messages,
+                card.visible_reply_text.as_deref(),
+                card.visible_reply_origin.to_visible_origin(),
+                &card.reply_state_label,
+                &card.basis_citations,
+                card.flagged_concern.as_deref(),
+            );
+        }
+        self.format_messages_card(locale)
+    }
+
     /// Formats the derived Messages reply card text (`SystemReply` vs `PersonalDraft` + citations + concern).
     #[must_use]
     pub fn format_messages_card(&self, locale: Locale) -> String {
         let Ok(card) = self.derive_active_reply_card() else {
             return translate(locale, UiKey::ClinicTranscriptEmpty).to_owned();
         };
-        let mut lines = Vec::new();
-        if card.open_messages.is_empty() {
-            lines.push("Open patient messages: 0".to_owned());
-        } else {
-            for msg in &card.open_messages {
-                lines.push(format!("[Patient | {}] {}", msg.message_id, msg.body));
-            }
-        }
-        let origin_label = match card.visible_reply_origin {
-            VisibleReplyOrigin::SystemReply => "SystemReply",
-            VisibleReplyOrigin::PersonalDraft => "PersonalDraft",
-            VisibleReplyOrigin::None => "None",
-        };
-        if let Some(ref reply_text) = card.visible_reply_text {
-            lines.push(format!(
-                "[Draft | {origin_label} | {}] {reply_text}",
-                card.reply_state_label
-            ));
-        } else {
-            lines.push(format!("[Reply State: {}]", card.reply_state_label));
-        }
-        if !card.basis_citations.is_empty() {
-            let cites: Vec<&str> = card.basis_citations.iter().map(SourceKey::as_str).collect();
-            lines.push(format!("Citations: {}", cites.join(", ")));
-        }
-        if let Some(ref concern) = card.flagged_concern {
-            lines.push(format!("Flagged concern: {concern}"));
-        }
-        lines.join("\n\n")
+        format_reply_card_parts(
+            &card.open_messages,
+            card.visible_reply_text.as_deref(),
+            card.visible_reply_origin,
+            card.reply_state_label,
+            &card.basis_citations,
+            card.flagged_concern.as_deref(),
+        )
     }
+}
+
+fn format_reply_card_parts(
+    open_messages: &[ef_clinic_workflows::replies::TrackedPatientMessage],
+    visible_reply_text: Option<&str>,
+    visible_reply_origin: VisibleReplyOrigin,
+    reply_state_label: &str,
+    basis_citations: &[SourceKey],
+    flagged_concern: Option<&str>,
+) -> String {
+    let mut lines = Vec::new();
+    if open_messages.is_empty() {
+        lines.push("Open patient messages: 0".to_owned());
+    } else {
+        for msg in open_messages {
+            lines.push(format!("[Patient | {}] {}", msg.message_id, msg.body));
+        }
+    }
+    let origin_label = match visible_reply_origin {
+        VisibleReplyOrigin::SystemReply => "SystemReply",
+        VisibleReplyOrigin::PersonalDraft => "PersonalDraft",
+        VisibleReplyOrigin::None => "None",
+    };
+    if let Some(reply_text) = visible_reply_text {
+        lines.push(format!(
+            "[Draft | {origin_label} | {reply_state_label}] {reply_text}"
+        ));
+    } else {
+        lines.push(format!("[Reply State: {reply_state_label}]"));
+    }
+    if !basis_citations.is_empty() {
+        let cites: Vec<&str> = basis_citations.iter().map(SourceKey::as_str).collect();
+        lines.push(format!("Citations: {}", cites.join(", ")));
+    }
+    if let Some(concern) = flagged_concern {
+        lines.push(format!("Flagged concern: {concern}"));
+    }
+    lines.join("\n\n")
 }

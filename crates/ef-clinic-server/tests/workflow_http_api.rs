@@ -495,3 +495,242 @@ fn clinic_workflow_http_apis_enforce_auth_isolation_standing_memory_invites_and_
 
     server.shutdown();
 }
+
+#[test]
+fn workspace_replies_enforce_clinical_access_isolation_and_wal_replay_durability() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let wal_dir = std::env::temp_dir().join(format!(
+        "ef-clinic-replies-wal-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&wal_dir).expect("create temp wal dir");
+
+    let practice_id = PracticeId::new("prac-w21").expect("practice");
+    let phys_member = PhysicianId::new("phys-w21-member").expect("member");
+    let phys_outsider = PhysicianId::new("phys-w21-outsider").expect("outsider");
+    let ws_seeded = WorkspaceId::new("ws-w21-seeded").expect("seeded ws");
+    let ws_empty = WorkspaceId::new("ws-w21-empty").expect("empty ws");
+    let src_key = SourceKey::new("src-w21-1").expect("source");
+
+    let conv_id = {
+        let mut service = ClinicService::open_durable(
+            &wal_dir,
+            SignInMode::Hosted,
+            RetryBackoffMode::Hosted,
+            src_key.clone(),
+            1_760_400_000,
+        )
+        .expect("open durable clinic service");
+        service
+            .seed_account(PhysicianAccount {
+                physician_id: phys_member.clone(),
+                practice_id: practice_id.clone(),
+                email: EmailAddress::parse("member.w21@clinic.example").expect("email"),
+                display_name: "Dr. Member W21".to_owned(),
+                role: PhysicianRole::Standard,
+                standing: AccountStanding::Active,
+                sessions_ended_before: None,
+            })
+            .expect("seed member");
+        service
+            .seed_account(PhysicianAccount {
+                physician_id: phys_outsider.clone(),
+                practice_id: practice_id.clone(),
+                email: EmailAddress::parse("outsider.w21@clinic.example").expect("email"),
+                display_name: "Dr. Outsider W21".to_owned(),
+                role: PhysicianRole::Standard,
+                standing: AccountStanding::Active,
+                sessions_ended_before: None,
+            })
+            .expect("seed outsider");
+        service
+            .seed_workspace(
+                ws_seeded.clone(),
+                practice_id.clone(),
+                "Elena Vance",
+                vec![phys_member.clone()],
+            )
+            .expect("seed seeded workspace");
+        service
+            .seed_workspace(
+                ws_empty.clone(),
+                practice_id,
+                "Quiet Patient",
+                vec![phys_member],
+            )
+            .expect("seed empty workspace");
+        service
+            .seed_demo_workflows(&ws_seeded, "Elena Vance")
+            .expect("seed demo workflows");
+
+        let server = TcpClinicServer::bind("127.0.0.1:0", service).expect("bind server 1");
+        let addr = server.local_addr();
+
+        // 1. Unauthenticated access rejected with 401 + ClinicalNoStore.
+        let unauth = send_http(
+            addr,
+            "GET",
+            "/elysianfields/api/workspaces/ws-w21-seeded/replies",
+            None,
+            None,
+            None,
+        );
+        assert_eq!(unauth.status, 401);
+
+        let member_token = sign_in_physician(&server, "member.w21@clinic.example");
+        let outsider_token = sign_in_physician(&server, "outsider.w21@clinic.example");
+
+        // 2. Non-member physician rejected with 403.
+        let outsider_resp = send_http(
+            addr,
+            "GET",
+            "/elysianfields/api/workspaces/ws-w21-seeded/replies",
+            Some(&outsider_token),
+            None,
+            None,
+        );
+        assert_eq!(outsider_resp.status, 403);
+
+        // 3. Empty workspace returns 200 with `replies: []`.
+        let empty_resp = send_http(
+            addr,
+            "GET",
+            "/elysianfields/api/workspaces/ws-w21-empty/replies",
+            Some(&member_token),
+            None,
+            None,
+        );
+        assert_eq!(empty_resp.status, 200);
+        assert_eq!(
+            empty_resp.json()["replies"]
+                .as_array()
+                .expect("replies array")
+                .len(),
+            0
+        );
+
+        // 4. Seeded workspace returns live derived reply card with basis citations and flagged concern.
+        let seeded_resp = send_http(
+            addr,
+            "GET",
+            "/elysianfields/api/workspaces/ws-w21-seeded/replies",
+            Some(&member_token),
+            Some("ef-w21-replies-1"),
+            None,
+        );
+        assert_eq!(
+            seeded_resp.status, 200,
+            "replies failed: {}",
+            seeded_resp.body
+        );
+        assert_eq!(
+            seeded_resp.header("cache-control"),
+            Some("private, no-store, max-age=0")
+        );
+        assert_eq!(seeded_resp.header("x-request-id"), Some("ef-w21-replies-1"));
+        let seeded_json = seeded_resp.json();
+        let replies = seeded_json["replies"].as_array().expect("replies array");
+        assert_eq!(replies.len(), 1);
+        let card = &replies[0];
+        let conv_id = card["conversation_id"]
+            .as_str()
+            .expect("conversation_id")
+            .to_owned();
+        assert_eq!(conv_id, "conv-ws-w21-seeded-msg-1");
+        assert_eq!(card["visible_reply_origin"].as_str(), Some("system_reply"));
+        assert!(
+            !card["open_messages"]
+                .as_array()
+                .expect("open_messages")
+                .is_empty()
+        );
+        assert!(
+            !card["basis_citations"]
+                .as_array()
+                .expect("basis_citations")
+                .is_empty()
+        );
+        assert!(card["flagged_concern"].as_str().is_some());
+
+        // 5. Save a personal draft before restarting server to verify WAL replay durability.
+        let draft_resp = send_http(
+            addr,
+            "POST",
+            &format!("/elysianfields/api/replies/{conv_id}/draft"),
+            Some(&member_token),
+            None,
+            Some(&json!({
+                "text": "Please keep Metformin 1000 mg twice daily and bring your 5-day log Friday."
+            })),
+        );
+        assert_eq!(draft_resp.status, 200, "draft failed: {}", draft_resp.body);
+        assert_eq!(
+            draft_resp.json()["visible_reply_origin"].as_str(),
+            Some("personal_draft")
+        );
+
+        // Verify zero-PHI route redaction for `/elysianfields/api/workspaces/:id/replies`.
+        let logs = server.access_logs();
+        assert!(
+            logs.iter()
+                .any(|ev| ev.route_template.as_str() == "/elysianfields/api/workspaces/:id/replies"),
+            "expected redacted replies route template in {logs:?}"
+        );
+        for ev in &logs {
+            let line = ev.to_json_line();
+            assert_eq!(assert_zero_phi(&line), Ok(()), "line={line}");
+            assert!(
+                !line.contains("ws-w21-seeded"),
+                "raw workspace leaked: {line}"
+            );
+        }
+
+        server.shutdown();
+        conv_id
+    };
+
+    // 6. Reopen durable ClinicService from the exact same WAL directory and prove replay durability.
+    let replayed = ClinicService::open_durable(
+        &wal_dir,
+        SignInMode::Hosted,
+        RetryBackoffMode::Hosted,
+        src_key,
+        1_760_400_010,
+    )
+    .expect("reopen durable clinic service");
+    let server2 = TcpClinicServer::bind("127.0.0.1:0", replayed).expect("bind server 2");
+    let addr2 = server2.local_addr();
+    let member_token2 = sign_in_physician(&server2, "member.w21@clinic.example");
+
+    let after_restart = send_http(
+        addr2,
+        "GET",
+        "/elysianfields/api/workspaces/ws-w21-seeded/replies",
+        Some(&member_token2),
+        None,
+        None,
+    );
+    assert_eq!(after_restart.status, 200);
+    let replayed_replies = after_restart.json()["replies"]
+        .as_array()
+        .expect("replies after restart")
+        .clone();
+    assert_eq!(replayed_replies.len(), 1);
+    assert_eq!(
+        replayed_replies[0]["conversation_id"].as_str(),
+        Some(conv_id.as_str())
+    );
+    assert_eq!(
+        replayed_replies[0]["visible_reply_origin"].as_str(),
+        Some("personal_draft")
+    );
+    assert_eq!(
+        replayed_replies[0]["visible_reply_text"].as_str(),
+        Some("Please keep Metformin 1000 mg twice daily and bring your 5-day log Friday.")
+    );
+
+    server2.shutdown();
+    let _ = std::fs::remove_dir_all(&wal_dir);
+}

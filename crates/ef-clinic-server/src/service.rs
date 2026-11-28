@@ -263,6 +263,7 @@ pub struct ClinicService {
     pub(crate) today_also_reviewed: usize,
     pub(crate) matching_engine: MessageMatchingEngine,
     pub(crate) reply_engine: MessageReplyEngine,
+    pub(crate) reply_conversation_workspaces: BTreeMap<String, WorkspaceId>,
     pub(crate) patient_memories: BTreeMap<WorkspaceId, PatientMemoryStore>,
     pub(crate) connected_care: ConnectedCareBridge,
     pub(crate) invitation_pairs: BTreeMap<InvitationId, PairKey>,
@@ -298,6 +299,7 @@ impl ClinicService {
             today_also_reviewed: 0,
             matching_engine: MessageMatchingEngine::new(),
             reply_engine: MessageReplyEngine::new(),
+            reply_conversation_workspaces: BTreeMap::new(),
             patient_memories: BTreeMap::new(),
             connected_care: ConnectedCareBridge::new(),
             invitation_pairs: BTreeMap::new(),
@@ -492,7 +494,7 @@ impl ClinicService {
         })?;
         self.seed_scheduled_visit(ScheduledVisitEntry {
             workspace_id: workspace_id.clone(),
-            display_name,
+            display_name: display_name.clone(),
             scheduled_at_epoch_secs: now.saturating_add(3_600),
             briefing_ready: true,
         })?;
@@ -510,7 +512,89 @@ impl ClinicService {
             "2026-10-16",
             MemoryAuthority::PhysicianInstruction,
         )?;
+        self.seed_demo_reply_conversation(workspace_id, &display_name)?;
         Ok(())
+    }
+
+    /// Durably seeds a linked patient message conversation and completed AI review reply card
+    /// for `workspace_id` so live `--server` mode boots with a reviewable Messages card.
+    pub fn seed_demo_reply_conversation(
+        &mut self,
+        workspace_id: &WorkspaceId,
+        patient_display_name: &str,
+    ) -> Result<String, ClinicServiceError> {
+        let conversation_id = format!("conv-{}-msg-1", workspace_id.as_str());
+        let message_id = format!("msg-{}-1", workspace_id.as_str());
+        let message_body = format!(
+            "Hi Dr. Curie, this is {patient_display_name}. My post-lunch blood sugar was 186 mg/dL today—should I change my Metformin dose before Friday's visit?"
+        );
+        self.apply_seed_reply_conversation(
+            &conversation_id,
+            workspace_id.clone(),
+            &message_id,
+            &message_body,
+            true,
+        );
+        self.wal.append(&WalEntry::SeedReplyConversation {
+            conversation_id: conversation_id.clone(),
+            workspace_id: workspace_id.clone(),
+            message_id,
+            message_body,
+            channel_connected: true,
+        })?;
+
+        let proposed_reply_text = Some(
+            "Thank you for sharing your afternoon reading. Please continue Metformin 1000 mg twice daily for now, log your readings over the next few days, and we will review dose options together at your upcoming visit."
+                .to_owned(),
+        );
+        let basis_citations = vec![self.default_cited_source.clone()];
+        let flagged_concern = Some(
+            "Post-prandial hyperglycemia (186 mg/dL); assess titration at follow-up.".to_owned(),
+        );
+        if let Ok((review_id, for_patient)) = self.reply_engine.start_review(&conversation_id) {
+            let _ = self.reply_engine.complete_review(
+                &conversation_id,
+                ReviewCompletion {
+                    review_id,
+                    for_patient: for_patient.clone(),
+                    proposed_reply_text: proposed_reply_text.clone(),
+                    basis_citations: basis_citations.clone(),
+                    flagged_concern: flagged_concern.clone(),
+                    answered_by_human_reply: false,
+                },
+            );
+            self.wal.append(&WalEntry::ReplyCompleteReview {
+                conversation_id: conversation_id.clone(),
+                for_patient,
+                proposed_reply_text,
+                basis_citations,
+                flagged_concern,
+                answered_by_human_reply: false,
+            })?;
+        }
+        Ok(conversation_id)
+    }
+
+    pub(crate) fn apply_seed_reply_conversation(
+        &mut self,
+        conversation_id: &str,
+        workspace_id: WorkspaceId,
+        message_id: &str,
+        message_body: &str,
+        channel_connected: bool,
+    ) {
+        self.reply_engine.register_conversation(
+            conversation_id.to_owned(),
+            workspace_id.clone(),
+            channel_connected,
+        );
+        self.reply_conversation_workspaces
+            .insert(conversation_id.to_owned(), workspace_id);
+        let _ = self.reply_engine.receive_patient_message(
+            conversation_id,
+            message_id.to_owned(),
+            message_body.to_owned(),
+        );
     }
 
     /// Durably updates a practice communication channel health status (`TodaySaysSo`).
@@ -845,6 +929,9 @@ impl ClinicService {
             ["replies", conversation_id] => self.route_replies(req, conversation_id, None),
             ["replies", conversation_id, action] => {
                 self.route_replies(req, conversation_id, Some(action))
+            }
+            ["workspaces", workspace_id, "replies"] => {
+                self.route_workspace_replies(req, workspace_id)
             }
             ["patients", workspace_id, "memory"] | ["workspaces", workspace_id, "memory"] => {
                 self.route_patient_memory(req, workspace_id)
@@ -1909,6 +1996,21 @@ impl ClinicService {
             }
             WalEntry::UndoMessageMove { conversation_id } => {
                 let _ = self.matching_engine.undo_move(&conversation_id);
+            }
+            WalEntry::SeedReplyConversation {
+                conversation_id,
+                workspace_id,
+                message_id,
+                message_body,
+                channel_connected,
+            } => {
+                self.apply_seed_reply_conversation(
+                    &conversation_id,
+                    workspace_id,
+                    &message_id,
+                    &message_body,
+                    channel_connected,
+                );
             }
             WalEntry::ReplyCompleteReview {
                 conversation_id,

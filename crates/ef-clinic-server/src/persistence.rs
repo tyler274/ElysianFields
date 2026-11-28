@@ -230,6 +230,13 @@ pub enum WalEntry {
     UndoMessageMove {
         conversation_id: String,
     },
+    SeedReplyConversation {
+        conversation_id: String,
+        workspace_id: WorkspaceId,
+        message_id: String,
+        message_body: String,
+        channel_connected: bool,
+    },
     ReplyCompleteReview {
         conversation_id: String,
         for_patient: WorkspaceId,

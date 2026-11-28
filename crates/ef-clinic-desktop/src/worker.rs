@@ -15,9 +15,48 @@ use std::time::Duration;
 
 use bevy::prelude::Resource;
 use ef_clinic_workflows::memory::MemoryEntry;
+use ef_clinic_workflows::replies::{
+    ReviewExecutionState, TrackedPatientMessage, VisibleReplyOrigin,
+};
 use ef_clinic_workflows::today::{RenderedTodayItem, ScheduledVisitEntry, TodayChannelBanner};
-use ef_core::{ChatId, IdempotencyKey, SessionId, WorkspaceId};
+use ef_core::{ChatId, IdempotencyKey, SessionId, SourceKey, WorkspaceId};
 use serde::{Deserialize, Serialize};
+
+/// Typed origin of a live reply card returned by `ef-clinic-server`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveReplyOrigin {
+    None,
+    SystemReply,
+    PersonalDraft,
+}
+
+impl LiveReplyOrigin {
+    /// Maps the wire origin onto the authoritative `ef-clinic-workflows` [`VisibleReplyOrigin`].
+    #[must_use]
+    pub const fn to_visible_origin(self) -> VisibleReplyOrigin {
+        match self {
+            Self::None => VisibleReplyOrigin::None,
+            Self::SystemReply => VisibleReplyOrigin::SystemReply,
+            Self::PersonalDraft => VisibleReplyOrigin::PersonalDraft,
+        }
+    }
+}
+
+/// Live derived message reply card synchronized with `ef-clinic-server`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveReplyCard {
+    pub conversation_id: String,
+    pub open_messages: Vec<TrackedPatientMessage>,
+    pub review_state: ReviewExecutionState,
+    pub visible_reply_text: Option<String>,
+    pub visible_reply_origin: LiveReplyOrigin,
+    pub basis_citations: Vec<SourceKey>,
+    pub flagged_concern: Option<String>,
+    pub show_channel_disconnected_notice: bool,
+    pub undo_available: bool,
+    pub reply_state_label: String,
+}
 
 /// Typed standing update action for `POST /elysianfields/api/today/standing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +127,32 @@ pub enum LiveWorkerCommand {
         patient_id: String,
         expected_dob: String,
     },
+    EditReplyDraft {
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+        text: String,
+    },
+    RestoreSystemReply {
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    },
+    CopyReply {
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    },
+    CloseReply {
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    },
+    UndoCloseReply {
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    },
 }
 
 /// Progressive streaming event, completion, cancellation, workflow sync result, or failure emitted by the worker.
@@ -127,6 +192,7 @@ pub enum LivePromptOutcome {
         scheduled_visits: Vec<ScheduledVisitEntry>,
         channel_banners: Vec<TodayChannelBanner>,
         memory_entries: Vec<MemoryEntry>,
+        reply_cards: Vec<LiveReplyCard>,
     },
     TodayStandingUpdated {
         item_id: String,
@@ -137,6 +203,15 @@ pub enum LivePromptOutcome {
         workspace_id: WorkspaceId,
         invite_code: String,
         invitation_id: String,
+    },
+    ReplyCardUpdated {
+        workspace_id: WorkspaceId,
+        card: LiveReplyCard,
+    },
+    ReplyCopied {
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+        copied_text: String,
     },
     WorkflowFailed {
         detail: String,
@@ -338,6 +413,143 @@ impl LivePromptWorker {
         }
     }
 
+    /// Queues a live personal draft edit (`POST /elysianfields/api/replies/{conv}/draft`).
+    pub fn edit_reply_draft(
+        &self,
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+        text: String,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.tx
+                .send(LiveWorkerCommand::EditReplyDraft {
+                    session_id,
+                    workspace_id,
+                    conversation_id,
+                    text,
+                })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (session_id, workspace_id, conversation_id, text);
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
+    /// Queues a live restore-system-reply call (`POST /elysianfields/api/replies/{conv}/restore`).
+    pub fn restore_system_reply(
+        &self,
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.tx
+                .send(LiveWorkerCommand::RestoreSystemReply {
+                    session_id,
+                    workspace_id,
+                    conversation_id,
+                })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (session_id, workspace_id, conversation_id);
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
+    /// Queues a live copy-reply call (`POST /elysianfields/api/replies/{conv}/copy`).
+    pub fn copy_reply(
+        &self,
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.tx
+                .send(LiveWorkerCommand::CopyReply {
+                    session_id,
+                    workspace_id,
+                    conversation_id,
+                })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (session_id, workspace_id, conversation_id);
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
+    /// Queues a live close-reply call (`POST /elysianfields/api/replies/{conv}/close`).
+    pub fn close_reply(
+        &self,
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.tx
+                .send(LiveWorkerCommand::CloseReply {
+                    session_id,
+                    workspace_id,
+                    conversation_id,
+                })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (session_id, workspace_id, conversation_id);
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
+    /// Queues a live undo-close-reply call (`POST /elysianfields/api/replies/{conv}/undo`).
+    pub fn undo_close_reply(
+        &self,
+        session_id: SessionId,
+        workspace_id: WorkspaceId,
+        conversation_id: String,
+    ) -> Result<(), String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some(ref ch) = self.channel else {
+                return Err("live background worker is disabled".to_owned());
+            };
+            ch.tx
+                .send(LiveWorkerCommand::UndoCloseReply {
+                    session_id,
+                    workspace_id,
+                    conversation_id,
+                })
+                .map_err(|err| format!("live worker channel closed: {err}"))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (session_id, workspace_id, conversation_id);
+            Err("live background worker is disabled on wasm32".to_owned())
+        }
+    }
+
     /// Non-blocking poll for progressive deltas, steps, completion, cancellation, or failure.
     #[must_use]
     pub fn try_recv(&self) -> Option<LivePromptOutcome> {
@@ -441,6 +653,26 @@ struct IssueInviteRequestPayload<'a> {
 struct IssueInviteResponsePayload {
     invitation_id: String,
     invite_code: String,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Deserialize)]
+struct WorkspaceRepliesPayload {
+    #[serde(default)]
+    replies: Vec<LiveReplyCard>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Serialize)]
+struct EditReplyDraftPayload<'a> {
+    text: &'a str,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Deserialize)]
+struct CopyReplyResponsePayload {
+    conversation_id: String,
+    copied_text: String,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -613,12 +845,114 @@ fn execute_fetch_workflow_snapshot(
         }
     };
 
+    let replies_path = format!(
+        "/elysianfields/api/workspaces/{}/replies",
+        workspace_id.as_str()
+    );
+    let (replies_status, replies_body) = match http_json_request(
+        socket_addr,
+        timeout,
+        HttpVerb::Get,
+        &replies_path,
+        session_id,
+        None,
+    ) {
+        Ok(resp) => resp,
+        Err(detail) => return LivePromptOutcome::WorkflowFailed { detail },
+    };
+    if replies_status != 200 {
+        return LivePromptOutcome::WorkflowFailed {
+            detail: format!("GET {replies_path} returned HTTP {replies_status}: {replies_body}"),
+        };
+    }
+    let replies_payload: WorkspaceRepliesPayload = match serde_json::from_str(&replies_body) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return LivePromptOutcome::WorkflowFailed {
+                detail: format!("failed to parse workspace replies JSON: {err}"),
+            };
+        }
+    };
+
     LivePromptOutcome::WorkflowSnapshotLoaded {
         workspace_id,
         today_items: today_payload.items,
         scheduled_visits: today_payload.scheduled_visits,
         channel_banners: today_payload.channel_banners,
         memory_entries: mem_payload.entries,
+        reply_cards: replies_payload.replies,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn execute_reply_card_mutation(
+    socket_addr: SocketAddr,
+    timeout: Duration,
+    session_id: &SessionId,
+    workspace_id: WorkspaceId,
+    conversation_id: &str,
+    action: &str,
+    body_json: Option<&str>,
+) -> LivePromptOutcome {
+    let path = format!("/elysianfields/api/replies/{conversation_id}/{action}");
+    let (status, resp_body) = match http_json_request(
+        socket_addr,
+        timeout,
+        HttpVerb::Post,
+        &path,
+        session_id,
+        body_json,
+    ) {
+        Ok(resp) => resp,
+        Err(detail) => return LivePromptOutcome::WorkflowFailed { detail },
+    };
+    if status != 200 {
+        return LivePromptOutcome::WorkflowFailed {
+            detail: format!("POST {path} returned HTTP {status}: {resp_body}"),
+        };
+    }
+    match serde_json::from_str::<LiveReplyCard>(&resp_body) {
+        Ok(card) => LivePromptOutcome::ReplyCardUpdated { workspace_id, card },
+        Err(err) => LivePromptOutcome::WorkflowFailed {
+            detail: format!("failed to parse reply card response JSON: {err}"),
+        },
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn execute_copy_reply(
+    socket_addr: SocketAddr,
+    timeout: Duration,
+    session_id: &SessionId,
+    workspace_id: WorkspaceId,
+    conversation_id: &str,
+) -> LivePromptOutcome {
+    let path = format!("/elysianfields/api/replies/{conversation_id}/copy");
+    let (status, resp_body) = match http_json_request(
+        socket_addr,
+        timeout,
+        HttpVerb::Post,
+        &path,
+        session_id,
+        None,
+    ) {
+        Ok(resp) => resp,
+        Err(detail) => return LivePromptOutcome::WorkflowFailed { detail },
+    };
+    if status != 200 {
+        return LivePromptOutcome::WorkflowFailed {
+            detail: format!("POST {path} returned HTTP {status}: {resp_body}"),
+        };
+    }
+    match serde_json::from_str::<CopyReplyResponsePayload>(&resp_body) {
+        Ok(parsed) => LivePromptOutcome::ReplyCopied {
+            workspace_id,
+            conversation_id: parsed.conversation_id,
+            copied_text: parsed.copied_text,
+        },
+        Err(err) => LivePromptOutcome::WorkflowFailed {
+            detail: format!("failed to parse copy reply response JSON: {err}"),
+        },
     }
 }
 
@@ -852,6 +1186,105 @@ fn run_worker_loop(
                     workspace_id,
                     &patient_id,
                     &expected_dob,
+                );
+                if resp_tx.send(outcome).is_err() {
+                    break;
+                }
+                continue;
+            }
+            LiveWorkerCommand::EditReplyDraft {
+                session_id,
+                workspace_id,
+                conversation_id,
+                text,
+            } => {
+                let outcome = match serde_json::to_string(&EditReplyDraftPayload { text: &text }) {
+                    Ok(body) => execute_reply_card_mutation(
+                        socket_addr,
+                        timeout,
+                        &session_id,
+                        workspace_id,
+                        &conversation_id,
+                        "draft",
+                        Some(&body),
+                    ),
+                    Err(err) => LivePromptOutcome::WorkflowFailed {
+                        detail: format!("failed to encode draft payload: {err}"),
+                    },
+                };
+                if resp_tx.send(outcome).is_err() {
+                    break;
+                }
+                continue;
+            }
+            LiveWorkerCommand::RestoreSystemReply {
+                session_id,
+                workspace_id,
+                conversation_id,
+            } => {
+                let outcome = execute_reply_card_mutation(
+                    socket_addr,
+                    timeout,
+                    &session_id,
+                    workspace_id,
+                    &conversation_id,
+                    "restore",
+                    None,
+                );
+                if resp_tx.send(outcome).is_err() {
+                    break;
+                }
+                continue;
+            }
+            LiveWorkerCommand::CopyReply {
+                session_id,
+                workspace_id,
+                conversation_id,
+            } => {
+                let outcome = execute_copy_reply(
+                    socket_addr,
+                    timeout,
+                    &session_id,
+                    workspace_id,
+                    &conversation_id,
+                );
+                if resp_tx.send(outcome).is_err() {
+                    break;
+                }
+                continue;
+            }
+            LiveWorkerCommand::CloseReply {
+                session_id,
+                workspace_id,
+                conversation_id,
+            } => {
+                let outcome = execute_reply_card_mutation(
+                    socket_addr,
+                    timeout,
+                    &session_id,
+                    workspace_id,
+                    &conversation_id,
+                    "close",
+                    None,
+                );
+                if resp_tx.send(outcome).is_err() {
+                    break;
+                }
+                continue;
+            }
+            LiveWorkerCommand::UndoCloseReply {
+                session_id,
+                workspace_id,
+                conversation_id,
+            } => {
+                let outcome = execute_reply_card_mutation(
+                    socket_addr,
+                    timeout,
+                    &session_id,
+                    workspace_id,
+                    &conversation_id,
+                    "undo",
+                    None,
                 );
                 if resp_tx.send(outcome).is_err() {
                     break;
