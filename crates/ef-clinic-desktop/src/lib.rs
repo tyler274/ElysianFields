@@ -3,25 +3,32 @@
 //! Runs both interactively on Linux/macOS/Windows via `WinitSettings::desktop_app()`
 //! and deterministically in `--headless-smoke` mode for CI qualification.
 
+pub mod clipboard;
 pub mod config;
 pub mod demo;
 pub mod smoke;
 pub mod ui;
+pub mod worker;
 
+pub use clipboard::{
+    ClipboardError, ClipboardPort, DEFAULT_CLIPBOARD_HISTORY_LIMIT, DesktopClipboard,
+    InMemoryClipboard, SystemClipboardAdapter,
+};
 pub use config::{
     DesktopConfigError, DesktopLaunchConfig, DesktopPrefOverrides, ExecutionMode, LaunchBackend,
     PreferenceMode, ZoomLevel, parse_server_socket_addr,
 };
 pub use demo::{
-    ConnectionMode, DemoSeedBundle, DesktopCitationCard, DesktopCitationCatalog,
-    DesktopPatientEntry, DesktopTranscriptEntry, DesktopWorkspaceState, bootstrap_clinic_session,
-    build_demo_seed, create_transport_for_backend, fetch_live_whoami,
+    ConnectionMode, DemoSeedBundle, DesktopCitationCard, DesktopCitationCatalog, DesktopInputFocus,
+    DesktopPatientEntry, DesktopStatusBanner, DesktopTranscriptEntry, DesktopWorkspaceState,
+    bootstrap_clinic_session, build_demo_seed, create_transport_for_backend, fetch_live_whoami,
 };
 pub use smoke::{HeadlessSmokeError, HeadlessSmokeReport, SmokeCheckOutcome, run_headless_smoke};
 pub use ui::{
     ClinicDesktopUiPlugin, DesktopActionButton, DesktopScreenshotConfig, DesktopUiEvent,
     DesktopUiSlot,
 };
+pub use worker::{LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState};
 
 use thiserror::Error;
 
@@ -128,6 +135,18 @@ fn run_windowed_gpu_app(
         WinitSettings::desktop_app()
     };
 
+    let live_worker = match &effective_config.backend {
+        LaunchBackend::Server { socket_addr, .. } => {
+            LivePromptWorker::spawn(*socket_addr, std::time::Duration::from_secs(10))
+        }
+        LaunchBackend::Demo => LivePromptWorker::disabled(),
+    };
+    let clipboard = if screenshot_path.is_some() {
+        DesktopClipboard::in_memory()
+    } else {
+        DesktopClipboard::system()
+    };
+
     let mut app = App::new();
     app.add_plugins(DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
@@ -139,6 +158,8 @@ fn run_windowed_gpu_app(
     }))
     .insert_resource(winit_settings)
     .insert_resource(prefs_store)
+    .insert_resource(live_worker)
+    .insert_resource(clipboard)
     .insert_resource(transport)
     .insert_resource(citation_catalog)
     .insert_resource(DesktopWorkspaceState {
@@ -150,6 +171,12 @@ fn run_windowed_gpu_app(
         transcript: initial_transcript,
         status_message: String::new(),
         status_override: None,
+        status_banner: DesktopStatusBanner::DefaultReady,
+        input_focus: DesktopInputFocus::Composer,
+        patient_search_query: String::new(),
+        search_highlight_index: 0,
+        live_submission: LiveSubmissionState::Idle,
+        next_live_request_id: 1,
         shortcuts_modal_open: false,
         zoom_percent: effective_config.zoom.percent(),
         frames_rendered_ui: 0,

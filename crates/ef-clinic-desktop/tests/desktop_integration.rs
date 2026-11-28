@@ -1,13 +1,15 @@
 //! Unit and live TCP server integration tests for `ef-clinic-desktop`.
 
 use ef_clinic_desktop::{
-    ClinicDesktopUiPlugin, DesktopConfigError, DesktopLaunchConfig, DesktopUiEvent, DesktopUiSlot,
-    DesktopWorkspaceState, ExecutionMode, LaunchBackend, PreferenceMode, SmokeCheckOutcome,
-    ZoomLevel, bootstrap_clinic_session, create_transport_for_backend, parse_server_socket_addr,
-    run_headless_smoke,
+    ClinicDesktopUiPlugin, DesktopClipboard, DesktopConfigError, DesktopInputFocus,
+    DesktopLaunchConfig, DesktopStatusBanner, DesktopUiEvent, DesktopUiSlot, DesktopWorkspaceState,
+    ExecutionMode, LaunchBackend, LivePromptWorker, LiveSubmissionState, PreferenceMode,
+    SmokeCheckOutcome, ZoomLevel, bootstrap_clinic_session, create_transport_for_backend,
+    parse_server_socket_addr, run_headless_smoke,
 };
 use ef_ui_catalog::{
-    DesktopPreferences, DesktopPrefsStore, DesktopZoom, Locale, ThemeMode, UiKey, translate,
+    ComposerSurface, DesktopPreferences, DesktopPrefsStore, DesktopZoom, Locale, ThemeMode, UiKey,
+    translate,
 };
 
 #[test]
@@ -351,6 +353,12 @@ fn clinic_desktop_scrolling_localized_chrome_and_temp_dir_prefs_persistence() {
             transcript: Vec::new(),
             status_message: String::new(),
             status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
             shortcuts_modal_open: false,
             zoom_percent: 100,
             frames_rendered_ui: 0,
@@ -459,4 +467,471 @@ fn clinic_desktop_scrolling_localized_chrome_and_temp_dir_prefs_persistence() {
     assert_eq!(saved.zoom, DesktopZoom::Pct150);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn patient_search_ctrl_k_filtering_keyboard_nav_empty_and_escape() {
+    use bevy::asset::AssetPlugin;
+    use bevy::prelude::*;
+    use ef_clinic_client::{
+        ClientBootConfig, CurieClinicClientPlugin, SharedBrowserSessionHub, SharedLocaleStorage,
+    };
+    use ef_core::TabId;
+
+    let (transport, conn_mode, email, token, patients, citation_catalog) =
+        create_transport_for_backend(&LaunchBackend::Demo);
+    let initial_citations = patients
+        .first()
+        .map(|p| citation_catalog.cards_for(&p.workspace_id))
+        .unwrap_or_default();
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: initial_citations,
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            status_message: String::new(),
+            status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("desktop-search-test").expect("tab id"),
+            ClientBootConfig::from_location("/elysianfields/?lang=he").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, email, token);
+
+    // 1. Focus Patient Search (`Ctrl/Cmd+K`) and filter case-insensitively by clinical summary.
+    app.world_mut()
+        .write_message(DesktopUiEvent::FocusPatientSearch);
+    app.world_mut()
+        .write_message(DesktopUiEvent::UpdatePatientSearch(
+            "Atorvastatin".to_owned(),
+        ));
+    app.update();
+    app.update();
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert_eq!(ws.input_focus, DesktopInputFocus::PatientSearch);
+        let filtered = ws.filtered_patient_indices();
+        assert_eq!(filtered, vec![1]);
+        assert_eq!(ws.patients[filtered[0]].display_name, "Patel, Priya");
+    }
+
+    // 2. Non-matching query displays localized "No matching patients" in Hebrew.
+    app.world_mut()
+        .write_message(DesktopUiEvent::UpdatePatientSearch("zzzz-none".to_owned()));
+    app.update();
+    app.update();
+    {
+        let mut q = app.world_mut().query::<(&DesktopUiSlot, &Node, &Text)>();
+        let (display, text) = q
+            .iter(app.world())
+            .find(|(slot, _, _)| **slot == DesktopUiSlot::NoMatchingPatientsLabel)
+            .map(|(_, node, text)| (node.display, text.0.clone()))
+            .expect("NoMatchingPatientsLabel slot");
+        assert_eq!(display, Display::Flex);
+        assert_eq!(text, translate(Locale::He, UiKey::ClinicNoMatchingPatients));
+    }
+
+    // 3. Escape (`ClearPatientSearch`) clears query, hides empty banner, and restores focus to Composer.
+    app.world_mut()
+        .write_message(DesktopUiEvent::ClearPatientSearch);
+    app.update();
+    app.update();
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert_eq!(ws.input_focus, DesktopInputFocus::Composer);
+        assert!(ws.patient_search_query.is_empty());
+        assert_eq!(ws.filtered_patient_indices().len(), 3);
+    }
+
+    // 4. Up/Down navigation + Enter selects the highlighted filtered patient and returns to Composer.
+    app.world_mut()
+        .write_message(DesktopUiEvent::FocusPatientSearch);
+    app.world_mut()
+        .write_message(DesktopUiEvent::SearchMoveDown);
+    app.world_mut()
+        .write_message(DesktopUiEvent::SearchMoveDown);
+    app.world_mut().write_message(DesktopUiEvent::SearchMoveUp);
+    app.world_mut()
+        .write_message(DesktopUiEvent::SearchSelectHighlighted);
+    app.update();
+    app.update();
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert_eq!(ws.input_focus, DesktopInputFocus::Composer);
+        assert_eq!(ws.active_patient_index, 1);
+        assert_eq!(
+            ws.active_patient().expect("active patient").display_name,
+            "Patel, Priya"
+        );
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn clipboard_copy_paste_and_composer_undo_redo() {
+    use bevy::asset::AssetPlugin;
+    use bevy::prelude::*;
+    use ef_clinic_client::{
+        ClientBootConfig, CurieClinicClientPlugin, SharedBrowserSessionHub, SharedLocaleStorage,
+    };
+    use ef_core::TabId;
+
+    let (transport, conn_mode, email, token, patients, citation_catalog) =
+        create_transport_for_backend(&LaunchBackend::Demo);
+    let initial_citations = patients
+        .first()
+        .map(|p| citation_catalog.cards_for(&p.workspace_id))
+        .unwrap_or_default();
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(DesktopClipboard::in_memory())
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: initial_citations,
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            status_message: String::new(),
+            status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("desktop-clipboard-test").expect("tab id"),
+            ClientBootConfig::from_location("/elysianfields/?lang=ar").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, email, token);
+
+    // 1. Copy transcript (`Ctrl/Cmd+C` / button) populates clipboard and displays localized "Copied".
+    app.world_mut()
+        .write_message(DesktopUiEvent::CopyTranscript);
+    app.update();
+    app.update();
+    {
+        let copied = app
+            .world_mut()
+            .resource_mut::<DesktopClipboard>()
+            .paste_text()
+            .expect("clipboard populated");
+        assert!(copied.contains("Avery, Jordan"));
+        let status = &app
+            .world()
+            .resource::<DesktopWorkspaceState>()
+            .status_message;
+        assert_eq!(status, translate(Locale::Ar, UiKey::ClinicStatusCopied));
+    }
+
+    // 2. Paste into Composer (`Ctrl/Cmd+V`) + Undo (`Ctrl/Cmd+Z`) + Redo (`Ctrl/Cmd+Shift+Z`).
+    app.world_mut()
+        .resource_mut::<DesktopClipboard>()
+        .copy_text("Check HbA1c trend")
+        .expect("seed clip");
+    app.world_mut()
+        .write_message(DesktopUiEvent::PasteClipboard);
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().resource::<ComposerSurface>().text(),
+        "Check HbA1c trend"
+    );
+
+    app.world_mut().write_message(DesktopUiEvent::UndoComposer);
+    app.update();
+    app.update();
+    assert_eq!(app.world().resource::<ComposerSurface>().text(), "");
+
+    app.world_mut().write_message(DesktopUiEvent::RedoComposer);
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().resource::<ComposerSurface>().text(),
+        "Check HbA1c trend"
+    );
+
+    // 3. Paste into Patient Search when search is focused.
+    app.world_mut()
+        .resource_mut::<DesktopClipboard>()
+        .copy_text("Cohen")
+        .expect("seed search clip");
+    app.world_mut()
+        .write_message(DesktopUiEvent::FocusPatientSearch);
+    app.world_mut()
+        .write_message(DesktopUiEvent::PasteClipboard);
+    app.update();
+    app.update();
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert_eq!(ws.patient_search_query, "Cohen");
+        let filtered = ws.filtered_patient_indices();
+        assert_eq!(filtered, vec![2]);
+        assert_eq!(ws.patients[filtered[0]].display_name, "Cohen, Avi");
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn non_blocking_live_worker_streams_over_live_tcp_clinic_server_and_reports_errors() {
+    use std::fs;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    use bevy::asset::AssetPlugin;
+    use bevy::prelude::*;
+    use ef_clinic_client::{
+        ClientBootConfig, ClientClock, CurieClinicClientPlugin, SharedBrowserSessionHub,
+        SharedLocaleStorage,
+    };
+    use ef_clinic_domain::auth::{
+        AccountStanding, EmailAddress, PhysicianAccount, PhysicianRole, SignInMode,
+    };
+    use ef_clinic_domain::chat::RetryBackoffMode;
+    use ef_clinic_domain::workspace::{
+        CitationOrigin, CitedSourcePayload, ReadablePart, classify_record_status,
+    };
+    use ef_clinic_server::{ClinicService, TcpClinicServer};
+    use ef_core::{Locale as CoreLocale, PhysicianId, PracticeId, SourceKey, TabId, WorkspaceId};
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let wal_dir = std::env::temp_dir().join(format!(
+        "ef-clinic-desktop-worker-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&wal_dir).expect("create temp wal dir");
+
+    let now_secs = 1_760_000_000u64;
+    let src_key = SourceKey::new("src-worker-live-1").expect("src key");
+    let mut service = ClinicService::open_durable(
+        &wal_dir,
+        SignInMode::LocalProof,
+        RetryBackoffMode::DeterministicTest,
+        src_key.clone(),
+        now_secs,
+    )
+    .expect("open durable clinic service");
+
+    let practice = PracticeId::new("prac-worker-live").expect("practice");
+    let doc = PhysicianId::new("phys-worker-live").expect("doc");
+    let email = "worker.clinician@example.invalid";
+    service
+        .seed_account(PhysicianAccount {
+            physician_id: doc.clone(),
+            practice_id: practice.clone(),
+            email: EmailAddress::parse(email).expect("email"),
+            display_name: "Dr. Worker Live".to_owned(),
+            role: PhysicianRole::Standard,
+            standing: AccountStanding::Active,
+            sessions_ended_before: None,
+        })
+        .expect("seed account");
+
+    let ws1 = WorkspaceId::new("ws-worker-avery").expect("ws1");
+    service
+        .seed_workspace(ws1.clone(), practice, "Avery, Jordan (Worker)", vec![doc])
+        .expect("seed ws1");
+    service
+        .seed_source(CitedSourcePayload {
+            source_key: src_key,
+            workspace_id: ws1,
+            number: 1,
+            source_label: "Worker Progress Note [1]".to_owned(),
+            title: "Worker Outpatient Note".to_owned(),
+            record_type: "progress_note".to_owned(),
+            recorded_at: "2026-10-18T12:00:00Z".to_owned(),
+            record_status: "final".to_owned(),
+            status_class: classify_record_status("final"),
+            origin: CitationOrigin::SourceRecord,
+            original_language: CoreLocale::En,
+            quote: "HbA1c 6.8% stable on Metformin.".to_owned(),
+            body: "Synthetic worker chart record.".to_owned(),
+            readable_parts: vec![ReadablePart {
+                label: "Plan".to_owned(),
+                text: "Continue Metformin.".to_owned(),
+                unreadable_notice: None,
+            }],
+            fields: Vec::new(),
+            raw_content: None,
+            external_url: None,
+        })
+        .expect("seed source");
+
+    let server = TcpClinicServer::bind("127.0.0.1:0", service).expect("bind live server");
+    let addr = server.local_addr();
+    let base_url = format!("http://{addr}");
+
+    let backend = LaunchBackend::Server {
+        base_url,
+        socket_addr: addr,
+        email: Some(email.to_owned()),
+        token: None,
+    };
+    let (transport, conn_mode, boot_email, boot_token, patients, citation_catalog) =
+        create_transport_for_backend(&backend);
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(LivePromptWorker::spawn(addr, Duration::from_secs(5)))
+        .insert_resource(DesktopClipboard::in_memory())
+        .insert_resource(ClientClock {
+            now_secs,
+            now_ms: now_secs * 1_000,
+        })
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: Vec::new(),
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            status_message: String::new(),
+            status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("desktop-live-worker-tab").expect("tab id"),
+            ClientBootConfig::from_location("/elysianfields/?lang=en").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, boot_email, boot_token);
+
+    // 1. Submit prompt -> immediately transitions to InFlight + "Sending..." without blocking!
+    app.world_mut().write_message(DesktopUiEvent::TypeText(
+        "Summarize glycemic trend.".to_owned(),
+    ));
+    app.world_mut().write_message(DesktopUiEvent::SubmitPrompt);
+    app.update();
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        let in_flight_or_done = matches!(
+            ws.live_submission,
+            LiveSubmissionState::InFlight { .. } | LiveSubmissionState::Idle
+        );
+        assert!(in_flight_or_done);
+        if matches!(ws.live_submission, LiveSubmissionState::InFlight { .. }) {
+            assert_eq!(
+                ws.status_message,
+                translate(Locale::En, UiKey::ClinicStatusSending)
+            );
+        }
+    }
+
+    // 2. Poll frames non-blockingly until background worker delivers live server response.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while matches!(
+        app.world()
+            .resource::<DesktopWorkspaceState>()
+            .live_submission,
+        LiveSubmissionState::InFlight { .. }
+    ) && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert_eq!(ws.live_submission, LiveSubmissionState::Idle);
+        assert!(
+            ws.transcript.iter().any(|entry| entry.speaker == "Curie"),
+            "expected live server response appended to transcript: {:?}",
+            ws.transcript
+        );
+    }
+
+    // 3. Shut down server -> submitting another prompt reports typed Failed status cleanly.
+    drop(server);
+    app.world_mut().write_message(DesktopUiEvent::TypeText(
+        "Follow-up after disconnect.".to_owned(),
+    ));
+    app.world_mut().write_message(DesktopUiEvent::SubmitPrompt);
+    app.update();
+
+    let err_deadline = Instant::now() + Duration::from_secs(5);
+    while matches!(
+        app.world()
+            .resource::<DesktopWorkspaceState>()
+            .live_submission,
+        LiveSubmissionState::InFlight { .. }
+    ) && Instant::now() < err_deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+        app.update();
+    }
+    {
+        let ws = app.world().resource::<DesktopWorkspaceState>();
+        assert!(
+            matches!(ws.live_submission, LiveSubmissionState::Failed { .. }),
+            "expected Failed state after server shutdown, got {:?}",
+            ws.live_submission
+        );
+        assert!(
+            ws.status_message
+                .starts_with(translate(Locale::En, UiKey::ClinicStatusSendFailed))
+        );
+    }
+
+    let _ = fs::remove_dir_all(&wal_dir);
 }

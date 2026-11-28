@@ -165,9 +165,9 @@ mod tests {
             assert_eq!(ltr_locale.citation_panel_edge(), HorizontalEdge::Right);
         }
 
-        // Compile-time exhaustive check: all 12 locales x 96 keys (1,152 entries) are non-empty.
+        // Compile-time exhaustive check: all 12 locales x 103 keys (1,236 entries) are non-empty.
         assert_eq!(Locale::ALL.len(), 12);
-        assert_eq!(UiKey::ALL.len(), 96);
+        assert_eq!(UiKey::ALL.len(), 103);
         for locale in Locale::ALL {
             for key in UiKey::ALL {
                 let text = translate(locale, key);

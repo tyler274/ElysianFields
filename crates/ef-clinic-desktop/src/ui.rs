@@ -19,7 +19,7 @@ use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use ef_clinic_client::{
-    ActiveWorkspaceView, ClinicAction, ClinicActionMessage, ClinicSessionShell,
+    ActiveWorkspaceView, ClientClock, ClinicAction, ClinicActionMessage, ClinicSessionShell,
 };
 use ef_core::IdempotencyKey;
 use ef_ui_catalog::{
@@ -28,8 +28,13 @@ use ef_ui_catalog::{
     ShortcutRouter, ThemeMode, ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome, translate,
 };
 
+use crate::clipboard::DesktopClipboard;
 use crate::config::ZoomLevel;
-use crate::demo::{DesktopCitationCatalog, DesktopTranscriptEntry, DesktopWorkspaceState};
+use crate::demo::{
+    DesktopCitationCatalog, DesktopInputFocus, DesktopStatusBanner, DesktopTranscriptEntry,
+    DesktopWorkspaceState,
+};
+use crate::worker::{LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState};
 
 /// Typed interactive button action component (zero string dispatch).
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +44,11 @@ pub enum DesktopActionButton {
     CycleZoom,
     TogglePrivacyCover,
     ToggleShortcuts,
+    FocusPatientSearch,
+    FocusComposer,
     SelectPatient(usize),
     SelectCitation(usize),
+    CopyTranscript,
     SubmitPrompt,
     DismissPrivacyCover,
     DismissShortcuts,
@@ -66,10 +74,16 @@ pub enum DesktopUiSlot {
     RosterPanel,
     RosterHeading,
     ConnectionBadge,
+    PatientSearchBox,
+    PatientSearchText,
+    NoMatchingPatientsLabel,
     PatientButton(usize),
     PatientButtonLabel(usize),
     TranscriptPanel,
+    TranscriptHeaderRow,
     TranscriptHeading,
+    CopyTranscriptButton,
+    CopyTranscriptLabel,
     TranscriptScrollArea,
     TranscriptBody,
     ComposerLabel,
@@ -108,9 +122,20 @@ pub enum DesktopUiEvent {
     SetTheme(ThemeMode),
     CycleZoom,
     SetZoom(ZoomLevel),
+    FocusPatientSearch,
+    FocusComposer,
+    UpdatePatientSearch(String),
+    ClearPatientSearch,
+    SearchMoveUp,
+    SearchMoveDown,
+    SearchSelectHighlighted,
     SelectPatient(usize),
     SelectCitation(usize),
     TypeText(String),
+    CopyTranscript,
+    PasteClipboard,
+    UndoComposer,
+    RedoComposer,
     SubmitPrompt,
     TogglePrivacyCover,
     ToggleShortcuts,
@@ -153,6 +178,8 @@ impl Plugin for ClinicDesktopUiPlugin {
     fn build(&self, app: &mut App) {
         let initial_ui_theme = UiTheme::new(self.initial_theme, self.initial_zoom.text_scale());
         app.insert_resource(initial_ui_theme)
+            .init_resource::<LivePromptWorker>()
+            .init_resource::<DesktopClipboard>()
             .insert_resource(DesktopScreenshotConfig {
                 path: self.screenshot_path.clone(),
                 captured: false,
@@ -169,6 +196,7 @@ impl Plugin for ClinicDesktopUiPlugin {
                     handle_desktop_keyboard_input_system,
                     handle_desktop_scroll_wheel_system,
                     process_desktop_events_system,
+                    poll_live_worker_outcomes_system,
                     sync_desktop_ui_visuals_system,
                 )
                     .chain(),
@@ -344,6 +372,35 @@ fn spawn_clinic_desktop_ui_system(
                         TextColor(tokens.alert_info_fg.to_bevy_color()),
                     ));
 
+                    let search_placeholder =
+                        translate(locale, UiKey::ClinicSearchPatientsPlaceholder);
+                    let mut search_a11y = accesskit::Node::new(accesskit::Role::SearchInput);
+                    search_a11y.set_label(search_placeholder);
+                    rail.spawn((
+                        DesktopActionButton::FocusPatientSearch,
+                        DesktopUiSlot::PatientSearchBox,
+                        Node {
+                            width: Val::Percent(100.0),
+                            padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+                            border: UiRect::all(Val::Px(1.0)),
+                            ..default()
+                        },
+                        BackgroundColor(tokens.input_bg.to_bevy_color()),
+                        BorderColor::all(tokens.text_secondary.to_bevy_color()),
+                        AccessibilityNode(search_a11y),
+                    ))
+                    .with_children(|search_box| {
+                        search_box.spawn((
+                            DesktopUiSlot::PatientSearchText,
+                            Text::new(search_placeholder),
+                            TextFont {
+                                font_size: FontSize::Px(12.0 * scale),
+                                ..default()
+                            },
+                            TextColor(tokens.input_fg.to_bevy_color()),
+                        ));
+                    });
+
                     for idx in 0..3 {
                         let label = ws_state
                             .patients
@@ -393,6 +450,22 @@ fn spawn_clinic_desktop_ui_system(
                             ));
                         });
                     }
+
+                    rail.spawn((
+                        DesktopUiSlot::NoMatchingPatientsLabel,
+                        Node {
+                            width: Val::Percent(100.0),
+                            padding: UiRect::all(Val::Px(8.0)),
+                            display: Display::None,
+                            ..default()
+                        },
+                        Text::new(translate(locale, UiKey::ClinicNoMatchingPatients)),
+                        TextFont {
+                            font_size: FontSize::Px(13.0 * scale),
+                            ..default()
+                        },
+                        TextColor(tokens.text_secondary.to_bevy_color()),
+                    ));
                 });
 
                 // Column 2: Clinical Transcript & Multiline Composer
@@ -410,15 +483,56 @@ fn spawn_clinic_desktop_ui_system(
                     BorderColor::all(tokens.text_secondary.to_bevy_color()),
                 ))
                 .with_children(|center| {
-                    center.spawn((
-                        DesktopUiSlot::TranscriptHeading,
-                        Text::new(chrome.transcript_heading.clone()),
-                        TextFont {
-                            font_size: FontSize::Px(16.0 * scale),
-                            ..default()
-                        },
-                        TextColor(tokens.text_primary.to_bevy_color()),
-                    ));
+                    center
+                        .spawn((
+                            DesktopUiSlot::TranscriptHeaderRow,
+                            Node {
+                                width: Val::Percent(100.0),
+                                flex_direction: locale.row_flex_direction(),
+                                justify_content: JustifyContent::SpaceBetween,
+                                align_items: AlignItems::Center,
+                                column_gap: Val::Px(8.0),
+                                ..default()
+                            },
+                        ))
+                        .with_children(|header| {
+                            header.spawn((
+                                DesktopUiSlot::TranscriptHeading,
+                                Text::new(chrome.transcript_heading.clone()),
+                                TextFont {
+                                    font_size: FontSize::Px(16.0 * scale),
+                                    ..default()
+                                },
+                                TextColor(tokens.text_primary.to_bevy_color()),
+                            ));
+                            let copy_label = translate(locale, UiKey::ClinicCopyTranscriptButton);
+                            let mut copy_a11y = accesskit::Node::new(accesskit::Role::Button);
+                            copy_a11y.set_label(copy_label);
+                            header
+                                .spawn((
+                                    DesktopActionButton::CopyTranscript,
+                                    DesktopUiSlot::CopyTranscriptButton,
+                                    Node {
+                                        padding: UiRect::axes(Val::Px(10.0), Val::Px(5.0)),
+                                        border: UiRect::all(Val::Px(1.0)),
+                                        ..default()
+                                    },
+                                    BackgroundColor(tokens.input_bg.to_bevy_color()),
+                                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                                    AccessibilityNode(copy_a11y),
+                                ))
+                                .with_children(|btn| {
+                                    btn.spawn((
+                                        DesktopUiSlot::CopyTranscriptLabel,
+                                        Text::new(copy_label),
+                                        TextFont {
+                                            font_size: FontSize::Px(12.0 * scale),
+                                            ..default()
+                                        },
+                                        TextColor(tokens.text_primary.to_bevy_color()),
+                                    ));
+                                });
+                        });
 
                     center
                         .spawn((
@@ -464,6 +578,7 @@ fn spawn_clinic_desktop_ui_system(
                     composer_a11y.set_label(chrome.composer_placeholder.clone());
                     center
                         .spawn((
+                            DesktopActionButton::FocusComposer,
                             DesktopUiSlot::ComposerBox,
                             Node {
                                 width: Val::Percent(100.0),
@@ -854,8 +969,11 @@ fn handle_desktop_button_presses_system(
             DesktopActionButton::CycleZoom => DesktopUiEvent::CycleZoom,
             DesktopActionButton::TogglePrivacyCover => DesktopUiEvent::TogglePrivacyCover,
             DesktopActionButton::ToggleShortcuts => DesktopUiEvent::ToggleShortcuts,
+            DesktopActionButton::FocusPatientSearch => DesktopUiEvent::FocusPatientSearch,
+            DesktopActionButton::FocusComposer => DesktopUiEvent::FocusComposer,
             DesktopActionButton::SelectPatient(idx) => DesktopUiEvent::SelectPatient(idx),
             DesktopActionButton::SelectCitation(idx) => DesktopUiEvent::SelectCitation(idx),
+            DesktopActionButton::CopyTranscript => DesktopUiEvent::CopyTranscript,
             DesktopActionButton::SubmitPrompt => DesktopUiEvent::SubmitPrompt,
             DesktopActionButton::DismissPrivacyCover | DesktopActionButton::DismissShortcuts => {
                 DesktopUiEvent::DismissOverlays
@@ -865,11 +983,13 @@ fn handle_desktop_button_presses_system(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_desktop_keyboard_input_system(
     mut key_events: MessageReader<KeyboardInput>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     router: Res<ShortcutRouter>,
     composer: Res<ComposerSurface>,
+    ws_state: Res<DesktopWorkspaceState>,
     mut clinic_actions: MessageWriter<ClinicActionMessage>,
     mut desktop_events: MessageWriter<DesktopUiEvent>,
 ) {
@@ -898,22 +1018,76 @@ fn handle_desktop_keyboard_input_system(
         }
 
         if event.key_code == KeyCode::Escape {
-            desktop_events.write(DesktopUiEvent::DismissOverlays);
+            if router.is_privacy_cover_active() || ws_state.shortcuts_modal_open {
+                desktop_events.write(DesktopUiEvent::DismissOverlays);
+            } else if ws_state.input_focus == DesktopInputFocus::PatientSearch {
+                desktop_events.write(DesktopUiEvent::ClearPatientSearch);
+            } else {
+                desktop_events.write(DesktopUiEvent::DismissOverlays);
+            }
             continue;
         }
 
-        // Ignore composer edits while privacy cover conceals PHI.
+        // Ignore workspace shortcuts/edits while privacy cover conceals PHI.
         if router.is_privacy_cover_active() {
             continue;
         }
 
+        // Ctrl/Cmd+K focuses Patient Roster Search.
+        if primary_down && event.key_code == KeyCode::KeyK {
+            desktop_events.write(DesktopUiEvent::FocusPatientSearch);
+            continue;
+        }
+
+        // Ctrl/Cmd+C copies active clinical transcript.
+        if primary_down && event.key_code == KeyCode::KeyC {
+            desktop_events.write(DesktopUiEvent::CopyTranscript);
+            continue;
+        }
+
+        // Ctrl/Cmd+V pastes into active focused input (Composer or Patient Search).
+        if primary_down && event.key_code == KeyCode::KeyV {
+            desktop_events.write(DesktopUiEvent::PasteClipboard);
+            continue;
+        }
+
+        // Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z undo/redo in ComposerSurface.
         if primary_down && event.key_code == KeyCode::KeyZ {
-            let action = if shift_down {
-                ComposerAction::Redo
+            if shift_down {
+                desktop_events.write(DesktopUiEvent::RedoComposer);
             } else {
-                ComposerAction::Undo
-            };
-            clinic_actions.write(ClinicActionMessage(ClinicAction::ComposerEdit(action)));
+                desktop_events.write(DesktopUiEvent::UndoComposer);
+            }
+            continue;
+        }
+
+        if ws_state.input_focus == DesktopInputFocus::PatientSearch {
+            match event.key_code {
+                KeyCode::ArrowUp => {
+                    desktop_events.write(DesktopUiEvent::SearchMoveUp);
+                }
+                KeyCode::ArrowDown => {
+                    desktop_events.write(DesktopUiEvent::SearchMoveDown);
+                }
+                KeyCode::Enter => {
+                    desktop_events.write(DesktopUiEvent::SearchSelectHighlighted);
+                }
+                KeyCode::Backspace => {
+                    let mut next = ws_state.patient_search_query.clone();
+                    let _ = next.pop();
+                    desktop_events.write(DesktopUiEvent::UpdatePatientSearch(next));
+                }
+                _ => {
+                    if !primary_down && let Some(ref text) = event.text {
+                        let printable: String = text.chars().filter(|c| !c.is_control()).collect();
+                        if !printable.is_empty() {
+                            let mut next = ws_state.patient_search_query.clone();
+                            next.push_str(&printable);
+                            desktop_events.write(DesktopUiEvent::UpdatePatientSearch(next));
+                        }
+                    }
+                }
+            }
             continue;
         }
 
@@ -1021,6 +1195,9 @@ fn process_desktop_events_system(
     router: Res<ShortcutRouter>,
     session: Res<ClinicSessionShell>,
     active_workspace: Res<ActiveWorkspaceView>,
+    clock: Option<Res<ClientClock>>,
+    live_worker: Res<LivePromptWorker>,
+    mut clipboard: ResMut<DesktopClipboard>,
     mut gate: ResMut<IdleRedrawGate>,
     prefs_store: Option<Res<DesktopPrefsStore>>,
     mut scroll_areas: Query<(&DesktopUiSlot, &mut ScrollPosition)>,
@@ -1051,6 +1228,7 @@ fn process_desktop_events_system(
                 ui_locale.current = next;
                 clinic_actions.write(ClinicActionMessage(ClinicAction::SwitchLocale(next)));
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(next, ui_theme.mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
@@ -1058,6 +1236,7 @@ fn process_desktop_events_system(
                 ui_locale.current = next;
                 clinic_actions.write(ClinicActionMessage(ClinicAction::SwitchLocale(next)));
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(next, ui_theme.mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
@@ -1068,12 +1247,14 @@ fn process_desktop_events_system(
                 };
                 ui_theme.set_mode(next_mode);
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(ui_locale.current, next_mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::SetTheme(mode) => {
                 ui_theme.set_mode(mode);
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(ui_locale.current, mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
@@ -1084,6 +1265,7 @@ fn process_desktop_events_system(
                 ws_state.zoom_percent = next.percent();
                 ui_theme.text_scale = next.text_scale();
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(ui_locale.current, ui_theme.mode, next.percent());
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
@@ -1091,23 +1273,66 @@ fn process_desktop_events_system(
                 ws_state.zoom_percent = next.percent();
                 ui_theme.text_scale = next.text_scale();
                 ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 persist_prefs(ui_locale.current, ui_theme.mode, next.percent());
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
-            DesktopUiEvent::SelectPatient(idx) => {
-                if let Some(patient) = ws_state.patients.get(idx).cloned() {
-                    ws_state.active_patient_index = idx;
-                    ws_state.citations = citation_catalog.cards_for(&patient.workspace_id);
-                    ws_state.selected_citation_index = 0;
-                    ws_state.transcript = vec![DesktopTranscriptEntry {
-                        speaker: "Curie Summary".to_owned(),
-                        body: format!("{} - {}", patient.display_name, patient.summary_line),
-                    }];
-                    ws_state.status_message = format!("Opened workspace: {}", patient.display_name);
-                    clinic_actions.write(ClinicActionMessage(ClinicAction::OpenPatientWorkspace {
-                        workspace_id: patient.workspace_id,
-                        chat_id: None,
-                    }));
+            DesktopUiEvent::FocusPatientSearch => {
+                ws_state.input_focus = DesktopInputFocus::PatientSearch;
+                ws_state.clamp_search_highlight();
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::FocusComposer => {
+                ws_state.input_focus = DesktopInputFocus::Composer;
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::UpdatePatientSearch(query) => {
+                ws_state.patient_search_query = query;
+                ws_state.search_highlight_index = 0;
+                ws_state.clamp_search_highlight();
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            DesktopUiEvent::ClearPatientSearch => {
+                ws_state.patient_search_query.clear();
+                ws_state.search_highlight_index = 0;
+                ws_state.input_focus = DesktopInputFocus::Composer;
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::SearchMoveUp => {
+                if ws_state.search_highlight_index > 0 {
+                    ws_state.search_highlight_index -= 1;
+                }
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::SearchMoveDown => {
+                let count = ws_state.filtered_patient_indices().len();
+                if ws_state.search_highlight_index + 1 < count {
+                    ws_state.search_highlight_index += 1;
+                }
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::SearchSelectHighlighted => {
+                let filtered = ws_state.filtered_patient_indices();
+                if let Some(&real_idx) = filtered.get(ws_state.search_highlight_index) {
+                    select_patient_by_real_index(
+                        real_idx,
+                        &mut ws_state,
+                        &citation_catalog,
+                        &mut clinic_actions,
+                    );
+                }
+                ws_state.input_focus = DesktopInputFocus::Composer;
+                gate.request_redraw(RedrawReason::FocusTransition);
+            }
+            DesktopUiEvent::SelectPatient(slot_idx) => {
+                let filtered = ws_state.filtered_patient_indices();
+                if let Some(&real_idx) = filtered.get(slot_idx) {
+                    select_patient_by_real_index(
+                        real_idx,
+                        &mut ws_state,
+                        &citation_catalog,
+                        &mut clinic_actions,
+                    );
                     gate.request_redraw(RedrawReason::FocusTransition);
                 }
             }
@@ -1115,13 +1340,52 @@ fn process_desktop_events_system(
                 if idx < ws_state.citations.len() {
                     ws_state.selected_citation_index = idx;
                     if let Some(card) = ws_state.citations.get(idx) {
-                        ws_state.status_message = format!("Inspecting citation {}", card.label);
+                        ws_state.status_banner = DesktopStatusBanner::Custom(format!(
+                            "{}: {}",
+                            translate(ui_locale.current, UiKey::ClinicCitedSourcesHeading),
+                            card.label
+                        ));
                     }
                     gate.request_redraw(RedrawReason::UserInput);
                 }
             }
             DesktopUiEvent::TypeText(text) => {
                 let _ = composer.apply(ComposerAction::InsertText(text));
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            DesktopUiEvent::CopyTranscript => {
+                let payload = ws_state.transcript_copy_text();
+                if !payload.is_empty() && clipboard.copy_text(&payload).is_ok() {
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::Copied;
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::PasteClipboard => {
+                if let Ok(pasted) = clipboard.paste_text()
+                    && !pasted.is_empty()
+                {
+                    match ws_state.input_focus {
+                        DesktopInputFocus::Composer => {
+                            let _ = composer.apply(ComposerAction::InsertText(pasted));
+                        }
+                        DesktopInputFocus::PatientSearch => {
+                            let clean: String =
+                                pasted.chars().filter(|c| !c.is_control()).collect();
+                            ws_state.patient_search_query.push_str(&clean);
+                            ws_state.search_highlight_index = 0;
+                            ws_state.clamp_search_highlight();
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                }
+            }
+            DesktopUiEvent::UndoComposer => {
+                let _ = composer.apply(ComposerAction::Undo);
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            DesktopUiEvent::RedoComposer => {
+                let _ = composer.apply(ComposerAction::Redo);
                 gate.request_redraw(RedrawReason::UserInput);
             }
             DesktopUiEvent::SubmitPrompt => {
@@ -1135,6 +1399,51 @@ fn process_desktop_events_system(
                     body: prompt.clone(),
                 });
 
+                // Live windowed `--server` mode: offload HTTP submit + SSE poll onto background thread!
+                if live_worker.is_enabled()
+                    && let Some(session_id) = session.view_state.held_session().cloned()
+                    && let Some(ref open_ws) = active_workspace.open_workspace
+                    && let Ok(key) = IdempotencyKey::new(format!(
+                        "desktop-live-prompt-{}",
+                        ws_state.prompts_submitted
+                    ))
+                {
+                    let req_id = ws_state.next_live_request_id;
+                    ws_state.next_live_request_id = ws_state.next_live_request_id.saturating_add(1);
+                    let now_secs = clock.as_ref().map_or(1_760_000_000, |c| c.now_secs);
+                    let req = LivePromptRequest {
+                        request_id: req_id,
+                        session_id,
+                        workspace_id: open_ws.workspace_id.clone(),
+                        chat_id: open_ws.chat_id.clone(),
+                        idempotency_key: key,
+                        prompt,
+                        since_event_id: active_workspace.last_event_id,
+                        now_secs,
+                    };
+                    let _ = composer.apply(ComposerAction::SelectAll);
+                    let _ = composer.apply(ComposerAction::Backspace);
+                    match live_worker.submit(req) {
+                        Ok(()) => {
+                            ws_state.live_submission = LiveSubmissionState::InFlight {
+                                request_id: req_id,
+                                workspace_id: open_ws.workspace_id.clone(),
+                            };
+                            ws_state.status_override = None;
+                            ws_state.status_banner = DesktopStatusBanner::Sending;
+                        }
+                        Err(reason) => {
+                            ws_state.live_submission = LiveSubmissionState::Failed {
+                                reason: reason.clone(),
+                            };
+                            ws_state.status_override = None;
+                            ws_state.status_banner = DesktopStatusBanner::SendFailed(reason);
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                    continue;
+                }
+
                 let cited_summary = ws_state.selected_citation().map_or_else(
                     || "Reviewed active patient workspace record.".to_owned(),
                     |c| format!("Based on {}: {}", c.label, c.excerpt),
@@ -1143,13 +1452,9 @@ fn process_desktop_events_system(
                     speaker: "Curie".to_owned(),
                     body: cited_summary,
                 });
-                ws_state.status_message = format!(
-                    "Submitted prompt #{} ({} chars)",
-                    ws_state.prompts_submitted,
-                    prompt.chars().count()
-                );
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
 
-                // If authenticated with an active server workspace, dispatch through CurieClinicClientPlugin too.
                 if session.view_state.shows_protected_content()
                     && active_workspace.open_workspace.is_some()
                     && let Ok(key) = IdempotencyKey::new(format!(
@@ -1168,25 +1473,24 @@ fn process_desktop_events_system(
                 gate.request_redraw(RedrawReason::StreamDelta);
             }
             DesktopUiEvent::TogglePrivacyCover => {
+                let was_active = router.is_privacy_cover_active();
                 ws_state.shortcuts_modal_open = false;
                 clinic_actions.write(ClinicActionMessage(ClinicAction::DispatchShortcut(
                     ShortcutInput::new(ShortcutKey::Char('l'), ModifierChord::PrimaryShift),
                 )));
-                ws_state.status_message = if router.is_privacy_cover_active() {
-                    "Privacy cover dismissed.".to_owned()
+                ws_state.status_override = None;
+                ws_state.status_banner = if was_active {
+                    DesktopStatusBanner::PrivacyDismissed
                 } else {
-                    "Privacy cover active (PHI concealed).".to_owned()
+                    DesktopStatusBanner::DefaultReady
                 };
                 gate.request_redraw(RedrawReason::OverlayTransition);
             }
             DesktopUiEvent::ToggleShortcuts => {
                 if !router.is_privacy_cover_active() {
                     ws_state.shortcuts_modal_open = !ws_state.shortcuts_modal_open;
-                    ws_state.status_message = if ws_state.shortcuts_modal_open {
-                        "Shortcuts dialog opened.".to_owned()
-                    } else {
-                        "Shortcuts dialog closed.".to_owned()
-                    };
+                    ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                     gate.request_redraw(RedrawReason::OverlayTransition);
                 }
             }
@@ -1196,9 +1500,11 @@ fn process_desktop_events_system(
                         ShortcutInput::new(ShortcutKey::Char('l'), ModifierChord::PrimaryShift),
                     )));
                     ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::PrivacyDismissed;
                 } else if ws_state.shortcuts_modal_open {
                     ws_state.shortcuts_modal_open = false;
                     ws_state.status_override = None;
+                    ws_state.status_banner = DesktopStatusBanner::DefaultReady;
                 }
                 gate.request_redraw(RedrawReason::OverlayTransition);
             }
@@ -1217,6 +1523,64 @@ fn process_desktop_events_system(
                     }
                 }
                 gate.request_redraw(RedrawReason::UserInput);
+            }
+        }
+    }
+}
+
+fn select_patient_by_real_index(
+    real_idx: usize,
+    ws_state: &mut DesktopWorkspaceState,
+    citation_catalog: &DesktopCitationCatalog,
+    clinic_actions: &mut MessageWriter<ClinicActionMessage>,
+) {
+    if let Some(patient) = ws_state.patients.get(real_idx).cloned() {
+        ws_state.active_patient_index = real_idx;
+        ws_state.citations = citation_catalog.cards_for(&patient.workspace_id);
+        ws_state.selected_citation_index = 0;
+        ws_state.transcript = vec![DesktopTranscriptEntry {
+            speaker: "Curie Summary".to_owned(),
+            body: format!("{} - {}", patient.display_name, patient.summary_line),
+        }];
+        ws_state.status_override = None;
+        ws_state.status_banner = DesktopStatusBanner::DefaultReady;
+        clinic_actions.write(ClinicActionMessage(ClinicAction::OpenPatientWorkspace {
+            workspace_id: patient.workspace_id,
+            chat_id: None,
+        }));
+    }
+}
+
+fn poll_live_worker_outcomes_system(
+    live_worker: Res<LivePromptWorker>,
+    mut ws_state: ResMut<DesktopWorkspaceState>,
+    mut active_workspace: ResMut<ActiveWorkspaceView>,
+    mut gate: ResMut<IdleRedrawGate>,
+) {
+    while let Some(outcome) = live_worker.try_recv() {
+        match outcome {
+            LivePromptOutcome::Completed {
+                assistant_text,
+                last_event_id,
+                ..
+            } => {
+                ws_state.live_submission = LiveSubmissionState::Idle;
+                active_workspace.last_event_id = active_workspace.last_event_id.max(last_event_id);
+                ws_state.transcript.push(DesktopTranscriptEntry {
+                    speaker: "Curie".to_owned(),
+                    body: assistant_text,
+                });
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::DefaultReady;
+                gate.request_redraw(RedrawReason::StreamDelta);
+            }
+            LivePromptOutcome::Failed { detail, .. } => {
+                ws_state.live_submission = LiveSubmissionState::Failed {
+                    reason: detail.clone(),
+                };
+                ws_state.status_override = None;
+                ws_state.status_banner = DesktopStatusBanner::SendFailed(detail);
+                gate.request_redraw(RedrawReason::StreamDelta);
             }
         }
     }
@@ -1273,16 +1637,44 @@ fn sync_desktop_ui_visuals_system(
             UiKey::PrivacyCoverButton
         },
     );
-    let status_text = ws_state.status_override.clone().unwrap_or_else(|| {
-        format!(
-            "{} ({} | {} | {})",
-            translate(locale, UiKey::ClinicStatusReady),
-            locale.native_autonym(),
-            theme_button_label(locale, ui_theme.mode),
-            zoom_label
-        )
-    });
+    let status_text =
+        ws_state
+            .status_override
+            .clone()
+            .unwrap_or_else(|| match &ws_state.status_banner {
+                DesktopStatusBanner::DefaultReady => format!(
+                    "{} ({} | {} | {})",
+                    translate(locale, UiKey::ClinicStatusReady),
+                    locale.native_autonym(),
+                    theme_button_label(locale, ui_theme.mode),
+                    zoom_label
+                ),
+                DesktopStatusBanner::Sending => {
+                    translate(locale, UiKey::ClinicStatusSending).to_owned()
+                }
+                DesktopStatusBanner::Copied => {
+                    translate(locale, UiKey::ClinicStatusCopied).to_owned()
+                }
+                DesktopStatusBanner::PrivacyDismissed => {
+                    translate(locale, UiKey::ClinicPrivacyDismissed).to_owned()
+                }
+                DesktopStatusBanner::SendFailed(detail) => format!(
+                    "{}: {detail}",
+                    translate(locale, UiKey::ClinicStatusSendFailed)
+                ),
+                DesktopStatusBanner::Custom(msg) => msg.clone(),
+            });
     ws_state.status_message = status_text.clone();
+    let filtered_indices = ws_state.filtered_patient_indices();
+    let search_focused = ws_state.input_focus == DesktopInputFocus::PatientSearch;
+    let composer_focused = ws_state.input_focus == DesktopInputFocus::Composer;
+    let search_placeholder = translate(locale, UiKey::ClinicSearchPatientsPlaceholder);
+    let search_display = if ws_state.patient_search_query.is_empty() {
+        search_placeholder.to_owned()
+    } else {
+        ws_state.patient_search_query.clone()
+    };
+    let copy_label = translate(locale, UiKey::ClinicCopyTranscriptButton);
 
     for (slot, mut node, bg, border, text, font, text_color, a11y) in &mut nodes {
         match *slot {
@@ -1377,14 +1769,53 @@ fn sync_desktop_ui_visuals_system(
                 set_font(font, 12.0 * scale);
                 set_color(text_color, tokens.alert_info_fg.to_bevy_color());
             }
-            DesktopUiSlot::PatientButton(idx) => {
-                let visible = idx < ws_state.patients.len();
-                node.display = if visible {
+            DesktopUiSlot::PatientSearchBox => {
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                node.border = UiRect::all(Val::Px(if search_focused { 2.0 } else { 1.0 }));
+                set_border(
+                    border,
+                    if search_focused {
+                        tokens.focus_ring.to_bevy_color()
+                    } else {
+                        tokens.text_secondary.to_bevy_color()
+                    },
+                );
+                set_a11y_label(a11y, search_placeholder);
+            }
+            DesktopUiSlot::PatientSearchText => {
+                set_text(text, &search_display);
+                set_font(font, 12.0 * scale);
+                set_color(
+                    text_color,
+                    if ws_state.patient_search_query.is_empty() {
+                        tokens.text_secondary.to_bevy_color()
+                    } else {
+                        tokens.input_fg.to_bevy_color()
+                    },
+                );
+            }
+            DesktopUiSlot::NoMatchingPatientsLabel => {
+                node.display = if filtered_indices.is_empty() {
                     Display::Flex
                 } else {
                     Display::None
                 };
-                let selected = idx == ws_state.active_patient_index;
+                set_text(text, translate(locale, UiKey::ClinicNoMatchingPatients));
+                set_font(font, 13.0 * scale);
+                set_color(text_color, tokens.text_secondary.to_bevy_color());
+            }
+            DesktopUiSlot::PatientButton(idx) => {
+                let real_idx = filtered_indices.get(idx).copied();
+                node.display = if real_idx.is_some() {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
+                let selected = if search_focused {
+                    idx == ws_state.search_highlight_index
+                } else {
+                    real_idx == Some(ws_state.active_patient_index)
+                };
                 set_bg(
                     bg,
                     if selected {
@@ -1394,16 +1825,25 @@ fn sync_desktop_ui_visuals_system(
                     },
                 );
                 set_border(border, tokens.focus_ring.to_bevy_color());
-                if let Some(p) = ws_state.patients.get(idx) {
+                if let Some(r_idx) = real_idx
+                    && let Some(p) = ws_state.patients.get(r_idx)
+                {
                     set_a11y_label(a11y, &p.display_name);
                 }
             }
             DesktopUiSlot::PatientButtonLabel(idx) => {
-                if let Some(p) = ws_state.patients.get(idx) {
+                let real_idx = filtered_indices.get(idx).copied();
+                if let Some(r_idx) = real_idx
+                    && let Some(p) = ws_state.patients.get(r_idx)
+                {
                     set_text(text, &format!("{}\n{}", p.display_name, p.summary_line));
                 }
                 set_font(font, 13.0 * scale);
-                let selected = idx == ws_state.active_patient_index;
+                let selected = if search_focused {
+                    idx == ws_state.search_highlight_index
+                } else {
+                    real_idx == Some(ws_state.active_patient_index)
+                };
                 set_color(
                     text_color,
                     if selected {
@@ -1413,9 +1853,22 @@ fn sync_desktop_ui_visuals_system(
                     },
                 );
             }
+            DesktopUiSlot::TranscriptHeaderRow => {
+                node.flex_direction = locale.row_flex_direction();
+            }
             DesktopUiSlot::TranscriptHeading => {
                 set_text(text, &chrome.transcript_heading);
                 set_font(font, 16.0 * scale);
+                set_color(text_color, tokens.text_primary.to_bevy_color());
+            }
+            DesktopUiSlot::CopyTranscriptButton => {
+                set_bg(bg, tokens.input_bg.to_bevy_color());
+                set_border(border, tokens.focus_ring.to_bevy_color());
+                set_a11y_label(a11y, copy_label);
+            }
+            DesktopUiSlot::CopyTranscriptLabel => {
+                set_text(text, copy_label);
+                set_font(font, 12.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::TranscriptScrollArea => {
@@ -1434,7 +1887,15 @@ fn sync_desktop_ui_visuals_system(
             }
             DesktopUiSlot::ComposerBox => {
                 set_bg(bg, tokens.input_bg.to_bevy_color());
-                set_border(border, tokens.focus_ring.to_bevy_color());
+                node.border = UiRect::all(Val::Px(if composer_focused { 2.0 } else { 1.0 }));
+                set_border(
+                    border,
+                    if composer_focused {
+                        tokens.focus_ring.to_bevy_color()
+                    } else {
+                        tokens.text_secondary.to_bevy_color()
+                    },
+                );
                 set_a11y_label(a11y, &chrome.composer_placeholder);
             }
             DesktopUiSlot::ComposerText => {
