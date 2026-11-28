@@ -23,28 +23,28 @@ scenario_id = "SCN-CLINIC-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 ef-clinic-desktop (live SSE streaming + WorkStop cancel/retry + live TCP E2E) & ef-mobile-desktop (OwedRecoveryBannerState + Flush + live TCP E2E), 1,284 strings, 3-OS packager & CycloneDX 1.5 SBOM
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 4-tab ef-clinic-desktop (Chat/Today/Messages/Memory&Care, workstation_tabs_e2e.rs) & ef-mobile-desktop (Personal Health Trends & Records, health_trends_records.rs), 1,536 strings, 3-OS packager & CycloneDX 1.5 SBOM
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + native Bevy desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + 4-tab Clinic & Mobile desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + native Bevy desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + 4-tab Clinic & Mobile desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
 
 [[requirements]]
 id = "EF-CLINIC-0002"
@@ -65,33 +65,33 @@ scenario_id = "SCN-M2-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 ef-clinic-desktop (live SSE streaming + WorkStop cancel/retry + live TCP E2E) & ef-mobile-desktop (OwedRecoveryBannerState + Flush + live TCP E2E), 1,284 strings, 3-OS packager & CycloneDX 1.5 SBOM
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 4-tab ef-clinic-desktop (Chat/Today/Messages/Memory&Care, workstation_tabs_e2e.rs) & ef-mobile-desktop (Personal Health Trends & Records, health_trends_records.rs), 1,536 strings, 3-OS packager & CycloneDX 1.5 SBOM
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + native Bevy desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + 4-tab Clinic & Mobile desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + native Bevy desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + 4-tab Clinic & Mobile desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -107,8 +107,8 @@ scenario_id = "SCN-M2-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [[requirements]]
 id = "EF-CLINIC-0004"
@@ -122,8 +122,8 @@ scenario_id = "SCN-M2-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [[requirements]]
 id = "EF-CLINIC-0005"
@@ -137,13 +137,13 @@ scenario_id = "SCN-M2-0004"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [[requirements]]
 id = "EF-CLINIC-0006"
@@ -157,23 +157,23 @@ scenario_id = "SCN-M2-0005"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 ef-clinic-desktop (live SSE streaming + WorkStop cancel/retry + live TCP E2E) & ef-mobile-desktop (OwedRecoveryBannerState + Flush + live TCP E2E), 1,284 strings, 3-OS packager & CycloneDX 1.5 SBOM
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 4-tab ef-clinic-desktop (Chat/Today/Messages/Memory&Care, workstation_tabs_e2e.rs) & ef-mobile-desktop (Personal Health Trends & Records, health_trends_records.rs), 1,536 strings, 3-OS packager & CycloneDX 1.5 SBOM
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -189,23 +189,23 @@ scenario_id = "SCN-M2-0006"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 ef-clinic-desktop (live SSE streaming + WorkStop cancel/retry + live TCP E2E) & ef-mobile-desktop (OwedRecoveryBannerState + Flush + live TCP E2E), 1,284 strings, 3-OS packager & CycloneDX 1.5 SBOM
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 4-tab ef-clinic-desktop (Chat/Today/Messages/Memory&Care, workstation_tabs_e2e.rs) & ef-mobile-desktop (Personal Health Trends & Records, health_trends_records.rs), 1,536 strings, 3-OS packager & CycloneDX 1.5 SBOM
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -221,13 +221,13 @@ scenario_id = "SCN-M2-0007"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0009"
@@ -241,13 +241,13 @@ scenario_id = "SCN-M2-0008"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-HARNESS-0001"
@@ -261,13 +261,13 @@ scenario_id = "SCN-M2-0009"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-PLATFORM-0001"
@@ -281,13 +281,13 @@ scenario_id = "SCN-M2-0010"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-PLATFORM-0002"
@@ -301,23 +301,23 @@ scenario_id = "SCN-M2-0011"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # 3-browser WCAG 2.1 AA Dark/Light + 200% zoom + Privacy Cover + Shortcuts QA (scripts/qa_ux_accessibility.py) + native Bevy desktop AccessKit trees, progressive SSE cancel/retry & owed sign-out recovery banner
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # 3-browser WCAG 2.1 AA Dark/Light + 200% zoom + Privacy Cover + Shortcuts QA (scripts/qa_ux_accessibility.py) + 4-tab Clinic & Mobile desktop AccessKit trees, progressive SSE cancel/retry & owed sign-out recovery
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # 3-browser WCAG 2.1 AA Dark/Light + 200% zoom + Privacy Cover + Shortcuts QA (scripts/qa_ux_accessibility.py) + native Bevy desktop AccessKit trees, progressive SSE cancel/retry & owed sign-out recovery banner
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # 3-browser WCAG 2.1 AA Dark/Light + 200% zoom + Privacy Cover + Shortcuts QA (scripts/qa_ux_accessibility.py) + 4-tab Clinic & Mobile desktop AccessKit trees, progressive SSE cancel/retry & owed sign-out recovery
 
 [requirements.coverage.desktop-macos]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + native Bevy desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # macos-15 28-crate workspace + 4-tab Clinic & Mobile desktop .app bundles + ARM64 release servers + swift test + CycloneDX 1.5 SBOM release gate
 
 [requirements.coverage.desktop-windows]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + native Bevy desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # windows-latest 28-crate workspace + 4-tab Clinic & Mobile desktop .zip bundle + MSVC .exe release servers + CycloneDX 1.5 SBOM release gate
 
 [[requirements]]
 id = "EF-PLATFORM-0003"
@@ -331,23 +331,23 @@ scenario_id = "SCN-M2-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # 12-locale ef-ui-catalog (107 UiKeys x 12 locales = 1,284 strings), Hebrew Nikud+RTL & Arabic RTL, Vietnamese diacritics, Hindi Devanagari conjuncts, 42-view 3-browser Noto QA & native Bevy desktop live GPU QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # 12-locale ef-ui-catalog (128 UiKeys x 12 locales = 1,536 strings), Hebrew Nikud+RTL & Arabic RTL, Vietnamese diacritics, Hindi Devanagari conjuncts, 42-view 3-browser Noto QA & native Bevy desktop live GPU QA
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # 12-locale ef-ui-catalog (107 UiKeys x 12 locales = 1,284 strings), Hebrew Nikud+RTL & Arabic RTL, Vietnamese diacritics, Hindi Devanagari conjuncts, 42-view 3-browser Noto QA & native Bevy desktop live GPU QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # 12-locale ef-ui-catalog (128 UiKeys x 12 locales = 1,536 strings), Hebrew Nikud+RTL & Arabic RTL, Vietnamese diacritics, Hindi Devanagari conjuncts, 42-view 3-browser Noto QA & native Bevy desktop live GPU QA
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -363,18 +363,18 @@ scenario_id = "SCN-M3-0001"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.desktop-linux]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 ef-clinic-desktop (live SSE streaming + WorkStop cancel/retry + live TCP E2E) & ef-mobile-desktop (OwedRecoveryBannerState + Flush + live TCP E2E), 1,284 strings, 3-OS packager & CycloneDX 1.5 SBOM
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Native Bevy 0.20.1 4-tab ef-clinic-desktop (Chat/Today/Messages/Memory&Care, workstation_tabs_e2e.rs) & ef-mobile-desktop (Personal Health Trends & Records, health_trends_records.rs), 1,536 strings, 3-OS packager & CycloneDX 1.5 SBOM
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0011"
@@ -388,13 +388,13 @@ scenario_id = "SCN-M3-0002"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0012"
@@ -408,13 +408,13 @@ scenario_id = "SCN-M3-0003"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0013"
@@ -428,13 +428,13 @@ scenario_id = "SCN-M3-0004"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0014"
@@ -448,8 +448,8 @@ scenario_id = "SCN-M3-0005"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CLINIC-0015"
@@ -463,8 +463,8 @@ scenario_id = "SCN-M3-0006"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-MOBILE-0001"
@@ -478,18 +478,18 @@ scenario_id = "SCN-M3-0007"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -505,25 +505,25 @@ scenario_id = "SCN-M3-0008"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-MOBILE-0003"
@@ -537,13 +537,13 @@ scenario_id = "SCN-M3-0009"
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -559,25 +559,25 @@ scenario_id = "SCN-M3-0010"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-MOBILE-0005"
@@ -591,18 +591,18 @@ scenario_id = "SCN-M3-0011"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
@@ -618,30 +618,30 @@ scenario_id = "SCN-M3-0012"
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.android-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical Android device unavailable for runtime Health Connect/FCM/TalkBack/GPU checks; automated domain/headless tests + aarch64-linux-android NDK cross-check, clean-room Android Gradle project (build.gradle.kts/AndroidManifest.xml), and executable Kotlin EFSS v1 byte-parity suite passed"
 
 [requirements.coverage.ios-native]
 state = "blocked"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md"
 reason = "Physical iOS device unavailable for runtime HealthKit/APNs/VoiceOver/GPU checks; automated domain/headless tests + aarch64-apple-ios-sim cross-check & executable swift test EFSS v1 byte-parity suite passed on macos-15"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-CONN-0002"
@@ -655,18 +655,18 @@ scenario_id = "SCN-M3-0013"
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-HARNESS-0002"
@@ -680,8 +680,8 @@ scenario_id = "SCN-M3-0014"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-HARNESS-0003"
@@ -695,8 +695,8 @@ scenario_id = "SCN-M3-0015"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-HARNESS-0004"
@@ -710,8 +710,8 @@ scenario_id = "SCN-M3-0016"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-EXT-0001"
@@ -725,7 +725,7 @@ scenario_id = "SCN-M3-0017"
 
 [requirements.coverage.chrome-extension-popup]
 state = "passed"
-revision = "08e11c9"
+revision = "801fb38"
 evidence = "docs/m5/disposition-and-retirement.md" # MV3 popup 15.6ms/36ms/19ms <= 250ms, 4,347 B raw, 0 CSP violations
 
 [[requirements]]
@@ -740,13 +740,13 @@ scenario_id = "SCN-M3-0018"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # JS-disabled public/Dei + zero-PHI /metrics + JSON telemetry + ShutdownSignal drain + deploy/Caddyfile + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Searchable zero-JS /dei?state=&service=&q= crisis-first finder (dei_finder_filtering.rs) + XSS-safe escaping + zero-PHI /metrics + JSON telemetry + ShutdownSignal drain + 5-container Compose gateway
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
 
 [[requirements]]
 id = "EF-PUBLIC-0002"
@@ -760,18 +760,18 @@ scenario_id = "SCN-M3-0019"
 
 [requirements.coverage.static-public-web]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # JS-disabled public/Dei + zero-PHI /metrics + JSON telemetry + ShutdownSignal drain + deploy/Caddyfile + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Searchable zero-JS /dei?state=&service=&q= crisis-first finder (dei_finder_filtering.rs) + XSS-safe escaping + zero-PHI /metrics + JSON telemetry + ShutdownSignal drain + 5-container Compose gateway
 
 [requirements.coverage.browser-wasm-desktop]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_clinic_client.wasm 1.734 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA
 
 [requirements.coverage.browser-wasm-mobile]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,284 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Compiled ef_mobile_client.wasm 1.682 MiB + 12-locale ef-ui-catalog (1,536 strings) + 42-view 7-script Noto QA + 3-browser WCAG 2.1 AA UX QA + offline
 
 [[requirements]]
 id = "EF-PLATFORM-0004"
@@ -785,5 +785,5 @@ scenario_id = "SCN-M3-0020"
 
 [requirements.coverage.hosted-services]
 state = "passed"
-revision = "08e11c9"
-evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + 2-instance failover + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway (scripts/verify_compose_stack.sh)
+revision = "801fb38"
+evidence = "docs/m5/disposition-and-retirement.md" # Live PG18 ef-pgwire + live Clinic workflow HTTP APIs (workflow_http_api.rs) + zero-PHI JSON telemetry (EF_ACCESS_LOG_JSON=1) + X-Request-Id + ShutdownSignal drain + /metrics + 5-container Compose gateway
