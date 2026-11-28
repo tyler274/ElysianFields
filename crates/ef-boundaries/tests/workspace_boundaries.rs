@@ -28,6 +28,7 @@ fn scn_m3_0020_workspace_manifests_satisfy_all_architecture_boundaries() {
         "ef-harness",
         "ef-extension",
         "ef-public-site",
+        "ef-mobile-desktop",
     ] {
         assert!(
             manifests.iter().any(|m| m.name == required),
@@ -70,6 +71,7 @@ fn scn_m3_0020_headless_classification_covers_all_m2_and_m3_headless_crates() {
     assert!(!is_headless_crate("ef-ui-catalog"));
     assert!(!is_headless_crate("ef-clinic-client"));
     assert!(!is_headless_crate("ef-mobile-client"));
+    assert!(!is_headless_crate("ef-mobile-desktop"));
     assert!(!is_headless_crate("m1-streaming-perf"));
 }
 
@@ -106,6 +108,11 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
             name: "ef-public-site".to_owned(),
             path: PathBuf::from("crates/ef-public-site/Cargo.toml"),
             dependencies: vec!["ef-clinic-domain".to_owned()],
+        },
+        CrateManifestSummary {
+            name: "ef-mobile-desktop".to_owned(),
+            path: PathBuf::from("crates/ef-mobile-desktop/Cargo.toml"),
+            dependencies: vec!["ef-clinic-client".to_owned()],
         },
     ];
 
@@ -160,6 +167,11 @@ fn scn_m3_0020_negative_injections_fail_closed_with_explicit_diagnostics() {
             forbidden_dep: "ef-clinic-domain".to_owned(),
         })
     );
+
+    assert!(violations.contains(&BoundaryViolation::CrossProductImport {
+        crate_name: "ef-mobile-desktop".to_owned(),
+        forbidden_dep: "ef-clinic-client".to_owned(),
+    }));
 
     // Negative injection: mobile UI calling native health bridge directly fails closed.
     let temp_dir = std::env::temp_dir().join("ef-boundaries-mobile-ui-neg-test");

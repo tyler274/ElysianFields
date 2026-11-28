@@ -163,7 +163,7 @@ pub fn audit_workspace_boundaries(workspace_root: &Path) -> Vec<BoundaryViolatio
         if is_client_crate(&manifest.name) {
             scan_dir_for_secrets(crate_dir, workspace_root, &mut violations);
         }
-        if manifest.name == "ef-mobile-client" {
+        if manifest.name == "ef-mobile-client" || manifest.name == "ef-mobile-desktop" {
             scan_dir_for_mobile_ui_health_bridges(crate_dir, workspace_root, &mut violations);
         }
     }

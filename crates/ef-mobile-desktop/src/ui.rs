@@ -1,0 +1,889 @@
+//! Native Bevy `0.20.1` Curie Mobile desktop UI plugin (`420x860` mobile-proportioned layout).
+
+use bevy::a11y::AccessibilityNode;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::picking::events::PointerClick;
+use bevy::prelude::*;
+use bevy::text::FontSource;
+use ef_connected_care::{ConnectedCareState, DobVerificationOutcome};
+
+fn desktop_text_font(size_px: f32) -> TextFont {
+    TextFont {
+        font: FontSource::sans_serif(),
+        ..TextFont::from_font_size(size_px)
+    }
+}
+use ef_mobile_client::MobileClientState;
+use ef_mobile_domain::{ConnectivityState, MobileClientScreen};
+use ef_ui_catalog::{
+    A11yNodeMarker, A11ySemanticKey, ChromeProduct, ComposerAction, ComposerOutcome,
+    ComposerSurface, IdleRedrawGate, NodeInteractivity, RedrawReason, SrgbColor, ThemeMode,
+    ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome,
+};
+
+use crate::state::{
+    CRISIS_LINE_911, CRISIS_LINE_988, CRISIS_LINE_SAMHSA, DesktopAction, DesktopActionQueue,
+    MobileDesktopUiState, process_desktop_actions_system,
+};
+
+/// High-contrast WCAG 2.1 AA crimson banner palette for Dark and Light themes.
+#[derive(Debug, Clone, Copy)]
+pub struct CrisisBannerPalette {
+    pub bg: SrgbColor,
+    pub border: SrgbColor,
+    pub text: SrgbColor,
+    pub highlight: SrgbColor,
+}
+
+impl CrisisBannerPalette {
+    #[must_use]
+    pub const fn for_mode(mode: ThemeMode) -> Self {
+        match mode {
+            ThemeMode::Dark => Self {
+                bg: SrgbColor::rgb(0x3F, 0x1D, 0x2E),
+                border: SrgbColor::rgb(0xBE, 0x12, 0x3C),
+                text: SrgbColor::rgb(0xFF, 0xF1, 0xF2),
+                highlight: SrgbColor::rgb(0xFD, 0xE6, 0x8A),
+            },
+            ThemeMode::Light => Self {
+                bg: SrgbColor::rgb(0xFF, 0xF1, 0xF2),
+                border: SrgbColor::rgb(0x9F, 0x12, 0x39),
+                text: SrgbColor::rgb(0x88, 0x13, 0x37),
+                highlight: SrgbColor::rgb(0x88, 0x13, 0x37),
+            },
+        }
+    }
+}
+
+/// Marker component for the root canvas container.
+#[derive(Component)]
+pub struct RootCanvasNode;
+
+/// Marker component for every horizontal row that mirrors under Hebrew/Arabic RTL.
+#[derive(Component)]
+pub struct MirroredRowNode;
+
+/// Marker component for standard card surfaces.
+#[derive(Component)]
+pub struct CardSurfaceNode;
+
+/// Marker component for the crisis-first banner pinned at the top of the viewport.
+#[derive(Component)]
+pub struct CrisisBannerNode;
+
+/// Marker component for the curated note composer visual box.
+#[derive(Component)]
+pub struct ComposerBoxNode;
+
+/// Marker component binding a Bevy UI [`Button`] to its typed [`DesktopAction`].
+#[derive(Component, Clone)]
+pub struct ActionButton {
+    pub action: DesktopAction,
+    pub style: ButtonStyle,
+}
+
+/// Visual prominence for native Bevy UI buttons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ButtonStyle {
+    Primary,
+    Secondary,
+}
+
+/// Typed slots for reactive text updates without duplicating UI entity trees.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextSlot {
+    BrandTitle,
+    LocaleBtnLabel,
+    ThemeBtnLabel,
+    StatusBanner,
+    CrisisHeading,
+    CrisisBody,
+    AccountHeading,
+    AccountSummary,
+    SignInBtnLabel,
+    ConnectivityBtnLabel,
+    SignOutBtnLabel,
+    ConnectedCareHeading,
+    ConnectedCareSummary,
+    VerifyDobBtnLabel,
+    ShareBtnLabel,
+    ForMyDoctorHeading,
+    ComposerLabel,
+    ComposerContent,
+    ReviewSendBtnLabel,
+    SentSummary,
+}
+
+/// Text color role applied reactively when the WCAG 2.1 AA theme changes.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTone {
+    Primary,
+    Secondary,
+    AccentLabel,
+    CrisisHeading,
+    CrisisBody,
+    Input,
+}
+
+/// Bevy `0.20.1` plugin spawning and driving the Curie Mobile native desktop UI.
+pub struct MobileDesktopUiPlugin;
+
+impl Plugin for MobileDesktopUiPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_message::<KeyboardInput>()
+            .init_resource::<DesktopActionQueue>()
+            .add_systems(Startup, spawn_mobile_desktop_ui)
+            .add_systems(
+                Update,
+                (
+                    handle_composer_keyboard_input_system,
+                    process_desktop_actions_system,
+                    sync_desktop_visuals_system,
+                )
+                    .chain(),
+            );
+    }
+}
+
+fn spawn_mobile_desktop_ui(
+    mut commands: Commands,
+    ui_locale: Res<UiLocale>,
+    ui_theme: Res<UiTheme>,
+    desktop: Res<MobileDesktopUiState>,
+) {
+    let tokens = ui_theme.tokens;
+    let crisis = CrisisBannerPalette::for_mode(ui_theme.mode);
+    let chrome = localized_chrome(ui_locale.current, ChromeProduct::Mobile);
+    let row_dir = ui_locale.current.row_flex_direction();
+
+    commands
+        .spawn((
+            RootCanvasNode,
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(10.0),
+                padding: UiRect::all(Val::Px(12.0)),
+                overflow: Overflow::scroll_y(),
+                ..default()
+            },
+            BackgroundColor(tokens.canvas_bg.to_bevy_color()),
+        ))
+        .with_children(|root| {
+            // 1. Header Bar: Brand title + Locale cycler + Light/Dark theme toggle.
+            root.spawn((
+                MirroredRowNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: row_dir,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::SpaceBetween,
+                    column_gap: Val::Px(6.0),
+                    row_gap: Val::Px(6.0),
+                    flex_wrap: FlexWrap::Wrap,
+                    ..default()
+                },
+            ))
+            .with_children(|header| {
+                header.spawn((
+                    Text::new(chrome.app_brand.clone()),
+                    desktop_text_font(18.0),
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                    TextSlot::BrandTitle,
+                    TextTone::Primary,
+                ));
+
+                header
+                    .spawn((
+                        MirroredRowNode,
+                        Node {
+                            flex_direction: row_dir,
+                            column_gap: Val::Px(6.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                    ))
+                    .with_children(|controls| {
+                        spawn_action_button(
+                            controls,
+                            DesktopAction::CycleLocale,
+                            ButtonStyle::Secondary,
+                            TextSlot::LocaleBtnLabel,
+                            ui_locale.current.short_badge(),
+                            A11ySemanticKey::MobileMenuButton,
+                            10,
+                            &tokens,
+                        );
+                        let theme_label = match ui_theme.mode {
+                            ThemeMode::Dark => ui_locale.t(UiKey::LabelThemeLight),
+                            ThemeMode::Light => ui_locale.t(UiKey::LabelThemeDark),
+                        };
+                        spawn_action_button(
+                            controls,
+                            DesktopAction::ToggleTheme,
+                            ButtonStyle::Secondary,
+                            TextSlot::ThemeBtnLabel,
+                            theme_label,
+                            A11ySemanticKey::ResumeButton,
+                            11,
+                            &tokens,
+                        );
+                    });
+            });
+
+            // Status strip
+            root.spawn((
+                CardSurfaceNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.focus_ring.to_bevy_color()),
+            ))
+            .with_children(|strip| {
+                strip.spawn((
+                    Text::new(format!("{} | {}", desktop.mode_label, desktop.last_status)),
+                    desktop_text_font(12.0),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::StatusBanner,
+                    TextTone::Secondary,
+                ));
+            });
+
+            // 2. Crisis-First Banner pinned visibly at top (988, 911, SAMHSA 1-800-662-4357).
+            let mut crisis_a11y = accesskit::Node::new(accesskit::Role::Alert);
+            crisis_a11y.set_label(format!(
+                "{} - {CRISIS_LINE_988}; {CRISIS_LINE_911}; {CRISIS_LINE_SAMHSA}",
+                chrome.crisis_heading
+            ));
+            root.spawn((
+                CrisisBannerNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(4.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(crisis.bg.to_bevy_color()),
+                BorderColor::all(crisis.border.to_bevy_color()),
+                A11yNodeMarker {
+                    key: A11ySemanticKey::AssertiveAlertRegion,
+                    reading_order: 12,
+                    interactivity: NodeInteractivity::Structural,
+                },
+                AccessibilityNode(crisis_a11y),
+            ))
+            .with_children(|banner| {
+                banner.spawn((
+                    Text::new(chrome.crisis_heading.clone()),
+                    desktop_text_font(14.0),
+                    TextColor(crisis.highlight.to_bevy_color()),
+                    TextSlot::CrisisHeading,
+                    TextTone::CrisisHeading,
+                ));
+                banner.spawn((
+                    Text::new(format!(
+                        "- {CRISIS_LINE_988}\n- {CRISIS_LINE_911}\n- {CRISIS_LINE_SAMHSA}"
+                    )),
+                    desktop_text_font(12.0),
+                    TextColor(crisis.text.to_bevy_color()),
+                    TextSlot::CrisisBody,
+                    TextTone::CrisisBody,
+                ));
+            });
+
+            // 3. Standalone Account & Offline-Safe Sign-Out Section.
+            root.spawn((
+                CardSurfaceNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|card| {
+                card.spawn((
+                    Text::new(chrome.nav_account.clone()),
+                    desktop_text_font(14.5),
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                    TextSlot::AccountHeading,
+                    TextTone::Primary,
+                ));
+                card.spawn((
+                    Text::new(format!(
+                        "Email: {} | Status: Signed out | Online | Owed sign-outs: 0",
+                        desktop.patient_email
+                    )),
+                    desktop_text_font(12.0),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::AccountSummary,
+                    TextTone::Secondary,
+                ));
+                card.spawn((
+                    MirroredRowNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: row_dir,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(6.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    },
+                ))
+                .with_children(|row| {
+                    spawn_action_button(
+                        row,
+                        DesktopAction::SignIn,
+                        ButtonStyle::Primary,
+                        TextSlot::SignInBtnLabel,
+                        &chrome.sign_in,
+                        A11ySemanticKey::ListRow(1),
+                        13,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::ToggleConnectivity,
+                        ButtonStyle::Secondary,
+                        TextSlot::ConnectivityBtnLabel,
+                        "Go Offline",
+                        A11ySemanticKey::ListRow(2),
+                        14,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::OfflineSignOut,
+                        ButtonStyle::Secondary,
+                        TextSlot::SignOutBtnLabel,
+                        &chrome.sign_out,
+                        A11ySemanticKey::ListRow(3),
+                        15,
+                        &tokens,
+                    );
+                });
+            });
+
+            // 4. Connected Care Section (Invitation Code + DOB Verify + Explicit Share Consent).
+            root.spawn((
+                CardSurfaceNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|card| {
+                card.spawn((
+                    Text::new(chrome.nav_connected_care.clone()),
+                    desktop_text_font(14.5),
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                    TextSlot::ConnectedCareHeading,
+                    TextTone::Primary,
+                ));
+                card.spawn((
+                    Text::new(format!(
+                        "{}\nInvite: {} | DOB: {}\nConsent: Explicit Share required (never auto-shared)",
+                        desktop.practice_preview_name,
+                        desktop.invite_code_display,
+                        desktop.dob_display
+                    )),
+                    desktop_text_font(12.0),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::ConnectedCareSummary,
+                    TextTone::Secondary,
+                ));
+                card.spawn((
+                    MirroredRowNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: row_dir,
+                        column_gap: Val::Px(6.0),
+                        row_gap: Val::Px(6.0),
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    },
+                ))
+                .with_children(|row| {
+                    spawn_action_button(
+                        row,
+                        DesktopAction::VerifyDob,
+                        ButtonStyle::Secondary,
+                        TextSlot::VerifyDobBtnLabel,
+                        &chrome.verify_dob,
+                        A11ySemanticKey::ListRow(4),
+                        16,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::ShareConnectedCare,
+                        ButtonStyle::Primary,
+                        TextSlot::ShareBtnLabel,
+                        &chrome.share,
+                        A11ySemanticKey::ListRow(5),
+                        17,
+                        &tokens,
+                    );
+                });
+            });
+
+            // 5. For My Doctor Section (Curated Note ComposerSurface + Review & Send).
+            root.spawn((
+                CardSurfaceNode,
+                Node {
+                    width: Val::Percent(100.0),
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    border: UiRect::all(Val::Px(1.0)),
+                    ..default()
+                },
+                BackgroundColor(tokens.surface_bg.to_bevy_color()),
+                BorderColor::all(tokens.text_secondary.to_bevy_color()),
+            ))
+            .with_children(|card| {
+                card.spawn((
+                    Text::new(chrome.nav_for_my_doctor.clone()),
+                    desktop_text_font(14.5),
+                    TextColor(tokens.text_primary.to_bevy_color()),
+                    TextSlot::ForMyDoctorHeading,
+                    TextTone::Primary,
+                ));
+                card.spawn((
+                    Text::new("Curated note (type directly; nothing sends until Review & Send):"),
+                    desktop_text_font(11.5),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::ComposerLabel,
+                    TextTone::Secondary,
+                ));
+                card.spawn((
+                    ComposerBoxNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        min_height: Val::Px(64.0),
+                        padding: UiRect::all(Val::Px(8.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(tokens.input_bg.to_bevy_color()),
+                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
+                ))
+                .with_children(|box_node| {
+                    box_node.spawn((
+                        Text::new("Type a short update for your care team..."),
+                        desktop_text_font(12.5),
+                        TextColor(tokens.input_fg.to_bevy_color()),
+                        TextSlot::ComposerContent,
+                        TextTone::Input,
+                    ));
+                });
+                card.spawn((
+                    MirroredRowNode,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: row_dir,
+                        column_gap: Val::Px(6.0),
+                        ..default()
+                    },
+                ))
+                .with_children(|row| {
+                    spawn_action_button(
+                        row,
+                        DesktopAction::ReviewAndSendDoctorNote,
+                        ButtonStyle::Primary,
+                        TextSlot::ReviewSendBtnLabel,
+                        &chrome.review_and_send,
+                        A11ySemanticKey::CitationChip(0),
+                        18,
+                        &tokens,
+                    );
+                });
+                card.spawn((
+                    Text::new("Sent updates: 0"),
+                    desktop_text_font(11.5),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::SentSummary,
+                    TextTone::Secondary,
+                ));
+            });
+        });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_action_button(
+    parent: &mut ChildSpawnerCommands,
+    action: DesktopAction,
+    style: ButtonStyle,
+    slot: TextSlot,
+    label: &str,
+    a11y_key: A11ySemanticKey,
+    reading_order: usize,
+    tokens: &ThemeTokens,
+) {
+    let (bg, border, text_color, tone) = match style {
+        ButtonStyle::Primary => (
+            tokens.accent_fill.to_bevy_color(),
+            tokens.accent_fill.to_bevy_color(),
+            tokens.accent_label.to_bevy_color(),
+            TextTone::AccentLabel,
+        ),
+        ButtonStyle::Secondary => (
+            tokens.canvas_bg.to_bevy_color(),
+            tokens.text_secondary.to_bevy_color(),
+            tokens.text_primary.to_bevy_color(),
+            TextTone::Primary,
+        ),
+    };
+
+    let mut a11y_node = accesskit::Node::new(accesskit::Role::Button);
+    a11y_node.set_label(label.to_owned());
+
+    let click_action = action.clone();
+    parent
+        .spawn((
+            ActionButton { action, style },
+            Pickable::default(),
+            Node {
+                min_height: Val::Px(40.0),
+                padding: UiRect::axes(Val::Px(10.0), Val::Px(7.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            BackgroundColor(bg),
+            BorderColor::all(border),
+            A11yNodeMarker {
+                key: a11y_key,
+                reading_order,
+                interactivity: NodeInteractivity::Interactive,
+            },
+            AccessibilityNode(a11y_node),
+        ))
+        .observe(
+            move |_click: On<PointerClick>, mut actions: ResMut<DesktopActionQueue>| {
+                actions.push(click_action.clone());
+            },
+        )
+        .with_children(|btn| {
+            btn.spawn((
+                Text::new(label.to_owned()),
+                desktop_text_font(12.5),
+                TextColor(text_color),
+                slot,
+                tone,
+            ));
+        });
+}
+
+fn handle_composer_keyboard_input_system(
+    mut key_messages: MessageReader<KeyboardInput>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    desktop: Res<MobileDesktopUiState>,
+    mut composer: ResMut<ComposerSurface>,
+    mut actions: ResMut<DesktopActionQueue>,
+    mut gate: ResMut<IdleRedrawGate>,
+) {
+    if !desktop.composer_focused {
+        return;
+    }
+
+    let shift = keys
+        .as_ref()
+        .is_some_and(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight));
+    let primary_mod = keys.as_ref().is_some_and(|k| {
+        k.pressed(KeyCode::ControlLeft)
+            || k.pressed(KeyCode::ControlRight)
+            || k.pressed(KeyCode::SuperLeft)
+            || k.pressed(KeyCode::SuperRight)
+    });
+
+    for ev in key_messages.read() {
+        if ev.state != ButtonState::Pressed {
+            continue;
+        }
+        if primary_mod && ev.key_code == KeyCode::KeyZ {
+            let outcome = if shift {
+                composer.apply(ComposerAction::Redo)
+            } else {
+                composer.apply(ComposerAction::Undo)
+            };
+            if outcome != ComposerOutcome::NoOp {
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            continue;
+        }
+        match &ev.logical_key {
+            Key::Enter => {
+                if shift {
+                    let _ = composer.apply(ComposerAction::ShiftEnterNewline);
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else {
+                    actions.push(DesktopAction::ReviewAndSendDoctorNote);
+                }
+            }
+            Key::Backspace => {
+                let _ = composer.apply(ComposerAction::Backspace);
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::Delete => {
+                let _ = composer.apply(ComposerAction::DeleteForward);
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::ArrowLeft => {
+                let _ = composer.apply(ComposerAction::MovePrevCluster {
+                    extend_selection: shift,
+                });
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::ArrowRight => {
+                let _ = composer.apply(ComposerAction::MoveNextCluster {
+                    extend_selection: shift,
+                });
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::Space => {
+                let _ = composer.apply(ComposerAction::InsertText(" ".to_owned()));
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::Character(text)
+                if !primary_mod && !text.is_empty() && !text.chars().all(char::is_control) =>
+            {
+                let _ = composer.apply(ComposerAction::InsertText(text.to_string()));
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            _ => {}
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn sync_desktop_visuals_system(
+    ui_locale: Res<UiLocale>,
+    ui_theme: Res<UiTheme>,
+    desktop: Res<MobileDesktopUiState>,
+    mobile_state: Res<MobileClientState>,
+    composer: Res<ComposerSurface>,
+    mut root_q: Query<&mut BackgroundColor, With<RootCanvasNode>>,
+    mut card_q: Query<
+        (&mut BackgroundColor, &mut BorderColor),
+        (
+            With<CardSurfaceNode>,
+            Without<RootCanvasNode>,
+            Without<CrisisBannerNode>,
+            Without<ComposerBoxNode>,
+            Without<ActionButton>,
+        ),
+    >,
+    mut crisis_q: Query<
+        (&mut BackgroundColor, &mut BorderColor),
+        (
+            With<CrisisBannerNode>,
+            Without<RootCanvasNode>,
+            Without<CardSurfaceNode>,
+            Without<ComposerBoxNode>,
+            Without<ActionButton>,
+        ),
+    >,
+    mut composer_box_q: Query<
+        (&mut BackgroundColor, &mut BorderColor),
+        (
+            With<ComposerBoxNode>,
+            Without<RootCanvasNode>,
+            Without<CardSurfaceNode>,
+            Without<CrisisBannerNode>,
+            Without<ActionButton>,
+        ),
+    >,
+    mut btn_q: Query<
+        (&ActionButton, &mut BackgroundColor, &mut BorderColor),
+        (
+            Without<RootCanvasNode>,
+            Without<CardSurfaceNode>,
+            Without<CrisisBannerNode>,
+            Without<ComposerBoxNode>,
+        ),
+    >,
+    mut rows_q: Query<&mut Node, With<MirroredRowNode>>,
+    mut text_q: Query<(&TextSlot, &TextTone, &mut Text, &mut TextColor)>,
+) {
+    let tokens = ui_theme.tokens;
+    let crisis = CrisisBannerPalette::for_mode(ui_theme.mode);
+    let chrome = localized_chrome(ui_locale.current, ChromeProduct::Mobile);
+    let row_dir = ui_locale.current.row_flex_direction();
+
+    for mut bg in &mut root_q {
+        *bg = BackgroundColor(tokens.canvas_bg.to_bevy_color());
+    }
+    for (mut bg, mut border) in &mut card_q {
+        *bg = BackgroundColor(tokens.surface_bg.to_bevy_color());
+        *border = BorderColor::all(tokens.text_secondary.to_bevy_color());
+    }
+    for (mut bg, mut border) in &mut crisis_q {
+        *bg = BackgroundColor(crisis.bg.to_bevy_color());
+        *border = BorderColor::all(crisis.border.to_bevy_color());
+    }
+    for (mut bg, mut border) in &mut composer_box_q {
+        *bg = BackgroundColor(tokens.input_bg.to_bevy_color());
+        *border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+    }
+    for (btn, mut bg, mut border) in &mut btn_q {
+        match btn.style {
+            ButtonStyle::Primary => {
+                *bg = BackgroundColor(tokens.accent_fill.to_bevy_color());
+                *border = BorderColor::all(tokens.accent_fill.to_bevy_color());
+            }
+            ButtonStyle::Secondary => {
+                *bg = BackgroundColor(tokens.canvas_bg.to_bevy_color());
+                *border = BorderColor::all(tokens.text_secondary.to_bevy_color());
+            }
+        }
+    }
+    for mut node in &mut rows_q {
+        node.flex_direction = row_dir;
+    }
+
+    let connectivity_label = match mobile_state.auth_device.connectivity() {
+        ConnectivityState::Online => "Online",
+        ConnectivityState::Offline => "Offline",
+    };
+    let toggle_connectivity_label = match mobile_state.auth_device.connectivity() {
+        ConnectivityState::Online => "Go Offline",
+        ConnectivityState::Offline => "Go Online",
+    };
+    let screen_summary = match mobile_state.auth_device.screen() {
+        MobileClientScreen::EnterYourEmail => "Signed out".to_owned(),
+        MobileClientScreen::CheckYourEmail { pending_email } => {
+            format!("Check email ({})", pending_email.as_str())
+        }
+        MobileClientScreen::SignedIn { account_id, .. } => {
+            format!("Signed in ({})", account_id.as_str())
+        }
+        MobileClientScreen::SessionEnded => "Session ended".to_owned(),
+    };
+    let owed_count = mobile_state.auth_device.owed_sign_outs().len();
+
+    let dob_summary = match &mobile_state.last_dob_outcome {
+        None => "DOB not verified yet".to_owned(),
+        Some(DobVerificationOutcome::Verified { .. }) => "DOB verified".to_owned(),
+        Some(DobVerificationOutcome::Mismatch { remaining_attempts }) => {
+            format!("DOB mismatch ({remaining_attempts} attempts left)")
+        }
+        Some(DobVerificationOutcome::LockedOut) => "Locked out".to_owned(),
+    };
+    let standing_summary = match &mobile_state.last_connection_standing {
+        None => "Not shared (explicit Share required)".to_owned(),
+        Some(standing) => match standing.state {
+            ConnectedCareState::Connected => {
+                let conn_id = standing
+                    .active_connection_id
+                    .as_ref()
+                    .map_or("active", |id| id.as_str());
+                format!("Connected ({conn_id})")
+            }
+            ConnectedCareState::NotInvited => "Not invited".to_owned(),
+            ConnectedCareState::Invited => "Invited (explicit Share required)".to_owned(),
+            ConnectedCareState::InvitedLocked => "Invitation locked".to_owned(),
+            ConnectedCareState::Ended => "Disconnected".to_owned(),
+        },
+    };
+
+    let composer_display = if composer.display_text().is_empty() {
+        "Type a short update for your care team...".to_owned()
+    } else {
+        composer.display_text()
+    };
+
+    let sent_summary = if let Some(last) = mobile_state.sent_envelopes.last() {
+        let preview = last
+            .items
+            .first()
+            .map_or("(empty)", |item| item.verbatim_payload.as_str());
+        format!(
+            "Sent updates: {} | Latest: {preview}",
+            mobile_state.sent_envelopes.len()
+        )
+    } else {
+        "Sent updates: 0".to_owned()
+    };
+
+    let theme_btn_text = match ui_theme.mode {
+        ThemeMode::Dark => ui_locale.t(UiKey::LabelThemeLight).to_owned(),
+        ThemeMode::Light => ui_locale.t(UiKey::LabelThemeDark).to_owned(),
+    };
+
+    for (slot, tone, mut text, mut color) in &mut text_q {
+        *color = TextColor(match tone {
+            TextTone::Primary => tokens.text_primary.to_bevy_color(),
+            TextTone::Secondary => tokens.text_secondary.to_bevy_color(),
+            TextTone::AccentLabel => tokens.accent_label.to_bevy_color(),
+            TextTone::CrisisHeading => crisis.highlight.to_bevy_color(),
+            TextTone::CrisisBody => crisis.text.to_bevy_color(),
+            TextTone::Input => tokens.input_fg.to_bevy_color(),
+        });
+
+        let next_text = match slot {
+            TextSlot::BrandTitle => chrome.app_brand.clone(),
+            TextSlot::LocaleBtnLabel => ui_locale.current.short_badge().to_owned(),
+            TextSlot::ThemeBtnLabel => theme_btn_text.clone(),
+            TextSlot::StatusBanner => format!(
+                "{} | {} ({})",
+                desktop.mode_label,
+                desktop.last_status,
+                ui_locale.current.bcp47_tag()
+            ),
+            TextSlot::CrisisHeading => chrome.crisis_heading.clone(),
+            TextSlot::CrisisBody => {
+                format!("- {CRISIS_LINE_988}\n- {CRISIS_LINE_911}\n- {CRISIS_LINE_SAMHSA}")
+            }
+            TextSlot::AccountHeading => chrome.nav_account.clone(),
+            TextSlot::AccountSummary => format!(
+                "Email: {} | {} | {} | Owed sign-outs: {owed_count}",
+                desktop.patient_email, screen_summary, connectivity_label
+            ),
+            TextSlot::SignInBtnLabel => chrome.sign_in.clone(),
+            TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
+            TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
+            TextSlot::ConnectedCareHeading => chrome.nav_connected_care.clone(),
+            TextSlot::ConnectedCareSummary => format!(
+                "{}\nInvite: {} | DOB: {}\n{} | {}",
+                desktop.practice_preview_name,
+                desktop.invite_code_display,
+                desktop.dob_display,
+                dob_summary,
+                standing_summary
+            ),
+            TextSlot::VerifyDobBtnLabel => chrome.verify_dob.clone(),
+            TextSlot::ShareBtnLabel => chrome.share.clone(),
+            TextSlot::ForMyDoctorHeading => chrome.nav_for_my_doctor.clone(),
+            TextSlot::ComposerLabel => {
+                "Curated note (type directly; nothing sends until Review & Send):".to_owned()
+            }
+            TextSlot::ComposerContent => composer_display.clone(),
+            TextSlot::ReviewSendBtnLabel => chrome.review_and_send.clone(),
+            TextSlot::SentSummary => sent_summary.clone(),
+        };
+
+        if text.0 != next_text {
+            text.0 = next_text;
+        }
+    }
+}

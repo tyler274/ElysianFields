@@ -1,0 +1,63 @@
+[package]
+name = "ef-mobile-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Standalone, product-isolated native Bevy 0.20.1 Curie Mobile desktop application."
+
+# Keep core Bevy UI features matching `ef-mobile-client` in `[dependencies]` so
+# `bevy_macro_utils` resolves `bevy::ecs` cleanly while keeping `clippy-wasm` fast.
+[dependencies]
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_input_focus",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_window",
+] }
+
+# Native desktop rendering, windowing, picking, system font discovery, and PNG capture.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+accesskit = { workspace = true }
+bevy = { workspace = true, features = [
+    "multi_threaded",
+    "bevy_log",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_ui_render",
+    "ui_picking",
+    "default_font",
+    "system_font_discovery",
+    "png",
+] }
+ef-connected-care = { workspace = true }
+ef-core = { workspace = true }
+ef-mobile-client = { path = "../ef-mobile-client" }
+ef-mobile-domain = { workspace = true }
+ef-ui-catalog = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# Enable X11 + Wayland + Fontconfig dlopen on Linux without requiring system pkg-config
+# headers (`wayland-client.pc`, `fontconfig.pc`) or pulling unmaintained `ttf-parser`.
+[target.'cfg(target_os = "linux")'.dependencies]
+bevy = { workspace = true, features = ["x11"] }
+fontique = { version = "0.11.1", default-features = false, features = ["fontconfig-dlopen"] }
+winit = { version = "0.30.13", default-features = false, features = [
+    "wayland",
+    "wayland-dlopen",
+    "wayland-csd-adwaita-notitle",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+ef-mobile-server = { path = "../ef-mobile-server" }
+
+[lints]
+workspace = true
