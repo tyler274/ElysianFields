@@ -260,6 +260,74 @@ export class ClinicApiClient {
     );
     return { status: resp.status, ok: resp.ok, body: await resp.json() };
   }
+
+  async listWorkspaceReplies(workspaceId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/workspaces/${encodeURIComponent(workspaceId)}/replies`),
+      { headers: this.#headers() },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async saveReplyDraft(conversationId, text) {
+    const resp = await fetch(
+      resolveMountUrl(`api/replies/${encodeURIComponent(conversationId)}/draft`),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ text }),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async restoreSystemReply(conversationId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/replies/${encodeURIComponent(conversationId)}/restore`),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async copyReply(conversationId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/replies/${encodeURIComponent(conversationId)}/copy`),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async closeReply(conversationId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/replies/${encodeURIComponent(conversationId)}/close`),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async undoCloseReply(conversationId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/replies/${encodeURIComponent(conversationId)}/undo`),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
 }
 
 async function detectGraphicsCapabilities(canvas) {
@@ -489,10 +557,18 @@ function applyClinicDocumentLocale(
   setText("heading-messages", chrome.messages_heading);
   setText("heading-messages-patient", chrome.messages_patient_label);
   setText("heading-messages-draft", chrome.messages_draft_label);
+  setText("label-messages-concern", chrome.messages_concern_label);
+  setText("label-messages-draft-input", chrome.messages_draft_input_label);
+  setText("btn-save-draft", chrome.messages_save_draft);
+  setText("btn-restore-ai-draft", chrome.messages_restore_ai_draft);
   setText("btn-copy-reply", chrome.messages_copy_reply);
   setText("btn-close-reply", chrome.messages_close_reply);
   setText("btn-undo-close", chrome.messages_undo_close);
   setText("messages-closed-notice", chrome.messages_closed_status);
+  const draftInputEl = document.getElementById("messages-draft-input");
+  if (draftInputEl && chrome.messages_draft_placeholder) {
+    draftInputEl.placeholder = chrome.messages_draft_placeholder;
+  }
   setText("heading-memory", chrome.memory_heading);
   setText("heading-memory-connected-care", chrome.memory_connected_care_heading);
   setText("btn-issue-invite", chrome.memory_issue_invite);
@@ -940,6 +1016,7 @@ async function boot() {
   if (localeSelect) {
     localeSelect.addEventListener("change", (event) => {
       switchClinicLocale(event.target.value);
+      renderMessagesTab(false);
     });
   }
 
@@ -1232,6 +1309,229 @@ async function boot() {
     return inviteCode;
   };
 
+  const defaultSystemReplyText =
+    "Thank you for sharing your home readings (122/78 mmHg). Continue lisinopril 10 mg daily as prescribed and recheck before our next visit.";
+  state.replyCard = {
+    conversationId: `conv-${state.activeWorkspaceId}-msg-1`,
+    patientMessage:
+      "Home BP averaged 122/78 mmHg this week; requesting confirmation on continuing morning lisinopril 10 mg.",
+    systemReply: defaultSystemReplyText,
+    personalDraft: null,
+    visibleReplyText: defaultSystemReplyText,
+    visibleReplyOrigin: "system_reply",
+    flaggedConcern: null,
+    closed: false,
+  };
+
+  const applyServerReplyCard = (card) => {
+    if (!card || typeof card !== "object") return;
+    if (typeof card.conversation_id === "string" && card.conversation_id.trim()) {
+      state.replyCard.conversationId = card.conversation_id.trim();
+    }
+    if (Array.isArray(card.open_messages) && card.open_messages.length > 0) {
+      const latest = card.open_messages[card.open_messages.length - 1];
+      const msgText =
+        typeof latest === "string"
+          ? latest
+          : latest && typeof latest.body === "string"
+            ? latest.body
+            : latest && typeof latest.text === "string"
+              ? latest.text
+              : null;
+      if (msgText) {
+        state.replyCard.patientMessage = msgText;
+      }
+    }
+    const origin =
+      typeof card.visible_reply_origin === "string" ? card.visible_reply_origin : "system_reply";
+    const visibleText =
+      typeof card.visible_reply_text === "string" ? card.visible_reply_text : null;
+    if (origin === "personal_draft" && visibleText !== null) {
+      state.replyCard.personalDraft = visibleText;
+      state.replyCard.visibleReplyText = visibleText;
+      state.replyCard.visibleReplyOrigin = "personal_draft";
+    } else if (origin === "system_reply" && visibleText !== null) {
+      state.replyCard.systemReply = visibleText;
+      state.replyCard.personalDraft = null;
+      state.replyCard.visibleReplyText = visibleText;
+      state.replyCard.visibleReplyOrigin = "system_reply";
+    }
+    if (typeof card.flagged_concern === "string" && card.flagged_concern.trim()) {
+      state.replyCard.flaggedConcern = card.flagged_concern.trim();
+    }
+    state.replyCard.closed = Boolean(card.undo_available);
+    state.replyClosed = state.replyCard.closed;
+  };
+
+  const renderMessagesTab = (syncInputValue = false) => {
+    const chrome = localeInfo.chrome;
+    const card = state.replyCard;
+    const activeReply =
+      card.visibleReplyOrigin === "personal_draft" && typeof card.personalDraft === "string"
+        ? card.personalDraft
+        : card.systemReply;
+    card.visibleReplyText = activeReply;
+
+    setText("messages-patient-body", card.patientMessage);
+    setText("messages-concern-text", card.flaggedConcern || chrome.messages_concern_sample);
+    setText("messages-draft-text", activeReply);
+
+    const originBadge = document.getElementById("messages-origin-badge");
+    if (originBadge) {
+      const isPersonal = card.visibleReplyOrigin === "personal_draft";
+      originBadge.textContent = isPersonal
+        ? chrome.messages_origin_personal
+        : chrome.messages_origin_ai;
+      originBadge.className = isPersonal
+        ? "workflow-badge workflow-badge-accent"
+        : "workflow-badge";
+    }
+
+    const inputEl = document.getElementById("messages-draft-input");
+    if (inputEl && (syncInputValue || inputEl.value.trim().length === 0)) {
+      inputEl.value = activeReply;
+    }
+
+    const draftCard = document.getElementById("messages-draft-card");
+    const closedBar = document.getElementById("messages-closed-bar");
+    if (draftCard) draftCard.hidden = card.closed;
+    if (closedBar) closedBar.hidden = !card.closed;
+
+    document.documentElement.dataset.efReplyOrigin = card.visibleReplyOrigin;
+    document.documentElement.dataset.efReplyClosed = String(card.closed);
+    document.documentElement.dataset.efReplyConversationId = card.conversationId;
+  };
+
+  const refreshWorkspaceReplies = async () => {
+    renderMessagesTab(false);
+    if (!apiClient.sessionToken) {
+      return;
+    }
+    try {
+      const res = await apiClient.listWorkspaceReplies(state.activeWorkspaceId);
+      if (res.ok && res.body && Array.isArray(res.body.replies) && res.body.replies.length > 0) {
+        applyServerReplyCard(res.body.replies[0]);
+        setText("metric-api-state", `replies (${res.status})`);
+        renderMessagesTab(true);
+      }
+    } catch (_err) {
+      // Keep local preview reply card when clinic API is unreachable.
+    }
+  };
+
+  const handleSaveReplyDraft = async (explicitText = null) => {
+    const inputEl = document.getElementById("messages-draft-input");
+    const text = String(explicitText !== null ? explicitText : inputEl?.value ?? "").trim();
+    if (!text) return state.replyCard.visibleReplyText;
+
+    state.replyCard.personalDraft = text;
+    state.replyCard.visibleReplyText = text;
+    state.replyCard.visibleReplyOrigin = "personal_draft";
+    state.replyCard.closed = false;
+    state.replyClosed = false;
+
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.saveReplyDraft(state.replyCard.conversationId, text);
+        if (res.ok && res.body) {
+          applyServerReplyCard(res.body);
+          setText("metric-api-state", `reply:draft (${res.status})`);
+        }
+      } catch (_err) {
+        // Retain local personal draft in offline preview.
+      }
+    }
+    renderMessagesTab(true);
+    setText("messages-action-status", localeInfo.chrome.messages_draft_saved_status);
+    return state.replyCard.visibleReplyText;
+  };
+
+  const handleRestoreSystemReply = async () => {
+    state.replyCard.personalDraft = null;
+    state.replyCard.visibleReplyOrigin = "system_reply";
+    state.replyCard.visibleReplyText = state.replyCard.systemReply;
+    state.replyCard.closed = false;
+    state.replyClosed = false;
+
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.restoreSystemReply(state.replyCard.conversationId);
+        if (res.ok && res.body) {
+          applyServerReplyCard(res.body);
+          setText("metric-api-state", `reply:restore (${res.status})`);
+        }
+      } catch (_err) {
+        // Retain local AI reply restoration in offline preview.
+      }
+    }
+    renderMessagesTab(true);
+    setText("messages-action-status", localeInfo.chrome.messages_ai_restored_status);
+    return state.replyCard.visibleReplyText;
+  };
+
+  const handleCopyActiveReply = async () => {
+    // CopiesWhatYouSee: copy the exact active visible reply (personal draft if active, else AI draft).
+    let copiedText = state.replyCard.visibleReplyText;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.copyReply(state.replyCard.conversationId);
+        if (res.ok && res.body && typeof res.body.copied_text === "string") {
+          copiedText = res.body.copied_text;
+          setText("metric-api-state", `reply:copy (${res.status})`);
+        }
+      } catch (_err) {
+        // Fall back to copying active visible reply locally.
+      }
+    }
+    state.lastCopiedReply = copiedText;
+    document.documentElement.dataset.efReplyCopied = "true";
+    document.documentElement.dataset.efLastCopiedReply = copiedText;
+    setText("messages-action-status", localeInfo.chrome.messages_copied_status);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      void navigator.clipboard.writeText(copiedText).catch(() => {
+        // Headless contexts without clipboard permission still record copy confirmation.
+      });
+    }
+    return copiedText;
+  };
+
+  const handleCloseReply = async () => {
+    state.replyCard.closed = true;
+    state.replyClosed = true;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.closeReply(state.replyCard.conversationId);
+        if (res.ok && res.body) {
+          applyServerReplyCard(res.body);
+          setText("metric-api-state", `reply:close (${res.status})`);
+        }
+      } catch (_err) {
+        // Keep local closed state in offline preview.
+      }
+    }
+    renderMessagesTab(false);
+    setText("messages-action-status", localeInfo.chrome.messages_closed_status);
+  };
+
+  const handleUndoCloseReply = async () => {
+    // UndoBringsBack: restore exact prior personal draft or AI draft plus concern intact.
+    state.replyCard.closed = false;
+    state.replyClosed = false;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.undoCloseReply(state.replyCard.conversationId);
+        if (res.ok && res.body) {
+          applyServerReplyCard(res.body);
+          setText("metric-api-state", `reply:undo (${res.status})`);
+        }
+      } catch (_err) {
+        // Keep local restored state in offline preview.
+      }
+    }
+    renderMessagesTab(true);
+    setText("messages-action-status", localeInfo.chrome.messages_restored_status);
+  };
+
   const selectWorkstationTab = (tabId, moveFocus = false) => {
     const normalized = WORKSTATION_TABS.includes(tabId) ? tabId : "chat";
     state.activeTab = normalized;
@@ -1253,6 +1553,8 @@ async function boot() {
     }
     if (normalized === "today") {
       void refreshTodayQueue();
+    } else if (normalized === "messages") {
+      void refreshWorkspaceReplies();
     } else if (normalized === "memory") {
       void refreshWorkspaceMemory();
     }
@@ -1295,43 +1597,39 @@ async function boot() {
     });
   }
 
+  const saveDraftBtn = document.getElementById("btn-save-draft");
+  if (saveDraftBtn) {
+    saveDraftBtn.addEventListener("click", () => {
+      void handleSaveReplyDraft();
+    });
+  }
+
+  const restoreAiDraftBtn = document.getElementById("btn-restore-ai-draft");
+  if (restoreAiDraftBtn) {
+    restoreAiDraftBtn.addEventListener("click", () => {
+      void handleRestoreSystemReply();
+    });
+  }
+
   const copyReplyBtn = document.getElementById("btn-copy-reply");
   if (copyReplyBtn) {
     copyReplyBtn.addEventListener("click", () => {
-      const draftText = document.getElementById("messages-draft-text")?.textContent?.trim() ?? "";
-      state.lastCopiedReply = draftText;
-      document.documentElement.dataset.efReplyCopied = "true";
-      setText("messages-action-status", localeInfo.chrome.messages_copied_status);
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        void navigator.clipboard.writeText(draftText).catch(() => {
-          // Headless contexts without clipboard permission still record copy confirmation.
-        });
-      }
+      void handleCopyActiveReply();
     });
   }
 
   const closeReplyBtn = document.getElementById("btn-close-reply");
   const undoCloseBtn = document.getElementById("btn-undo-close");
-  const draftCardEl = document.getElementById("messages-draft-card");
-  const closedBarEl = document.getElementById("messages-closed-bar");
 
   if (closeReplyBtn) {
     closeReplyBtn.addEventListener("click", () => {
-      state.replyClosed = true;
-      if (draftCardEl) draftCardEl.hidden = true;
-      if (closedBarEl) closedBarEl.hidden = false;
-      document.documentElement.dataset.efReplyClosed = "true";
-      setText("messages-action-status", localeInfo.chrome.messages_closed_status);
+      void handleCloseReply();
     });
   }
 
   if (undoCloseBtn) {
     undoCloseBtn.addEventListener("click", () => {
-      state.replyClosed = false;
-      if (draftCardEl) draftCardEl.hidden = false;
-      if (closedBarEl) closedBarEl.hidden = true;
-      document.documentElement.dataset.efReplyClosed = "false";
-      setText("messages-action-status", localeInfo.chrome.messages_restored_status);
+      void handleUndoCloseReply();
     });
   }
 
@@ -1359,6 +1657,7 @@ async function boot() {
   });
 
   renderTodayTab();
+  renderMessagesTab(true);
   renderMemoryTab();
   selectWorkstationTab(searchParams.get("tab") || "chat", false);
 
@@ -1466,7 +1765,11 @@ async function boot() {
     mountPrefix: MOUNT_PREFIX,
     apiClient,
     bridge,
-    setLocale: (lang) => switchClinicLocale(lang),
+    setLocale: (lang) => {
+      const info = switchClinicLocale(lang);
+      renderMessagesTab(false);
+      return info;
+    },
     setTheme: (theme) => {
       state.theme = applyThemeToDocument(theme, localeInfo.chrome, true);
       return state.theme;
@@ -1483,6 +1786,9 @@ async function boot() {
     selectTab: (tabId) => selectWorkstationTab(tabId, false),
     getActiveTab: () => state.activeTab,
     refreshToday: () => refreshTodayQueue(),
+    refreshMessages: () => refreshWorkspaceReplies(),
+    saveReplyDraft: (text) => handleSaveReplyDraft(text),
+    restoreSystemReply: () => handleRestoreSystemReply(),
     refreshMemory: () => refreshWorkspaceMemory(),
     issueConnectedCareInvite: () => handleIssueConnectedCareInvite(),
     dispatchWasm: (cmd) => {
@@ -1499,6 +1805,7 @@ async function boot() {
         setText("metric-a11y-nodes", count);
         document.documentElement.dataset.efA11yNodes = String(count);
         renderTodayTab();
+        renderMessagesTab(false);
         renderMemoryTab();
       }
       return snap;

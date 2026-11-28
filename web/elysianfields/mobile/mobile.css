@@ -10,6 +10,8 @@
   --border-subtle: #475569;
   --accent-bg: #1d4ed8;
   --accent-text: #ffffff;
+  --danger-bg: #b91c1c;
+  --danger-text: #ffffff;
   --focus-ring: #93c5fd;
   --crisis-bg: #3f1d2e;
   --crisis-border: #be123c;
@@ -41,6 +43,8 @@
   --border-subtle: #64748b;
   --accent-bg: #1d4ed8;
   --accent-text: #ffffff;
+  --danger-bg: #b91c1c;
+  --danger-text: #ffffff;
   --focus-ring: #1d4ed8;
   --crisis-bg: #fff1f2;
   --crisis-border: #9f1239;
@@ -347,6 +351,45 @@ html[dir="rtl"] #verify-dob {
   border-color: var(--accent-bg);
   color: var(--accent-text);
   text-align: center;
+}
+
+.touch-btn-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-bg);
+  color: var(--danger-text);
+  text-align: center;
+}
+
+.privacy-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.privacy-controls[hidden],
+.privacy-summary[hidden],
+.privacy-receipt[hidden] {
+  display: none;
+}
+
+.privacy-summary,
+.privacy-receipt {
+  margin: 0;
+  padding-block: 0.55rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.4rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 4px solid var(--accent-bg);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.privacy-receipt {
+  border-inline-start-color: var(--danger-bg);
 }
 
 .touch-btn:focus-visible,

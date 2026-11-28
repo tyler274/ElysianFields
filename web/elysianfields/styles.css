@@ -291,7 +291,8 @@ textarea:focus-visible {
 
 input[type="email"],
 input[type="text"],
-#composer-draft {
+#composer-draft,
+.messages-draft-input {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -390,6 +391,20 @@ html[dir="rtl"] .metric-list dd {
   border-inline-start: 4px solid var(--accent-bg);
   color: var(--text-primary);
   font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.concern-banner {
+  margin: 0;
+  padding-block: 0.55rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.4rem;
+  background: var(--crisis-bg);
+  border: 1px solid var(--crisis-border);
+  border-inline-start: 4px solid var(--crisis-border);
+  color: var(--crisis-text);
+  font-size: 0.9rem;
+  line-height: 1.5;
   overflow-wrap: break-word;
 }
 
