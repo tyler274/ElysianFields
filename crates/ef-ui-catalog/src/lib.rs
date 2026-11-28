@@ -165,9 +165,9 @@ mod tests {
             assert_eq!(ltr_locale.citation_panel_edge(), HorizontalEdge::Right);
         }
 
-        // Compile-time exhaustive check: all 12 locales x 133 keys (1,596 entries) are non-empty.
+        // Compile-time exhaustive check: all 12 locales x 138 keys (1,656 entries) are non-empty.
         assert_eq!(Locale::ALL.len(), 12);
-        assert_eq!(UiKey::ALL.len(), 133);
+        assert_eq!(UiKey::ALL.len(), 138);
         for locale in Locale::ALL {
             for key in UiKey::ALL {
                 let text = translate(locale, key);
@@ -207,6 +207,11 @@ mod tests {
                 UiKey::MobileDisconnectCare,
                 UiKey::MobileExportReady,
                 UiKey::MobileAccountDeleted,
+                UiKey::MessagesSaveDraft,
+                UiKey::MessagesRestoreAiDraft,
+                UiKey::MessagesDraftPlaceholder,
+                UiKey::MessagesPersonalDraftBadge,
+                UiKey::MessagesSystemDraftBadge,
             ] {
                 let text = translate(locale, new_key);
                 assert!(!text.trim().is_empty());

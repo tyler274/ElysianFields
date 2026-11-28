@@ -1396,7 +1396,7 @@ fn spawn_messages_panel(
             TextColor(tokens.text_primary.to_bevy_color()),
         ));
         let mut draft_a11y = accesskit::Node::new(accesskit::Role::MultilineTextInput);
-        draft_a11y.set_label("Personal Reply Draft");
+        draft_a11y.set_label(translate(locale, UiKey::MessagesPersonalDraftBadge));
         panel
             .spawn((
                 DesktopActionButton::FocusReplyDraft,
@@ -1416,7 +1416,7 @@ fn spawn_messages_panel(
                 box_node.spawn((
                     DesktopUiSlot::MessagesDraftText,
                     Text::new(if workflows.reply_draft_editor.is_empty() {
-                        "Edit personal reply draft...".to_owned()
+                        translate(locale, UiKey::MessagesDraftPlaceholder).to_owned()
                     } else {
                         workflows.reply_draft_editor.clone()
                     }),
@@ -1444,7 +1444,7 @@ fn spawn_messages_panel(
                     DesktopActionButton::MessagesSaveDraft,
                     DesktopUiSlot::MessagesSaveDraftBtn,
                     DesktopUiSlot::MessagesSaveDraftLabel,
-                    "Save Draft".to_owned(),
+                    translate(locale, UiKey::MessagesSaveDraft).to_owned(),
                     tokens,
                     scale,
                 );
@@ -1453,7 +1453,7 @@ fn spawn_messages_panel(
                     DesktopActionButton::MessagesRestoreSystem,
                     DesktopUiSlot::MessagesRestoreSystemBtn,
                     DesktopUiSlot::MessagesRestoreSystemLabel,
-                    "Restore AI Draft".to_owned(),
+                    translate(locale, UiKey::MessagesRestoreAiDraft).to_owned(),
                     tokens,
                     scale,
                 );
@@ -2452,8 +2452,9 @@ fn process_desktop_events_system(
                     gate.request_redraw(RedrawReason::UserInput);
                 } else if workflows.edit_active_personal_draft(draft_text).is_ok() {
                     ws_state.status_override = None;
-                    ws_state.status_banner =
-                        DesktopStatusBanner::Custom("PersonalDraft saved".to_owned());
+                    ws_state.status_banner = DesktopStatusBanner::Custom(
+                        translate(ui_locale.current, UiKey::ClinicDraftSaved).to_owned(),
+                    );
                     gate.request_redraw(RedrawReason::UserInput);
                 }
             }
@@ -2479,8 +2480,9 @@ fn process_desktop_events_system(
                         workflows.reply_draft_editor = card.visible_reply_text.unwrap_or_default();
                     }
                     ws_state.status_override = None;
-                    ws_state.status_banner =
-                        DesktopStatusBanner::Custom("SystemReply restored".to_owned());
+                    ws_state.status_banner = DesktopStatusBanner::Custom(
+                        translate(ui_locale.current, UiKey::MessagesRestoreAiDraft).to_owned(),
+                    );
                     gate.request_redraw(RedrawReason::UserInput);
                 }
             }
@@ -2977,7 +2979,7 @@ fn sync_desktop_ui_visuals_system(
         workflows.reply_card_action_flags(active_ws_id.as_ref());
     let reply_draft_focused = ws_state.input_focus == DesktopInputFocus::ReplyDraft;
     let reply_draft_display = if workflows.reply_draft_editor.is_empty() {
-        "Edit personal reply draft...".to_owned()
+        translate(locale, UiKey::MessagesDraftPlaceholder).to_owned()
     } else {
         workflows.reply_draft_editor.clone()
     };
@@ -3486,7 +3488,7 @@ fn sync_desktop_ui_visuals_system(
                         tokens.text_secondary.to_bevy_color()
                     },
                 );
-                set_a11y_label(a11y, "Personal Reply Draft");
+                set_a11y_label(a11y, translate(locale, UiKey::MessagesPersonalDraftBadge));
             }
             DesktopUiSlot::MessagesDraftText => {
                 set_text(text, &reply_draft_display);
@@ -3504,6 +3506,7 @@ fn sync_desktop_ui_visuals_system(
                 node.flex_direction = locale.row_flex_direction();
             }
             DesktopUiSlot::MessagesSaveDraftBtn => {
+                let lbl = translate(locale, UiKey::MessagesSaveDraft);
                 node.display = if has_ready_reply {
                     Display::Flex
                 } else {
@@ -3511,14 +3514,15 @@ fn sync_desktop_ui_visuals_system(
                 };
                 set_bg(bg, tokens.accent_fill.to_bevy_color());
                 set_border(border, tokens.focus_ring.to_bevy_color());
-                set_a11y_label(a11y, "Save Draft");
+                set_a11y_label(a11y, lbl);
             }
             DesktopUiSlot::MessagesSaveDraftLabel => {
-                set_text(text, "Save Draft");
+                set_text(text, translate(locale, UiKey::MessagesSaveDraft));
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.accent_label.to_bevy_color());
             }
             DesktopUiSlot::MessagesRestoreSystemBtn => {
+                let lbl = translate(locale, UiKey::MessagesRestoreAiDraft);
                 node.display = if is_personal_draft {
                     Display::Flex
                 } else {
@@ -3526,10 +3530,10 @@ fn sync_desktop_ui_visuals_system(
                 };
                 set_bg(bg, tokens.input_bg.to_bevy_color());
                 set_border(border, tokens.focus_ring.to_bevy_color());
-                set_a11y_label(a11y, "Restore AI Draft");
+                set_a11y_label(a11y, lbl);
             }
             DesktopUiSlot::MessagesRestoreSystemLabel => {
-                set_text(text, "Restore AI Draft");
+                set_text(text, translate(locale, UiKey::MessagesRestoreAiDraft));
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
