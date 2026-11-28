@@ -59,8 +59,11 @@ pub enum DesktopAction {
     OfflineSignOut,
     FlushOwedSignOuts,
     SyncDemoHealthSnapshot,
+    ExportData,
+    DeleteAccount,
     VerifyDob,
     ShareConnectedCare,
+    DisconnectConnectedCare,
     ReviewAndSendDoctorNote,
 }
 
@@ -460,6 +463,7 @@ pub struct MobileDesktopUiState {
     pub status_override: Option<String>,
     pub next_transfer_seq: u64,
     pub next_health_sync_seq: u64,
+    pub next_delete_seq: u64,
     pub active_focus: MobileInputFocus,
     pub email_field: ComposerSurface,
     pub invite_code_field: ComposerSurface,
@@ -624,6 +628,7 @@ impl MobileDesktopUiState {
                     status_override: None,
                     next_transfer_seq: 1,
                     next_health_sync_seq: 1,
+                    next_delete_seq: 1,
                     active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
@@ -659,6 +664,7 @@ impl MobileDesktopUiState {
                     status_override: None,
                     next_transfer_seq: 1,
                     next_health_sync_seq: 1,
+                    next_delete_seq: 1,
                     active_focus: config.initial_focus,
                     email_field,
                     invite_code_field,
@@ -1034,6 +1040,131 @@ pub fn process_desktop_actions_system(
                     mobile_queue.push(MobileClientCommand::IngestRecords(records));
                     mobile_queue.push(MobileClientCommand::RefreshRecords);
                     desktop.set_status_message(format!("Synced personal health snapshot #{seq}."));
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                }
+            }
+            DesktopAction::ExportData => {
+                let Some(session_id) = active_session_id(&mobile_state) else {
+                    desktop.set_status_message("Sign in before exporting your personal data.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                };
+                if mobile_state.auth_device.connectivity() == ConnectivityState::Offline {
+                    desktop.set_status_message("Go online before exporting your personal data.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                }
+                if let Some(worker) = live_worker.as_deref_mut() {
+                    let now_secs = mobile_state.clock_secs;
+                    match worker.submit(LiveWorkerRequest::ExportData {
+                        session_id,
+                        now_secs,
+                    }) {
+                        Ok(()) => {
+                            desktop
+                                .set_status_message(WorkerOperation::ExportData.in_flight_label());
+                        }
+                        Err(err) => {
+                            mobile_state.errors.push(err.to_string());
+                            desktop.set_status_message(format!("Export dispatch failed: {err}"));
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else {
+                    mobile_queue.push(MobileClientCommand::ExportData);
+                    desktop.set_status_message(format!(
+                        "{}.",
+                        translate(ui_locale.current, UiKey::MobileExportReady)
+                    ));
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                }
+            }
+            DesktopAction::DeleteAccount => {
+                let Some(session_id) = active_session_id(&mobile_state) else {
+                    desktop.set_status_message("Sign in before deleting your account.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                };
+                if mobile_state.auth_device.connectivity() == ConnectivityState::Offline {
+                    desktop.set_status_message("Go online before permanently deleting account.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                }
+                let seq = desktop.next_delete_seq;
+                desktop.next_delete_seq = desktop.next_delete_seq.saturating_add(1);
+                let now_secs = mobile_state.clock_secs;
+                let event_id = format!("desktop-delete-{seq}");
+                let occurred_at = format!("epoch-{now_secs}");
+
+                if let Some(worker) = live_worker.as_deref_mut() {
+                    match worker.submit(LiveWorkerRequest::DeleteAccount {
+                        session_id,
+                        event_id,
+                        occurred_at,
+                        now_secs,
+                    }) {
+                        Ok(()) => {
+                            desktop.set_status_message(
+                                WorkerOperation::DeleteAccount.in_flight_label(),
+                            );
+                        }
+                        Err(err) => {
+                            mobile_state.errors.push(err.to_string());
+                            desktop.set_status_message(format!(
+                                "Account deletion dispatch failed: {err}"
+                            ));
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else {
+                    let event_id_copy = event_id.clone();
+                    mobile_queue.push(MobileClientCommand::DeleteAccount {
+                        event_id,
+                        occurred_at,
+                    });
+                    desktop.set_status_message(format!(
+                        "{} (receipt: {event_id_copy})",
+                        translate(ui_locale.current, UiKey::MobileAccountDeleted)
+                    ));
+                    gate.request_redraw(RedrawReason::StreamDelta);
+                }
+            }
+            DesktopAction::DisconnectConnectedCare => {
+                let Some(connection_id) = MobileDesktopUiState::active_connection_id(&mobile_state)
+                else {
+                    desktop
+                        .set_status_message("No active Connected Care connection to disconnect.");
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                };
+                if let Some(worker) = live_worker.as_deref_mut() {
+                    let Some(session_id) = active_session_id(&mobile_state) else {
+                        desktop.set_status_message("Sign in before disconnecting Connected Care.");
+                        gate.request_redraw(RedrawReason::UserInput);
+                        continue;
+                    };
+                    let now_secs = mobile_state.clock_secs;
+                    match worker.submit(LiveWorkerRequest::DisconnectConnectedCare {
+                        session_id,
+                        connection_id,
+                        now_secs,
+                    }) {
+                        Ok(()) => {
+                            desktop.set_status_message(
+                                WorkerOperation::DisconnectConnectedCare.in_flight_label(),
+                            );
+                        }
+                        Err(err) => {
+                            mobile_state.errors.push(err.to_string());
+                            desktop
+                                .set_status_message(format!("Disconnect dispatch failed: {err}"));
+                        }
+                    }
+                    gate.request_redraw(RedrawReason::UserInput);
+                } else {
+                    mobile_queue
+                        .push(MobileClientCommand::ConnectedCareDisconnect { connection_id });
+                    desktop.set_status_message("Connected Care disconnected.");
                     gate.request_redraw(RedrawReason::StreamDelta);
                 }
             }

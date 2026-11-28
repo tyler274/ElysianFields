@@ -15,7 +15,8 @@ use ef_connected_care::{
 use ef_core::IdempotencyKey;
 use ef_mobile_domain::{
     AccountFencedHealthBatch, HealthSampleEntry, HealthUploadReceipt, IncomingBatchItem,
-    MobileAuthError, MobileSessionId, PatientRecord, SavepointBatchReport, VerifiedMobileSession,
+    MobileAuthError, MobileSessionId, PatientRecord, PortablePatientExport, SavepointBatchReport,
+    VerifiedMobileSession,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -145,13 +146,7 @@ impl LiveHttpMobileTransport {
             })?;
         let _ = stream.shutdown(Shutdown::Write);
 
-        let mut raw_resp = Vec::new();
-        stream
-            .read_to_end(&mut raw_resp)
-            .map_err(|err| MobileTransportError::Unavailable {
-                message: format!("failed to read HTTP response from {target}: {err}"),
-            })?;
-
+        let raw_resp = read_http1_response_bytes(&mut stream, target)?;
         parse_http1_response(&raw_resp)
     }
 
@@ -352,6 +347,24 @@ impl MobileClientTransport for LiveHttpMobileTransport {
         .is_ok_and(|resp| resp.status == 200)
     }
 
+    fn export_patient_data(
+        &self,
+        session_id: &MobileSessionId,
+        _now_secs: u64,
+    ) -> Result<PortablePatientExport, MobileTransportError> {
+        let resp = self.request_raw(
+            "GET",
+            &MobileApiEndpoint::Export.path(),
+            Some(session_id),
+            None,
+        )?;
+        if resp.status == 200 {
+            resp.json()
+        } else {
+            Err(Self::map_error_response(&resp))
+        }
+    }
+
     fn delete_account(
         &mut self,
         session_id: &MobileSessionId,
@@ -518,6 +531,74 @@ impl MobileClientTransport for LiveHttpMobileTransport {
             ))
         }
     }
+}
+
+fn read_http1_response_bytes(
+    stream: &mut TcpStream,
+    target: &str,
+) -> Result<Vec<u8>, MobileTransportError> {
+    let mut raw = Vec::new();
+    let mut buf = [0_u8; 4096];
+    let mut header_end: Option<usize> = None;
+    let mut expected_content_len: Option<usize> = None;
+
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                raw.extend_from_slice(&buf[..n]);
+                if header_end.is_none()
+                    && let Some(sep) = raw.windows(4).position(|w| w == b"\r\n\r\n")
+                {
+                    header_end = Some(sep + 4);
+                    if let Ok(head_str) = std::str::from_utf8(&raw[..sep]) {
+                        for line in head_str.split("\r\n").skip(1) {
+                            if let Some((name, value)) = line.split_once(':')
+                                && name.trim().eq_ignore_ascii_case("content-length")
+                                && let Ok(len) = value.trim().parse::<usize>()
+                            {
+                                expected_content_len = Some(len);
+                                break;
+                            }
+                        }
+                    }
+                }
+                if let (Some(body_start), Some(content_len)) = (header_end, expected_content_len)
+                    && raw.len().saturating_sub(body_start) >= content_len
+                {
+                    break;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::UnexpectedEof
+                ) && header_end.is_some() =>
+            {
+                // On Windows MSVC Winsock2, peer close after sending the full body can surface
+                // WSAECONNRESET instead of clean EOF. Accept when headers and body are present.
+                let body_start = header_end.unwrap_or(raw.len());
+                let body_complete = expected_content_len
+                    .is_none_or(|len| raw.len().saturating_sub(body_start) >= len);
+                if body_complete {
+                    break;
+                }
+                return Err(MobileTransportError::Unavailable {
+                    message: format!("failed to read HTTP response from {target}: {err}"),
+                });
+            }
+            Err(err) => {
+                return Err(MobileTransportError::Unavailable {
+                    message: format!("failed to read HTTP response from {target}: {err}"),
+                });
+            }
+        }
+    }
+
+    Ok(raw)
 }
 
 fn parse_http1_response(raw: &[u8]) -> Result<LiveMobileHttpResponse, MobileTransportError> {

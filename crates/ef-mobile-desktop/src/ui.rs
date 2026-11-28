@@ -130,6 +130,9 @@ pub enum TextSlot {
     ConnectivityBtnLabel,
     SignOutBtnLabel,
     FlushOwedBtnLabel,
+    ExportDataBtnLabel,
+    DeleteAccountBtnLabel,
+    PrivacySummary,
     HealthTrendsHeading,
     HealthTrendsBody,
     HealthRecordsBody,
@@ -142,6 +145,7 @@ pub enum TextSlot {
     DobInputContent,
     VerifyDobBtnLabel,
     ShareBtnLabel,
+    DisconnectCareBtnLabel,
     ForMyDoctorHeading,
     ComposerLabel,
     ComposerContent,
@@ -473,7 +477,34 @@ fn spawn_mobile_desktop_ui(
                         18,
                         &tokens,
                     );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::ExportData,
+                        ButtonStyle::Secondary,
+                        TextSlot::ExportDataBtnLabel,
+                        translate(locale, UiKey::MobileExportData),
+                        A11ySemanticKey::ListRow(6),
+                        27,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::DeleteAccount,
+                        ButtonStyle::Secondary,
+                        TextSlot::DeleteAccountBtnLabel,
+                        translate(locale, UiKey::MobileDeleteAccount),
+                        A11ySemanticKey::ListRow(7),
+                        28,
+                        &tokens,
+                    );
                 });
+                card.spawn((
+                    Text::new(String::new()),
+                    desktop_text_font(11.5),
+                    TextColor(tokens.text_secondary.to_bevy_color()),
+                    TextSlot::PrivacySummary,
+                    TextTone::Secondary,
+                ));
             });
 
             // 4. Personal Health Trends & Records Section (SignInHoldsNothing enforced).
@@ -639,6 +670,16 @@ fn spawn_mobile_desktop_ui(
                         &chrome.share,
                         A11ySemanticKey::ListRow(5),
                         24,
+                        &tokens,
+                    );
+                    spawn_action_button(
+                        row,
+                        DesktopAction::DisconnectConnectedCare,
+                        ButtonStyle::Secondary,
+                        TextSlot::DisconnectCareBtnLabel,
+                        translate(locale, UiKey::MobileDisconnectCare),
+                        A11ySemanticKey::StopButton,
+                        29,
                         &tokens,
                     );
                 });
@@ -1337,6 +1378,22 @@ fn sync_desktop_visuals_system(
     let health_panel_view = PersonalHealthPanelView::from_client_state(&mobile_state);
     let health_trends_body = health_panel_view.trends_body(locale);
     let health_records_body = health_panel_view.records_body();
+    let privacy_summary = if let Some(export) = &mobile_state.last_export {
+        format!(
+            "{}: {} sample(s), {} record(s)",
+            translate(locale, UiKey::MobileExportReady),
+            export.health_samples.len(),
+            export.records.len(),
+        )
+    } else if let Some(receipt) = &mobile_state.last_delete_receipt {
+        format!(
+            "{} ({})",
+            translate(locale, UiKey::MobileAccountDeleted),
+            receipt.receipt_event_id,
+        )
+    } else {
+        String::new()
+    };
 
     for (slot, tone, mut text, mut color) in &mut text_q {
         let effective_color =
@@ -1384,6 +1441,11 @@ fn sync_desktop_visuals_system(
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
             TextSlot::FlushOwedBtnLabel => flush_btn_text.clone(),
+            TextSlot::ExportDataBtnLabel => translate(locale, UiKey::MobileExportData).to_owned(),
+            TextSlot::DeleteAccountBtnLabel => {
+                translate(locale, UiKey::MobileDeleteAccount).to_owned()
+            }
+            TextSlot::PrivacySummary => privacy_summary.clone(),
             TextSlot::HealthTrendsHeading => {
                 translate(locale, UiKey::MobileSectionHealthTrends).to_owned()
             }
@@ -1409,6 +1471,9 @@ fn sync_desktop_visuals_system(
             TextSlot::DobInputContent => dob_input_display.clone(),
             TextSlot::VerifyDobBtnLabel => chrome.verify_dob.clone(),
             TextSlot::ShareBtnLabel => chrome.share.clone(),
+            TextSlot::DisconnectCareBtnLabel => {
+                translate(locale, UiKey::MobileDisconnectCare).to_owned()
+            }
             TextSlot::ForMyDoctorHeading => chrome.nav_for_my_doctor.clone(),
             TextSlot::ComposerLabel => translate(locale, UiKey::MobileCuratedNoteLabel).to_owned(),
             TextSlot::ComposerContent => composer_display.clone(),

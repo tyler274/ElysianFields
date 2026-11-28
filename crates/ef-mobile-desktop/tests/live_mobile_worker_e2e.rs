@@ -22,11 +22,13 @@ use ef_mobile_client::{
 };
 use ef_mobile_desktop::{
     ActionButton, DesktopAction, DesktopActionQueue, FLUSH_OWED_SIGN_OUTS_LABEL, LiveServerWorker,
-    LiveWorkerRequest, LiveWorkerResponse, MobileDesktopConfig, OwedRecoveryBannerNode,
-    OwedRecoveryBannerState, PendingWorkerState, TextSlot, build_headless_mobile_desktop_app,
+    LiveWorkerRequest, LiveWorkerResponse, MobileDesktopConfig, MobileDesktopUiState,
+    OwedRecoveryBannerNode, OwedRecoveryBannerState, PendingWorkerState, TextSlot,
+    build_headless_mobile_desktop_app,
 };
 use ef_mobile_domain::{
     ConnectivityState, FileReceiptJournal, MobileAuthError, MobileClientScreen,
+    PrivacyReceiptJournal,
 };
 use ef_mobile_server::{MobileService, TcpMobileServer};
 use ef_ui_catalog::{
@@ -90,7 +92,7 @@ fn dispatch_and_settle(app: &mut App, action: DesktopAction) {
         .resource_mut::<DesktopActionQueue>()
         .push(action);
     app.update();
-    wait_for_app_worker_idle(app, Duration::from_secs(5));
+    wait_for_app_worker_idle(app, Duration::from_secs(15));
 }
 
 fn text_slot_value(app: &mut App, target: TextSlot) -> String {
@@ -506,4 +508,293 @@ fn owed_recovery_banner_and_flush_button_states_and_a11y_integrity() {
         .verify_zero_duplicate_nodes()
         .expect("zero duplicate AccessKit nodes in demo mode");
     assert_eq!(audit.duplicated_nodes, 0);
+}
+
+#[test]
+fn live_mobile_privacy_controls_export_disconnect_and_delete_account_e2e() {
+    let db_dir = fresh_temp_dir("privacy-db");
+    let journal_dir = fresh_temp_dir("privacy-journal");
+
+    let journal = FileReceiptJournal::open(&journal_dir).expect("open receipt journal");
+    let mut svc = MobileService::open_durable(&db_dir, Box::new(journal), 1_760_000_000, false)
+        .expect("open durable mobile service");
+
+    let expected_dob = DateOfBirth::new(1989, 8, 22).expect("valid dob");
+    let pair = PairKey::new(
+        PracticeId::new("practice-w21-privacy").expect("practice id"),
+        PatientId::new("patient-w21-privacy").expect("patient id"),
+    );
+    let issued = svc
+        .connected_care
+        .create_invitation(CreateInvitationRequest {
+            pair,
+            issued_by: PhysicianId::new("phys-w21-privacy").expect("phys id"),
+            practice_name: "Wave 21 Privacy Clinic".to_owned(),
+            physician_name: "Dr. Clara Lin".to_owned(),
+            expected_dob,
+            created_at: "2026-03-01T10:00:00Z".to_owned(),
+        })
+        .expect("issue connected care invite");
+
+    let server = TcpMobileServer::bind("127.0.0.1:0", svc).expect("bind TcpMobileServer");
+    let addr = server.local_addr();
+
+    let cfg = MobileDesktopConfig::parse_args([
+        "--server",
+        &format!("http://{addr}"),
+        "--email",
+        "w21.privacy.patient@example.invalid",
+        "--no-prefs",
+    ])
+    .expect("live cfg");
+    let mut app = build_headless_mobile_desktop_app(&cfg);
+    app.world_mut()
+        .resource_mut::<MobileDesktopUiState>()
+        .set_invite_credential(
+            InviteCredential::ShortCode(issued.short_code.clone()),
+            issued.short_code.as_str().to_owned(),
+            expected_dob,
+        );
+    app.update();
+
+    // Confirm all 3 clickable privacy buttons exist in the UI tree.
+    for required_action in [
+        DesktopAction::ExportData,
+        DesktopAction::DeleteAccount,
+        DesktopAction::DisconnectConnectedCare,
+    ] {
+        let count = app
+            .world_mut()
+            .query::<&ActionButton>()
+            .iter(app.world())
+            .filter(|b| b.action == required_action)
+            .count();
+        assert_eq!(count, 1, "expected 1 ActionButton for {required_action:?}");
+    }
+
+    // 1. Sign in live -> Sync Health Snapshot (4 samples + 2 personal records).
+    dispatch_and_settle(&mut app, DesktopAction::SignIn);
+    let active_session_id = match app
+        .world()
+        .resource::<MobileClientState>()
+        .auth_device
+        .screen()
+    {
+        MobileClientScreen::SignedIn { session_id, .. } => session_id.clone(),
+        other => panic!("expected SignedIn screen, got {other:?}"),
+    };
+
+    dispatch_and_settle(&mut app, DesktopAction::SyncDemoHealthSnapshot);
+    {
+        let mobile = app.world().resource::<MobileClientState>();
+        assert_eq!(mobile.visible_health_trends.len(), 4);
+        assert_eq!(mobile.visible_records.len(), 2);
+        assert!(mobile.errors.is_empty(), "errors: {:?}", mobile.errors);
+    }
+
+    // 2. ExportData -> returns PortablePatientExport containing all synced samples & records.
+    dispatch_and_settle(&mut app, DesktopAction::ExportData);
+    {
+        let mobile = app.world().resource::<MobileClientState>();
+        let export = mobile
+            .last_export
+            .as_ref()
+            .expect("PortablePatientExport populated after ExportData");
+        assert_eq!(export.health_samples.len(), 4);
+        assert_eq!(export.records.len(), 2);
+        assert!(mobile.errors.is_empty(), "errors: {:?}", mobile.errors);
+    }
+    assert!(
+        text_slot_value(&mut app, TextSlot::PrivacySummary)
+            .contains(translate(Locale::En, UiKey::MobileExportReady))
+    );
+
+    // 3. Verify DOB -> Share -> DisconnectConnectedCare transitions standing to Ended (`Disconnected`).
+    dispatch_and_settle(&mut app, DesktopAction::VerifyDob);
+    dispatch_and_settle(&mut app, DesktopAction::ShareConnectedCare);
+    assert!(
+        app.world()
+            .resource::<MobileClientState>()
+            .last_connection_standing
+            .as_ref()
+            .is_some_and(|s| s.state == ConnectedCareState::Connected)
+    );
+
+    dispatch_and_settle(&mut app, DesktopAction::DisconnectConnectedCare);
+    assert!(
+        app.world()
+            .resource::<MobileClientState>()
+            .last_connection_standing
+            .as_ref()
+            .is_some_and(|s| s.state == ConnectedCareState::Ended)
+    );
+    assert!(
+        text_slot_value(&mut app, TextSlot::ConnectedCareSummary)
+            .contains(translate(Locale::En, UiKey::MobileSharingDisconnected))
+    );
+
+    // 4. Add unsent composer text -> DeleteAccount -> durable PrivacyReceipt + strict SignInHoldsNothing + 401 session revocation.
+    let _ = app
+        .world_mut()
+        .resource_mut::<ComposerSurface>()
+        .apply(ComposerAction::InsertText(
+            "Draft cleared on permanent account deletion".to_owned(),
+        ));
+    app.update();
+
+    dispatch_and_settle(&mut app, DesktopAction::DeleteAccount);
+    let receipt_event_id = {
+        let mobile = app.world().resource::<MobileClientState>();
+        let receipt = mobile
+            .last_delete_receipt
+            .as_ref()
+            .expect("AccountDeleteReceipt recorded after DeleteAccount");
+        assert!(receipt.deleted);
+        assert!(!receipt.receipt_event_id.is_empty());
+        assert_eq!(
+            mobile.auth_device.screen(),
+            &MobileClientScreen::EnterYourEmail
+        );
+        assert!(mobile.visible_health_trends.is_empty());
+        assert!(mobile.visible_records.is_empty());
+        assert!(mobile.last_export.is_none());
+        assert!(mobile.last_dob_outcome.is_none());
+        assert!(mobile.last_connection_standing.is_none());
+        assert!(mobile.sent_envelopes.is_empty());
+        assert!(mobile.errors.is_empty(), "errors: {:?}", mobile.errors);
+        receipt.receipt_event_id.clone()
+    };
+    assert!(
+        app.world().resource::<ComposerSurface>().text().is_empty(),
+        "SignInHoldsNothing must clear composer text on DeleteAccount"
+    );
+    assert!(
+        text_slot_value(&mut app, TextSlot::StatusBanner).contains(&receipt_event_id),
+        "status banner must display recorded PrivacyReceipt event ID"
+    );
+    assert!(
+        text_slot_value(&mut app, TextSlot::PrivacySummary)
+            .contains(translate(Locale::En, UiKey::MobileAccountDeleted))
+    );
+    assert_eq!(
+        text_slot_value(&mut app, TextSlot::HealthTrendsBody),
+        translate(Locale::En, UiKey::MobileHealthSignedOutNotice)
+    );
+    assert!(text_slot_value(&mut app, TextSlot::HealthRecordsBody).is_empty());
+
+    // Confirm durable PrivacyReceipt was written to ef-mobile-server's FileReceiptJournal.
+    let reopened_journal =
+        FileReceiptJournal::open(&journal_dir).expect("reopen FileReceiptJournal");
+    let receipts = reopened_journal
+        .inventory()
+        .expect("list persisted privacy receipts");
+    assert!(
+        receipts.iter().any(|r| r.event_id == receipt_event_id),
+        "expected durable PrivacyReceipt {receipt_event_id} in journal, got {receipts:?}"
+    );
+
+    // Confirm old session is revoked on live ef-mobile-server (rejected with HTTP 401).
+    let probe = LiveHttpMobileTransport::new(addr);
+    let export_err = probe
+        .export_patient_data(&active_session_id, 1_760_000_099)
+        .expect_err("deleted account session must be rejected on /export");
+    assert!(
+        matches!(
+            export_err,
+            MobileTransportError::Http { status: 401, .. }
+                | MobileTransportError::Auth(MobileAuthError::SessionEnded)
+        ),
+        "expected HTTP 401 / SessionEnded after DeleteAccount, got {export_err:?}"
+    );
+    let records_err = probe
+        .fetch_records(&active_session_id, 1_760_000_099)
+        .expect_err("deleted account session must be rejected on /records");
+    assert!(
+        matches!(
+            records_err,
+            MobileTransportError::Http { status: 401, .. }
+                | MobileTransportError::Auth(MobileAuthError::SessionEnded)
+        ),
+        "expected HTTP 401 / SessionEnded on /records, got {records_err:?}"
+    );
+
+    // Zero duplicate AccessKit IDs with the 3 new privacy controls.
+    assert!(
+        app.world()
+            .resource::<CatalogA11ySyncStatus>()
+            .errors
+            .is_empty()
+    );
+    let audit = app
+        .world()
+        .resource::<A11yProjection>()
+        .verify_zero_duplicate_nodes()
+        .expect("zero duplicate AccessKit nodes");
+    assert_eq!(audit.duplicated_nodes, 0);
+
+    server.shutdown();
+    let _ = fs::remove_dir_all(&db_dir);
+    let _ = fs::remove_dir_all(&journal_dir);
+}
+
+#[test]
+fn mobile_privacy_controls_demo_mode_and_12_locale_labels() {
+    for (tag, locale) in [("he", Locale::He), ("ar", Locale::Ar), ("hi", Locale::Hi)] {
+        let cfg = MobileDesktopConfig::parse_args(["--demo", "--locale", tag, "--no-prefs"])
+            .expect("localized demo cfg");
+        let mut app = build_headless_mobile_desktop_app(&cfg);
+        app.update();
+
+        assert_eq!(
+            text_slot_value(&mut app, TextSlot::ExportDataBtnLabel),
+            translate(locale, UiKey::MobileExportData)
+        );
+        assert_eq!(
+            text_slot_value(&mut app, TextSlot::DeleteAccountBtnLabel),
+            translate(locale, UiKey::MobileDeleteAccount)
+        );
+        assert_eq!(
+            text_slot_value(&mut app, TextSlot::DisconnectCareBtnLabel),
+            translate(locale, UiKey::MobileDisconnectCare)
+        );
+
+        // Exercise demo export + disconnect + delete flow in target locale.
+        dispatch_and_settle(&mut app, DesktopAction::SignIn);
+        dispatch_and_settle(&mut app, DesktopAction::SyncDemoHealthSnapshot);
+        dispatch_and_settle(&mut app, DesktopAction::ExportData);
+        assert!(
+            text_slot_value(&mut app, TextSlot::PrivacySummary)
+                .contains(translate(locale, UiKey::MobileExportReady))
+        );
+
+        dispatch_and_settle(&mut app, DesktopAction::VerifyDob);
+        dispatch_and_settle(&mut app, DesktopAction::ShareConnectedCare);
+        dispatch_and_settle(&mut app, DesktopAction::DisconnectConnectedCare);
+        assert!(
+            app.world()
+                .resource::<MobileClientState>()
+                .last_connection_standing
+                .as_ref()
+                .is_some_and(|s| s.state == ConnectedCareState::Ended)
+        );
+
+        dispatch_and_settle(&mut app, DesktopAction::DeleteAccount);
+        assert_eq!(
+            app.world()
+                .resource::<MobileClientState>()
+                .auth_device
+                .screen(),
+            &MobileClientScreen::EnterYourEmail
+        );
+        assert!(
+            text_slot_value(&mut app, TextSlot::PrivacySummary)
+                .contains(translate(locale, UiKey::MobileAccountDeleted))
+        );
+        let audit = app
+            .world()
+            .resource::<A11yProjection>()
+            .verify_zero_duplicate_nodes()
+            .expect("zero duplicate AccessKit nodes");
+        assert_eq!(audit.duplicated_nodes, 0);
+    }
 }

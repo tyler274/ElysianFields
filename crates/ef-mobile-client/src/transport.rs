@@ -15,7 +15,7 @@ use ef_mobile_domain::{
     AccountFencedHealthBatch, HealthSampleEntry, HealthSyncError, HealthUploadReceipt,
     IncomingBatchItem, MobileAccountId, MobileAuthAuthority, MobileAuthError,
     MobileHealthIngestStore, MobileSessionId, PatientRecord, PatientRecordStore,
-    SavepointBatchReport, VerifiedMobileSession,
+    PortablePatientExport, SavepointBatchReport, VerifiedMobileSession,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -158,6 +158,12 @@ pub trait MobileClientTransport: Send + Sync {
     ) -> Result<Vec<HealthSampleEntry>, MobileTransportError>;
 
     fn is_session_live(&self, session_id: &MobileSessionId, now_secs: u64) -> bool;
+
+    fn export_patient_data(
+        &self,
+        session_id: &MobileSessionId,
+        now_secs: u64,
+    ) -> Result<PortablePatientExport, MobileTransportError>;
 
     fn delete_account(
         &mut self,
@@ -328,6 +334,26 @@ impl MobileClientTransport for LocalMobileTransport {
 
     fn is_session_live(&self, session_id: &MobileSessionId, now_secs: u64) -> bool {
         self.auth.is_session_live(session_id, now_secs)
+    }
+
+    fn export_patient_data(
+        &self,
+        session_id: &MobileSessionId,
+        now_secs: u64,
+    ) -> Result<PortablePatientExport, MobileTransportError> {
+        let acct = self.resolve_account(session_id, now_secs)?;
+        Ok(PortablePatientExport {
+            account_id: acct.clone(),
+            exported_at: format!("epoch-{now_secs}"),
+            records: self
+                .records
+                .records_for_account(&acct)
+                .into_iter()
+                .cloned()
+                .collect(),
+            health_samples: self.health.samples_for_account(&acct).to_vec(),
+            confirmed_sends: Vec::new(),
+        })
     }
 
     fn delete_account(
