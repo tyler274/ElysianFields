@@ -237,7 +237,7 @@ impl UiLocale {
 }
 
 /// Compile-time exhaustive message keys covering shared controls, Curie Clinic,
-/// and Curie Mobile (96 keys across all 12 locales = 1,152 statically checked strings).
+/// and Curie Mobile (103 keys across all 12 locales = 1,236 statically checked strings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UiKey {
     // Shared core actions & chrome (20)
@@ -342,10 +342,18 @@ pub enum UiKey {
     MobileModeDemo,
     MobileModeLive,
     MobileStatusReadyDemo,
+    // Clinic desktop power UX extensions (7)
+    ClinicSearchPatientsPlaceholder,
+    ClinicNoMatchingPatients,
+    ClinicStatusSending,
+    ClinicStatusCopied,
+    ClinicPrivacyDismissed,
+    ClinicCopyTranscriptButton,
+    ClinicStatusSendFailed,
 }
 
 impl UiKey {
-    pub const ALL: [Self; 96] = [
+    pub const ALL: [Self; 103] = [
         Self::AppBrandClinic,
         Self::AppBrandMobile,
         Self::ActionSignIn,
@@ -442,6 +450,13 @@ impl UiKey {
         Self::MobileModeDemo,
         Self::MobileModeLive,
         Self::MobileStatusReadyDemo,
+        Self::ClinicSearchPatientsPlaceholder,
+        Self::ClinicNoMatchingPatients,
+        Self::ClinicStatusSending,
+        Self::ClinicStatusCopied,
+        Self::ClinicPrivacyDismissed,
+        Self::ClinicCopyTranscriptButton,
+        Self::ClinicStatusSendFailed,
     ];
 }
 
@@ -1827,6 +1842,104 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             he: "מוכן במצב הדגמה עצמאי.",
             vi: "Sẵn sàng ở chế độ dùng thử độc lập.",
             hi: "स्वतंत्र डेमो मोड में तैयार।",
+        },
+        UiKey::ClinicSearchPatientsPlaceholder => LocalizedRow {
+            en: "Search patients... (Ctrl+K)",
+            es: "Buscar pacientes... (Ctrl+K)",
+            fr: "Rechercher des patients... (Ctrl+K)",
+            pt: "Pesquisar pacientes... (Ctrl+K)",
+            de: "Patienten suchen... (Strg+K)",
+            zh_hans: "搜索患者... (Ctrl+K)",
+            ja: "患者を検索... (Ctrl+K)",
+            ko: "환자 검색... (Ctrl+K)",
+            ar: "ابحث عن المرضى... (Ctrl+K)",
+            he: "חיפוש מטופלים... (Ctrl+K)",
+            vi: "Tìm bệnh nhân... (Ctrl+K)",
+            hi: "मरीज़ खोजें... (Ctrl+K)",
+        },
+        UiKey::ClinicNoMatchingPatients => LocalizedRow {
+            en: "No matching patients",
+            es: "No hay pacientes coincidentes",
+            fr: "Aucun patient correspondant",
+            pt: "Nenhum paciente encontrado",
+            de: "Keine passenden Patienten",
+            zh_hans: "没有匹配的患者",
+            ja: "該当する患者が見つかりません",
+            ko: "일치하는 환자가 없습니다",
+            ar: "لا يوجد مرضى مطابقون",
+            he: "אין מטופלים תואמים",
+            vi: "Không có bệnh nhân phù hợp",
+            hi: "कोई मिलता-जुलता मरीज़ नहीं मिला",
+        },
+        UiKey::ClinicStatusSending => LocalizedRow {
+            en: "Sending...",
+            es: "Enviando...",
+            fr: "Envoi en cours...",
+            pt: "Enviando...",
+            de: "Wird gesendet...",
+            zh_hans: "正在发送...",
+            ja: "送信中...",
+            ko: "전송 중...",
+            ar: "جاري الإرسال...",
+            he: "שולח...",
+            vi: "Đang gửi...",
+            hi: "भेजा जा रहा है...",
+        },
+        UiKey::ClinicStatusCopied => LocalizedRow {
+            en: "Copied",
+            es: "Copiado",
+            fr: "Copié",
+            pt: "Copiado",
+            de: "Kopiert",
+            zh_hans: "已复制",
+            ja: "コピーしました",
+            ko: "복사됨",
+            ar: "تم النسخ",
+            he: "הועתק",
+            vi: "Đã sao chép",
+            hi: "कॉपी किया गया",
+        },
+        UiKey::ClinicPrivacyDismissed => LocalizedRow {
+            en: "Privacy cover dismissed.",
+            es: "Cubierta de privacidad desactivada.",
+            fr: "Voile de confidentialité fermé.",
+            pt: "Cobertura de privacidade fechada.",
+            de: "Sichtschutz beendet.",
+            zh_hans: "隐私遮罩已关闭。",
+            ja: "プライバシーカバーを解除しました。",
+            ko: "개인정보 가림막이 해제되었습니다.",
+            ar: "تم إغلاق غطاء الخصوصية.",
+            he: "כיסוי הפרטיות הוסר.",
+            vi: "Đã tắt che màn hình riêng tư.",
+            hi: "गोपनीयता आवरण हटा दिया गया।",
+        },
+        UiKey::ClinicCopyTranscriptButton => LocalizedRow {
+            en: "Copy transcript",
+            es: "Copiar conversación",
+            fr: "Copier la conversation",
+            pt: "Copiar conversa",
+            de: "Gespräch kopieren",
+            zh_hans: "复制对话",
+            ja: "会話をコピー",
+            ko: "대화 복사",
+            ar: "نسخ المحادثة",
+            he: "העתקת שיחה",
+            vi: "Sao chép hội thoại",
+            hi: "संवाद कॉपी करें",
+        },
+        UiKey::ClinicStatusSendFailed => LocalizedRow {
+            en: "Could not send message",
+            es: "No se pudo enviar el mensaje",
+            fr: "Impossible d'envoyer le message",
+            pt: "Não foi possível enviar a mensagem",
+            de: "Nachricht konnte nicht gesendet werden",
+            zh_hans: "无法发送消息",
+            ja: "メッセージを送信できませんでした",
+            ko: "메시지를 보낼 수 없습니다",
+            ar: "تعذر إرسال الرسالة",
+            he: "לא ניתן היה לשלוח את ההודעה",
+            vi: "Không thể gửi tin nhắn",
+            hi: "संदेश भेजा नहीं जा सका",
         },
     };
     row.pick(locale)

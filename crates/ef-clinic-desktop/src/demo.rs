@@ -19,6 +19,7 @@ use ef_core::{ChatId, Locale as CoreLocale, PhysicianId, PracticeId, SourceKey, 
 use ef_harness::StubProvider;
 
 use crate::config::LaunchBackend;
+use crate::worker::LiveSubmissionState;
 
 /// Display metadata for one synthetic or server-backed patient in the desktop roster rail.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +78,26 @@ impl ConnectionMode {
     }
 }
 
+/// Explicit active keyboard input focus target in Curie Clinic Desktop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DesktopInputFocus {
+    #[default]
+    Composer,
+    PatientSearch,
+}
+
+/// Typed status banner state rendered reactively in the active 12-locale catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum DesktopStatusBanner {
+    #[default]
+    DefaultReady,
+    Sending,
+    Copied,
+    PrivacyDismissed,
+    SendFailed(String),
+    Custom(String),
+}
+
 /// Presentation-layer state owned by the native Bevy desktop shell alongside `CurieClinicClientPlugin`.
 #[derive(Debug, Clone, Resource)]
 pub struct DesktopWorkspaceState {
@@ -88,6 +109,12 @@ pub struct DesktopWorkspaceState {
     pub transcript: Vec<DesktopTranscriptEntry>,
     pub status_message: String,
     pub status_override: Option<String>,
+    pub status_banner: DesktopStatusBanner,
+    pub input_focus: DesktopInputFocus,
+    pub patient_search_query: String,
+    pub search_highlight_index: usize,
+    pub live_submission: LiveSubmissionState,
+    pub next_live_request_id: u64,
     pub shortcuts_modal_open: bool,
     pub zoom_percent: u16,
     pub frames_rendered_ui: u64,
@@ -103,6 +130,45 @@ impl DesktopWorkspaceState {
     #[must_use]
     pub fn selected_citation(&self) -> Option<&DesktopCitationCard> {
         self.citations.get(self.selected_citation_index)
+    }
+
+    /// Returns indices into `self.patients` matching `patient_search_query` case-insensitively
+    /// across patient display name and clinical summary.
+    #[must_use]
+    pub fn filtered_patient_indices(&self) -> Vec<usize> {
+        let needle = self.patient_search_query.trim().to_ascii_lowercase();
+        if needle.is_empty() {
+            return (0..self.patients.len()).collect();
+        }
+        self.patients
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| {
+                p.display_name.to_ascii_lowercase().contains(&needle)
+                    || p.summary_line.to_ascii_lowercase().contains(&needle)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    /// Clamps `search_highlight_index` to the bounds of the current filtered patient list.
+    pub fn clamp_search_highlight(&mut self) {
+        let count = self.filtered_patient_indices().len();
+        if count == 0 {
+            self.search_highlight_index = 0;
+        } else if self.search_highlight_index >= count {
+            self.search_highlight_index = count - 1;
+        }
+    }
+
+    /// Formats the active clinical transcript for clipboard copy.
+    #[must_use]
+    pub fn transcript_copy_text(&self) -> String {
+        self.transcript
+            .iter()
+            .map(|entry| format!("[{}] {}", entry.speaker, entry.body))
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 }
 

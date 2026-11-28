@@ -13,9 +13,14 @@ use ef_ui_catalog::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::clipboard::DesktopClipboard;
 use crate::config::{DesktopLaunchConfig, ZoomLevel};
-use crate::demo::{DesktopWorkspaceState, bootstrap_clinic_session, create_transport_for_backend};
+use crate::demo::{
+    DesktopInputFocus, DesktopStatusBanner, DesktopWorkspaceState, bootstrap_clinic_session,
+    create_transport_for_backend,
+};
 use crate::ui::{ClinicDesktopUiPlugin, DesktopUiEvent, DesktopUiSlot};
+use crate::worker::{LivePromptWorker, LiveSubmissionState};
 
 /// Explicit typed outcome for each individual headless smoke check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +101,8 @@ pub fn run_headless_smoke(
 
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(LivePromptWorker::disabled())
+        .insert_resource(DesktopClipboard::in_memory())
         .insert_resource(transport)
         .insert_resource(citation_catalog)
         .insert_resource(DesktopWorkspaceState {
@@ -107,6 +114,12 @@ pub fn run_headless_smoke(
             transcript: Vec::new(),
             status_message: String::new(),
             status_override: None,
+            status_banner: DesktopStatusBanner::DefaultReady,
+            input_focus: DesktopInputFocus::Composer,
+            patient_search_query: String::new(),
+            search_highlight_index: 0,
+            live_submission: LiveSubmissionState::Idle,
+            next_live_request_id: 1,
             shortcuts_modal_open: false,
             zoom_percent: config.zoom.percent(),
             frames_rendered_ui: 0,
