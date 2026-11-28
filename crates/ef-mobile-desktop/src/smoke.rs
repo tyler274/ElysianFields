@@ -11,9 +11,10 @@ use ef_ui_catalog::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::config::MobileDesktopConfig;
+use crate::config::{LaunchMode, MobileDesktopConfig};
 use crate::state::{DesktopAction, DesktopActionQueue, MobileDesktopUiState};
 use crate::ui::{CrisisBannerNode, MirroredRowNode, MobileDesktopUiPlugin, RootCanvasNode};
+use crate::worker::LiveServerWorker;
 
 /// Structured JSON summary emitted by `ef-mobile-desktop --headless-smoke`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +53,10 @@ pub fn build_headless_mobile_desktop_app(config: &MobileDesktopConfig) -> App {
     ))
     .insert_resource(transport_res)
     .insert_resource(ui_state);
+
+    if let LaunchMode::LiveServer { addr, .. } = config.mode {
+        app.insert_resource(LiveServerWorker::spawn(addr));
+    }
 
     app.world_mut().resource_mut::<UiLocale>().current = config.locale;
     app.world_mut()

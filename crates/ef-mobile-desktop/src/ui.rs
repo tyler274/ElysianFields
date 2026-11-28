@@ -7,13 +7,6 @@ use bevy::picking::events::PointerClick;
 use bevy::prelude::*;
 use bevy::text::FontSource;
 use ef_connected_care::{ConnectedCareState, DobVerificationOutcome};
-
-fn desktop_text_font(size_px: f32) -> TextFont {
-    TextFont {
-        font: FontSource::sans_serif(),
-        ..TextFont::from_font_size(size_px)
-    }
-}
 use ef_mobile_client::MobileClientState;
 use ef_mobile_domain::{ConnectivityState, MobileClientScreen};
 use ef_ui_catalog::{
@@ -22,9 +15,21 @@ use ef_ui_catalog::{
     ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome, translate,
 };
 
+use crate::forms::{
+    ClipboardBuffer, MobileInputFocus, copy_surface_to_clipboard, cut_surface_to_clipboard,
+    paste_clipboard_into_surface,
+};
 use crate::state::{
     DesktopAction, DesktopActionQueue, MobileDesktopUiState, process_desktop_actions_system,
 };
+use crate::worker::poll_live_server_worker_system;
+
+fn desktop_text_font(size_px: f32) -> TextFont {
+    TextFont {
+        font: FontSource::sans_serif(),
+        ..TextFont::from_font_size(size_px)
+    }
+}
 
 /// High-contrast WCAG 2.1 AA crimson banner palette for Dark and Light themes.
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +80,12 @@ pub struct CrisisBannerNode;
 #[derive(Component)]
 pub struct ComposerBoxNode;
 
+/// Marker component tagging one of the 4 interactive form input boxes in the focus ring.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormInputBoxNode {
+    pub field: MobileInputFocus,
+}
+
 /// Marker component binding a Bevy UI [`Button`] to its typed [`DesktopAction`].
 #[derive(Component, Clone)]
 pub struct ActionButton {
@@ -100,11 +111,17 @@ pub enum TextSlot {
     CrisisBody,
     AccountHeading,
     AccountSummary,
+    EmailInputLabel,
+    EmailInputContent,
     SignInBtnLabel,
     ConnectivityBtnLabel,
     SignOutBtnLabel,
     ConnectedCareHeading,
     ConnectedCareSummary,
+    InviteInputLabel,
+    InviteInputContent,
+    DobInputLabel,
+    DobInputContent,
     VerifyDobBtnLabel,
     ShareBtnLabel,
     ForMyDoctorHeading,
@@ -132,12 +149,14 @@ impl Plugin for MobileDesktopUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<KeyboardInput>()
             .init_resource::<DesktopActionQueue>()
+            .init_resource::<ClipboardBuffer>()
             .add_systems(Startup, spawn_mobile_desktop_ui)
             .add_systems(
                 Update,
                 (
-                    handle_composer_keyboard_input_system,
+                    handle_form_keyboard_input_system,
                     process_desktop_actions_system,
+                    poll_live_server_worker_system,
                     sync_desktop_visuals_system,
                 )
                     .chain(),
@@ -340,6 +359,18 @@ fn spawn_mobile_desktop_ui(
                     TextSlot::AccountSummary,
                     TextTone::Secondary,
                 ));
+                spawn_form_input_field(
+                    card,
+                    MobileInputFocus::Email,
+                    TextSlot::EmailInputLabel,
+                    TextSlot::EmailInputContent,
+                    translate(locale, UiKey::MobileLabelEmail),
+                    desktop.email_field.text(),
+                    desktop.active_focus == MobileInputFocus::Email,
+                    34.0,
+                    13,
+                    &tokens,
+                );
                 card.spawn((
                     MirroredRowNode,
                     Node {
@@ -359,7 +390,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::SignInBtnLabel,
                         &chrome.sign_in,
                         A11ySemanticKey::ListRow(1),
-                        13,
+                        14,
                         &tokens,
                     );
                     spawn_action_button(
@@ -369,7 +400,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ConnectivityBtnLabel,
                         translate(locale, UiKey::MobileActionGoOffline),
                         A11ySemanticKey::ListRow(2),
-                        14,
+                        15,
                         &tokens,
                     );
                     spawn_action_button(
@@ -379,13 +410,13 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::SignOutBtnLabel,
                         &chrome.sign_out,
                         A11ySemanticKey::ListRow(3),
-                        15,
+                        16,
                         &tokens,
                     );
                 });
             });
 
-            // 4. Connected Care Section (Invitation Code + DOB Verify + Explicit Share Consent).
+            // 4. Connected Care Section (Interactive Invite Code + DOB Verify + Explicit Share).
             root.spawn((
                 CardSurfaceNode,
                 Node {
@@ -423,6 +454,30 @@ fn spawn_mobile_desktop_ui(
                     TextSlot::ConnectedCareSummary,
                     TextTone::Secondary,
                 ));
+                spawn_form_input_field(
+                    card,
+                    MobileInputFocus::InviteCode,
+                    TextSlot::InviteInputLabel,
+                    TextSlot::InviteInputContent,
+                    translate(locale, UiKey::MobileLabelInvite),
+                    desktop.invite_code_field.text(),
+                    desktop.active_focus == MobileInputFocus::InviteCode,
+                    34.0,
+                    17,
+                    &tokens,
+                );
+                spawn_form_input_field(
+                    card,
+                    MobileInputFocus::DateOfBirth,
+                    TextSlot::DobInputLabel,
+                    TextSlot::DobInputContent,
+                    translate(locale, UiKey::MobileLabelDob),
+                    desktop.dob_field.text(),
+                    desktop.active_focus == MobileInputFocus::DateOfBirth,
+                    34.0,
+                    18,
+                    &tokens,
+                );
                 card.spawn((
                     MirroredRowNode,
                     Node {
@@ -442,7 +497,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::VerifyDobBtnLabel,
                         &chrome.verify_dob,
                         A11ySemanticKey::ListRow(4),
-                        16,
+                        19,
                         &tokens,
                     );
                     spawn_action_button(
@@ -452,7 +507,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ShareBtnLabel,
                         &chrome.share,
                         A11ySemanticKey::ListRow(5),
-                        17,
+                        20,
                         &tokens,
                     );
                 });
@@ -480,34 +535,18 @@ fn spawn_mobile_desktop_ui(
                     TextSlot::ForMyDoctorHeading,
                     TextTone::Primary,
                 ));
-                card.spawn((
-                    Text::new(translate(locale, UiKey::MobileCuratedNoteLabel)),
-                    desktop_text_font(11.5),
-                    TextColor(tokens.text_secondary.to_bevy_color()),
+                spawn_form_input_field(
+                    card,
+                    MobileInputFocus::CuratedNote,
                     TextSlot::ComposerLabel,
-                    TextTone::Secondary,
-                ));
-                card.spawn((
-                    ComposerBoxNode,
-                    Node {
-                        width: Val::Percent(100.0),
-                        min_height: Val::Px(64.0),
-                        padding: UiRect::all(Val::Px(8.0)),
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    BackgroundColor(tokens.input_bg.to_bevy_color()),
-                    BorderColor::all(tokens.focus_ring.to_bevy_color()),
-                ))
-                .with_children(|box_node| {
-                    box_node.spawn((
-                        Text::new(translate(locale, UiKey::MobileCuratedNotePlaceholder)),
-                        desktop_text_font(12.5),
-                        TextColor(tokens.input_fg.to_bevy_color()),
-                        TextSlot::ComposerContent,
-                        TextTone::Input,
-                    ));
-                });
+                    TextSlot::ComposerContent,
+                    translate(locale, UiKey::MobileCuratedNoteLabel),
+                    translate(locale, UiKey::MobileCuratedNotePlaceholder),
+                    desktop.active_focus == MobileInputFocus::CuratedNote,
+                    64.0,
+                    21,
+                    &tokens,
+                );
                 card.spawn((
                     MirroredRowNode,
                     Node {
@@ -525,7 +564,7 @@ fn spawn_mobile_desktop_ui(
                         TextSlot::ReviewSendBtnLabel,
                         &chrome.review_and_send,
                         A11ySemanticKey::CitationChip(0),
-                        18,
+                        22,
                         &tokens,
                     );
                 });
@@ -540,6 +579,87 @@ fn spawn_mobile_desktop_ui(
                     TextTone::Secondary,
                 ));
             });
+        });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn spawn_form_input_field(
+    parent: &mut ChildSpawnerCommands,
+    field: MobileInputFocus,
+    label_slot: TextSlot,
+    content_slot: TextSlot,
+    label: &str,
+    initial_text: &str,
+    is_focused: bool,
+    min_height_px: f32,
+    reading_order: usize,
+    tokens: &ThemeTokens,
+) {
+    parent.spawn((
+        Text::new(label.to_owned()),
+        desktop_text_font(11.5),
+        TextColor(tokens.text_secondary.to_bevy_color()),
+        label_slot,
+        TextTone::Secondary,
+    ));
+
+    let (border_px, border_color) = if is_focused {
+        (3.0, tokens.focus_ring.to_bevy_color())
+    } else {
+        (1.0, tokens.text_secondary.to_bevy_color())
+    };
+
+    let role = if field.is_multiline() {
+        accesskit::Role::MultilineTextInput
+    } else {
+        accesskit::Role::TextInput
+    };
+    let mut a11y_node = accesskit::Node::new(role);
+    a11y_node.set_label(label.to_owned());
+    a11y_node.set_value(initial_text.to_owned());
+
+    let mut entity_cmd = parent.spawn((
+        FormInputBoxNode { field },
+        Pickable::default(),
+        Node {
+            width: Val::Percent(100.0),
+            min_height: Val::Px(min_height_px),
+            padding: UiRect::all(Val::Px(8.0)),
+            border: UiRect::all(Val::Px(border_px)),
+            align_items: AlignItems::Center,
+            ..default()
+        },
+        BackgroundColor(tokens.input_bg.to_bevy_color()),
+        BorderColor::all(border_color),
+        A11yNodeMarker {
+            key: field.a11y_key(),
+            reading_order,
+            interactivity: NodeInteractivity::Interactive,
+        },
+        AccessibilityNode(a11y_node),
+    ));
+
+    if field == MobileInputFocus::CuratedNote {
+        entity_cmd.insert(ComposerBoxNode);
+    }
+
+    entity_cmd
+        .observe(
+            move |_click: On<PointerClick>,
+                  mut desktop: ResMut<MobileDesktopUiState>,
+                  mut gate: ResMut<IdleRedrawGate>| {
+                desktop.set_focus(field);
+                gate.request_redraw(RedrawReason::UserInput);
+            },
+        )
+        .with_children(|box_node| {
+            box_node.spawn((
+                Text::new(initial_text.to_owned()),
+                desktop_text_font(12.5),
+                TextColor(tokens.input_fg.to_bevy_color()),
+                content_slot,
+                TextTone::Input,
+            ));
         });
 }
 
@@ -610,18 +730,29 @@ fn spawn_action_button(
         });
 }
 
-fn handle_composer_keyboard_input_system(
+fn active_surface_mut<'a>(
+    focus: MobileInputFocus,
+    desktop: &'a mut MobileDesktopUiState,
+    composer: &'a mut ComposerSurface,
+) -> &'a mut ComposerSurface {
+    match focus {
+        MobileInputFocus::Email => &mut desktop.email_field,
+        MobileInputFocus::InviteCode => &mut desktop.invite_code_field,
+        MobileInputFocus::DateOfBirth => &mut desktop.dob_field,
+        MobileInputFocus::CuratedNote => composer,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_form_keyboard_input_system(
     mut key_messages: MessageReader<KeyboardInput>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    desktop: Res<MobileDesktopUiState>,
+    mut desktop: ResMut<MobileDesktopUiState>,
     mut composer: ResMut<ComposerSurface>,
+    mut clipboard: ResMut<ClipboardBuffer>,
     mut actions: ResMut<DesktopActionQueue>,
     mut gate: ResMut<IdleRedrawGate>,
 ) {
-    if !desktop.composer_focused {
-        return;
-    }
-
     let shift = keys
         .as_ref()
         .is_some_and(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight));
@@ -632,62 +763,166 @@ fn handle_composer_keyboard_input_system(
             || k.pressed(KeyCode::SuperRight)
     });
 
+    let mut form_fields_modified = false;
+
     for ev in key_messages.read() {
         if ev.state != ButtonState::Pressed {
             continue;
         }
-        if primary_mod && ev.key_code == KeyCode::KeyZ {
-            let outcome = if shift {
-                composer.apply(ComposerAction::Redo)
+
+        if matches!(ev.logical_key, Key::Tab) || ev.key_code == KeyCode::Tab {
+            if shift {
+                desktop.cycle_focus_prev();
             } else {
-                composer.apply(ComposerAction::Undo)
-            };
-            if outcome != ComposerOutcome::NoOp {
-                gate.request_redraw(RedrawReason::UserInput);
+                desktop.cycle_focus_next();
             }
+            gate.request_redraw(RedrawReason::UserInput);
             continue;
         }
-        match &ev.logical_key {
-            Key::Enter => {
-                if shift {
-                    let _ = composer.apply(ComposerAction::ShiftEnterNewline);
-                    gate.request_redraw(RedrawReason::UserInput);
-                } else {
-                    actions.push(DesktopAction::ReviewAndSendDoctorNote);
+
+        let focus = desktop.active_focus;
+
+        if primary_mod {
+            match ev.key_code {
+                KeyCode::KeyZ => {
+                    let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                    let outcome = if shift {
+                        surface.apply(ComposerAction::Redo)
+                    } else {
+                        surface.apply(ComposerAction::Undo)
+                    };
+                    if outcome != ComposerOutcome::NoOp {
+                        if !focus.is_multiline() {
+                            form_fields_modified = true;
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
+                    continue;
                 }
+                KeyCode::KeyA => {
+                    let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                    let _ = surface.apply(ComposerAction::SelectAll);
+                    gate.request_redraw(RedrawReason::UserInput);
+                    continue;
+                }
+                KeyCode::KeyC => {
+                    let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                    let _ = copy_surface_to_clipboard(surface, &mut clipboard);
+                    continue;
+                }
+                KeyCode::KeyX => {
+                    let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                    if cut_surface_to_clipboard(surface, &mut clipboard) {
+                        if !focus.is_multiline() {
+                            form_fields_modified = true;
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
+                    continue;
+                }
+                KeyCode::KeyV => {
+                    let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                    let outcome =
+                        paste_clipboard_into_surface(surface, &clipboard, !focus.is_multiline());
+                    if outcome != ComposerOutcome::NoOp {
+                        if !focus.is_multiline() {
+                            form_fields_modified = true;
+                        }
+                        gate.request_redraw(RedrawReason::UserInput);
+                    }
+                    continue;
+                }
+                _ => {}
             }
+        }
+
+        match &ev.logical_key {
+            Key::Enter => match focus {
+                MobileInputFocus::Email => {
+                    desktop.sync_field_displays();
+                    actions.push(DesktopAction::SignIn);
+                }
+                MobileInputFocus::InviteCode | MobileInputFocus::DateOfBirth => {
+                    desktop.sync_field_displays();
+                    actions.push(DesktopAction::VerifyDob);
+                }
+                MobileInputFocus::CuratedNote => {
+                    if shift {
+                        let _ = composer.apply(ComposerAction::ShiftEnterNewline);
+                        gate.request_redraw(RedrawReason::UserInput);
+                    } else {
+                        actions.push(DesktopAction::ReviewAndSendDoctorNote);
+                    }
+                }
+            },
             Key::Backspace => {
-                let _ = composer.apply(ComposerAction::Backspace);
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::Backspace);
+                if !focus.is_multiline() {
+                    form_fields_modified = true;
+                }
                 gate.request_redraw(RedrawReason::UserInput);
             }
             Key::Delete => {
-                let _ = composer.apply(ComposerAction::DeleteForward);
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::DeleteForward);
+                if !focus.is_multiline() {
+                    form_fields_modified = true;
+                }
                 gate.request_redraw(RedrawReason::UserInput);
             }
             Key::ArrowLeft => {
-                let _ = composer.apply(ComposerAction::MovePrevCluster {
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::MovePrevCluster {
                     extend_selection: shift,
                 });
                 gate.request_redraw(RedrawReason::UserInput);
             }
             Key::ArrowRight => {
-                let _ = composer.apply(ComposerAction::MoveNextCluster {
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::MoveNextCluster {
+                    extend_selection: shift,
+                });
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::Home => {
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::MoveStart {
+                    extend_selection: shift,
+                });
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            Key::End => {
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::MoveEnd {
                     extend_selection: shift,
                 });
                 gate.request_redraw(RedrawReason::UserInput);
             }
             Key::Space => {
-                let _ = composer.apply(ComposerAction::InsertText(" ".to_owned()));
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::InsertText(" ".to_owned()));
+                if !focus.is_multiline() {
+                    form_fields_modified = true;
+                }
                 gate.request_redraw(RedrawReason::UserInput);
             }
             Key::Character(text)
                 if !primary_mod && !text.is_empty() && !text.chars().all(char::is_control) =>
             {
-                let _ = composer.apply(ComposerAction::InsertText(text.to_string()));
+                let surface = active_surface_mut(focus, &mut desktop, &mut composer);
+                let _ = surface.apply(ComposerAction::InsertText(text.to_string()));
+                if !focus.is_multiline() {
+                    form_fields_modified = true;
+                }
                 gate.request_redraw(RedrawReason::UserInput);
             }
             _ => {}
         }
+    }
+
+    if form_fields_modified {
+        desktop.sync_field_displays();
     }
 }
 
@@ -705,7 +940,7 @@ fn sync_desktop_visuals_system(
             With<CardSurfaceNode>,
             Without<RootCanvasNode>,
             Without<CrisisBannerNode>,
-            Without<ComposerBoxNode>,
+            Without<FormInputBoxNode>,
             Without<ActionButton>,
         ),
     >,
@@ -715,18 +950,23 @@ fn sync_desktop_visuals_system(
             With<CrisisBannerNode>,
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
-            Without<ComposerBoxNode>,
+            Without<FormInputBoxNode>,
             Without<ActionButton>,
         ),
     >,
-    mut composer_box_q: Query<
-        (&mut BackgroundColor, &mut BorderColor),
+    mut input_box_q: Query<
         (
-            With<ComposerBoxNode>,
+            &FormInputBoxNode,
+            &mut Node,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        (
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
             Without<CrisisBannerNode>,
             Without<ActionButton>,
+            Without<MirroredRowNode>,
         ),
     >,
     mut btn_q: Query<
@@ -735,10 +975,10 @@ fn sync_desktop_visuals_system(
             Without<RootCanvasNode>,
             Without<CardSurfaceNode>,
             Without<CrisisBannerNode>,
-            Without<ComposerBoxNode>,
+            Without<FormInputBoxNode>,
         ),
     >,
-    mut rows_q: Query<&mut Node, With<MirroredRowNode>>,
+    mut rows_q: Query<&mut Node, (With<MirroredRowNode>, Without<FormInputBoxNode>)>,
     mut text_q: Query<(&TextSlot, &TextTone, &mut Text, &mut TextColor)>,
 ) {
     let tokens = ui_theme.tokens;
@@ -757,9 +997,15 @@ fn sync_desktop_visuals_system(
         *bg = BackgroundColor(crisis.bg.to_bevy_color());
         *border = BorderColor::all(crisis.border.to_bevy_color());
     }
-    for (mut bg, mut border) in &mut composer_box_q {
+    for (input_box, mut node, mut bg, mut border) in &mut input_box_q {
         *bg = BackgroundColor(tokens.input_bg.to_bevy_color());
-        *border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+        if input_box.field == desktop.active_focus {
+            node.border = UiRect::all(Val::Px(3.0));
+            *border = BorderColor::all(tokens.focus_ring.to_bevy_color());
+        } else {
+            node.border = UiRect::all(Val::Px(1.0));
+            *border = BorderColor::all(tokens.text_secondary.to_bevy_color());
+        }
     }
     for (btn, mut bg, mut border) in &mut btn_q {
         match btn.style {
@@ -857,6 +1103,10 @@ fn sync_desktop_visuals_system(
         },
     };
 
+    let email_input_display = desktop.email_field.display_text();
+    let invite_input_display = desktop.invite_code_field.display_text();
+    let dob_input_display = desktop.dob_field.display_text();
+
     let composer_display = if composer.display_text().is_empty() {
         translate(locale, UiKey::MobileCuratedNotePlaceholder).to_owned()
     } else {
@@ -920,6 +1170,8 @@ fn sync_desktop_visuals_system(
                 connectivity_label,
                 translate(locale, UiKey::MobileLabelOwedSignOuts),
             ),
+            TextSlot::EmailInputLabel => translate(locale, UiKey::MobileLabelEmail).to_owned(),
+            TextSlot::EmailInputContent => email_input_display.clone(),
             TextSlot::SignInBtnLabel => chrome.sign_in.clone(),
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
@@ -934,6 +1186,10 @@ fn sync_desktop_visuals_system(
                 dob_summary,
                 standing_summary
             ),
+            TextSlot::InviteInputLabel => translate(locale, UiKey::MobileLabelInvite).to_owned(),
+            TextSlot::InviteInputContent => invite_input_display.clone(),
+            TextSlot::DobInputLabel => translate(locale, UiKey::MobileLabelDob).to_owned(),
+            TextSlot::DobInputContent => dob_input_display.clone(),
             TextSlot::VerifyDobBtnLabel => chrome.verify_dob.clone(),
             TextSlot::ShareBtnLabel => chrome.share.clone(),
             TextSlot::ForMyDoctorHeading => chrome.nav_for_my_doctor.clone(),
