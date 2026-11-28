@@ -33,9 +33,9 @@ Triggered on `workflow_dispatch`, weekly schedule, and PRs touching workflow, de
 2. **`desktop-windows`** (`windows-latest`, x86_64 MSVC): full 28-crate tests, native `.exe` server binaries, `ef-clinic-desktop.exe` + `ef-mobile-desktop.exe` release builds + `--headless-smoke` + `.zip` packaging, and bounded `ElyMalloc` probe.
 3. **`desktop-linux-native`** (`ubuntu-24.04`): `ef-clinic-desktop` + `ef-mobile-desktop` release builds + `--headless-smoke` + `.tar.gz` packaging.
 4. **`postgres-18`** (`ubuntu-24.04` + `postgres:18` service): isolated Clinic/Mobile SQL migrations, idempotency, constraint/cascade checks, and live `ef-pgwire` durability & two-instance advisory-lock failover (`scripts/verify_pgwire_live.sh`).
-5. **`browsers-e2e`** (`ubuntu-24.04` + Noto fonts + Playwright Chromium, Firefox, WebKit): 3-browser E2E, Mobile Chromium/WebKit PWA emulation + offline SW, compiled Bevy Wasm `WebAssembly.compile` under strict CSP + Brotli-11 sizes, 42-view 7-script multilingual QA, and WCAG 2.1 AA theme/zoom/Privacy Cover/Dei UX QA.
+5. **`browsers-e2e`** (`ubuntu-24.04` + Noto fonts + Playwright Chromium, Firefox, WebKit): 3-browser E2E covering the 4-tab Clinic browser workstation, Mobile Chromium/WebKit PWA Health Trends & offline SW, compiled Bevy Wasm `WebAssembly.compile` under strict CSP + Brotli-11 sizes, 12-locale `< 20 KiB` MV3 popup, 42-view 7-script multilingual QA, and WCAG 2.1 AA theme/zoom/Privacy Cover/Dei UX QA.
 6. **`mobile-android-build`** (`ubuntu-24.04`): `aarch64-linux-android` NDK cross-check across mobile crates plus `kotlinc` + `java` execution of Android shim tests.
-7. **`oci-container-build`** (`ubuntu-24.04`): builds and smoke-tests all three rootless `USER 10001:10001` OCI images (`public`, `clinic`, `mobile`) and runs the live 5-container Docker Compose + Caddy gateway E2E (`scripts/verify_compose_stack.sh --no-build`).
+7. **`oci-container-build`** (`ubuntu-24.04`): builds and smoke-tests all three rootless `USER 10001:10001` OCI images (`public`, `clinic`, `mobile`) and runs the live 5-container Docker Compose + Caddy gateway E2E (`scripts/verify_compose_stack.sh --no-build`, covering searchable `/dei`, XSS escaping, and authenticated `/elysianfields/api/today`).
 
 ## Honest Qualification Status and Hardware Gates
 

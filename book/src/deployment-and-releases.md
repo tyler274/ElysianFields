@@ -24,7 +24,7 @@ Images contain zero embedded secrets. Runtime containers run with `--read-only`,
   - `/elysianfields` & `/elysianfields/*` → `clinic:8088`
   - `/*` → `public-site:8082`
 - Attaches `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer` on every response.
-- Verified end-to-end (including live Clinic auth write, PostgreSQL 18 WAL row check, container restart replay, and zero-PHI `/metrics`) via `scripts/verify_compose_stack.sh`.
+- Verified end-to-end (including `/dei?state=CA&service=crisis` crisis-first filtering, XSS-escaped `/dei?q=%3Cscript%3Ealert(1)%3C/script%3E`, unauthenticated `401` and authenticated `200` `/elysianfields/api/today`, live Clinic auth write, PostgreSQL 18 WAL row check, container restart replay, and zero-PHI `/metrics`) via `scripts/verify_compose_stack.sh`.
 
 For container-free local testing, `scripts/run_local_stack.sh --smoke` launches all three native server binaries on ephemeral localhost ports with a temporary WAL directory and tears them down cleanly on exit.
 
