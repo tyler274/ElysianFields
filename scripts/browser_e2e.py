@@ -665,6 +665,125 @@ def check_clinic_shell_page(
         }"""
     )
 
+    workstation_tabs = page.evaluate(
+        """async () => {
+            const waitUntil = async (predicate, timeoutMs = 600) => {
+                const deadline = performance.now() + timeoutMs;
+                while (performance.now() < deadline) {
+                    if (predicate()) return true;
+                    await new Promise((resolve) => setTimeout(resolve, 15));
+                }
+                return predicate();
+            };
+
+            const tablist = document.getElementById("workstation-tabs");
+            const tabCount = tablist ? tablist.querySelectorAll('[role="tab"]').length : 0;
+
+            document.getElementById("tab-today")?.click();
+            const todayPanel = document.getElementById("panel-today");
+            const todayVisible = Boolean(todayPanel && !todayPanel.hidden);
+            const bannerText = document.getElementById("today-channel-banner")?.textContent || "";
+            const todayChannelBannerOk = bannerText.includes("TodaySaysSo");
+            const todayVisitsCount = document.querySelectorAll("#today-visits-list > li").length;
+
+            const firstItem = document.querySelector("#today-items-list > li");
+            const firstItemId = firstItem ? firstItem.dataset.todayItemId : null;
+            firstItem?.querySelector('[data-today-action="seen"]')?.click();
+            const todaySeenOk = await waitUntil(() => {
+                const el = firstItemId
+                    ? document.querySelector(`#today-items-list > li[data-today-item-id="${firstItemId}"]`)
+                    : null;
+                return Boolean(el && (el.dataset.standing === "seen" || el.dataset.standing === "done"));
+            });
+
+            const afterSeenItem = firstItemId
+                ? document.querySelector(`#today-items-list > li[data-today-item-id="${firstItemId}"]`)
+                : null;
+            afterSeenItem?.querySelector('[data-today-action="done"]')?.click();
+            const todayDoneOk = await waitUntil(() => {
+                const el = firstItemId
+                    ? document.querySelector(`#today-items-list > li[data-today-item-id="${firstItemId}"]`)
+                    : null;
+                return Boolean(el && el.dataset.standing === "done");
+            });
+
+            document.getElementById("tab-messages")?.click();
+            const messagesPanel = document.getElementById("panel-messages");
+            const messagesVisible = Boolean(messagesPanel && !messagesPanel.hidden);
+            document.getElementById("btn-copy-reply")?.click();
+            const messagesCopyOk = await waitUntil(
+                () => document.documentElement.dataset.efReplyCopied === "true"
+            );
+            document.getElementById("btn-close-reply")?.click();
+            const draftCard = document.getElementById("messages-draft-card");
+            const closedBar = document.getElementById("messages-closed-bar");
+            const messagesCloseOk = Boolean(draftCard && draftCard.hidden && closedBar && !closedBar.hidden);
+            document.getElementById("btn-undo-close")?.click();
+            const messagesUndoOk = Boolean(draftCard && !draftCard.hidden && closedBar && closedBar.hidden);
+
+            document.getElementById("tab-memory")?.click();
+            const memoryPanel = document.getElementById("panel-memory");
+            const memoryVisible = Boolean(memoryPanel && !memoryPanel.hidden);
+            const memoryChartRecordCount = document.querySelectorAll(
+                '#memory-entries-list [data-memory-authority="chart_record"]'
+            ).length;
+            const memoryInstructionCount = document.querySelectorAll(
+                '#memory-entries-list [data-memory-authority="physician_instruction"]'
+            ).length;
+            document.getElementById("btn-issue-invite")?.click();
+            const inviteCodeValid = await waitUntil(() => {
+                const text = (document.getElementById("memory-invite-code")?.textContent || "").trim();
+                return /^EF-\\d{6}$/.test(text);
+            });
+            const inviteCode = (document.getElementById("memory-invite-code")?.textContent || "").trim();
+
+            document.getElementById("tab-chat")?.click();
+            const chatPanel = document.getElementById("panel-chat");
+            const returnedToChat = Boolean(
+                chatPanel && !chatPanel.hidden && document.documentElement.dataset.efActiveTab === "chat"
+            );
+
+            return {
+                tabCount,
+                todayVisible,
+                todayChannelBannerOk,
+                todaySeenOk,
+                todayDoneOk,
+                todayVisitsCount,
+                messagesVisible,
+                messagesCopyOk,
+                messagesCloseOk,
+                messagesUndoOk,
+                memoryVisible,
+                memoryChartRecordCount,
+                memoryInstructionCount,
+                inviteCode,
+                inviteCodeValid,
+                returnedToChat,
+                cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
+            };
+        }"""
+    )
+    workstation_tabs_ok = (
+        workstation_tabs["tabCount"] == 4
+        and workstation_tabs["todayVisible"]
+        and workstation_tabs["todayChannelBannerOk"]
+        and workstation_tabs["todaySeenOk"]
+        and workstation_tabs["todayDoneOk"]
+        and workstation_tabs["todayVisitsCount"] >= 1
+        and workstation_tabs["messagesVisible"]
+        and workstation_tabs["messagesCopyOk"]
+        and workstation_tabs["messagesCloseOk"]
+        and workstation_tabs["messagesUndoOk"]
+        and workstation_tabs["memoryVisible"]
+        and workstation_tabs["memoryChartRecordCount"] >= 1
+        and workstation_tabs["memoryInstructionCount"] >= 1
+        and workstation_tabs["inviteCodeValid"]
+        and workstation_tabs["returnedToChat"]
+        and workstation_tabs["cspViolations"] == 0
+    )
+    workstation_tabs_report = {"passed": workstation_tabs_ok, **workstation_tabs}
+
     rtl_check: dict[str, Any] | None = None
     rtl_ok = True
     wasm_runtime_ok = True
@@ -732,6 +851,7 @@ def check_clinic_shell_page(
         and dom_metrics["hasMain"]
         and dom_metrics["hasTextbox"]
         and focused_info["movedOffBody"]
+        and workstation_tabs_ok
         and wasm_runtime_ok
     )
 
@@ -749,6 +869,7 @@ def check_clinic_shell_page(
         "a11y_owner": dom_metrics.get("a11yOwner", "shell"),
         "a11y_bridge_nodes": dom_metrics["bridgeNodes"],
         "keyboard_focus": focused_info,
+        "workstation_tabs": workstation_tabs_report,
     }
     if expect_bevy_wasm:
         result["wasm_raw_bytes"] = clinic_wasm_raw_bytes
@@ -1001,6 +1122,75 @@ def check_mobile_pwa_profile(
             }"""
         )
 
+        # 1b. Mobile Health Trends & SignInHoldsNothing wipe check
+        health_trends = page.evaluate(
+            """async () => {
+                const waitUntil = async (predicate, timeoutMs = 600) => {
+                    const deadline = performance.now() + timeoutMs;
+                    while (performance.now() < deadline) {
+                        if (predicate()) return true;
+                        await new Promise((resolve) => setTimeout(resolve, 15));
+                    }
+                    return predicate();
+                };
+
+                const content = document.getElementById("health-trends-content");
+                const notice = document.getElementById("health-signed-out-notice");
+                const initialSignedOutHidden = Boolean(
+                    content && content.hidden && notice && !notice.hidden
+                );
+                const initialStepsEmpty =
+                    (document.getElementById("health-metric-steps")?.textContent || "").trim() === "";
+
+                window.__elysianMobileShell?.setSignedIn(true);
+                const signedInVisible = Boolean(
+                    content && !content.hidden && notice && notice.hidden
+                );
+                const stepsText = (document.getElementById("health-metric-steps")?.textContent || "").trim();
+                const hrText = (document.getElementById("health-metric-hr")?.textContent || "").trim();
+                const bpText = (document.getElementById("health-metric-bp")?.textContent || "").trim();
+                const sleepText = (document.getElementById("health-metric-sleep")?.textContent || "").trim();
+                const recordsCount = document.querySelectorAll("#health-records-list > li").length;
+
+                document.getElementById("btn-sync-health")?.click();
+                const syncedOk = await waitUntil(
+                    () => Number(document.documentElement.dataset.efHealthSyncCount || "0") >= 1
+                );
+
+                document.getElementById("btn-mobile-signout")?.click();
+                const signedOutCleared = await waitUntil(
+                    () =>
+                        document.documentElement.dataset.efMobileSignedIn === "false" &&
+                        Boolean(content && content.hidden) &&
+                        Boolean(notice && !notice.hidden) &&
+                        (document.getElementById("health-metric-steps")?.textContent || "").trim() === "" &&
+                        document.querySelectorAll("#health-records-list > li").length === 0
+                );
+
+                return {
+                    initialSignedOutHidden,
+                    initialStepsEmpty,
+                    signedInVisible,
+                    metricsPresent: Boolean(stepsText && hrText && bpText && sleepText),
+                    recordsCount,
+                    syncedOk,
+                    signedOutCleared,
+                    cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
+                };
+            }"""
+        )
+        health_trends_ok = (
+            health_trends["initialSignedOutHidden"]
+            and health_trends["initialStepsEmpty"]
+            and health_trends["signedInVisible"]
+            and health_trends["metricsPresent"]
+            and health_trends["recordsCount"] >= 1
+            and health_trends["syncedOk"]
+            and health_trends["signedOutCleared"]
+            and health_trends["cspViolations"] == 0
+        )
+        health_trends_report = {"passed": health_trends_ok, **health_trends}
+
         # 2. Arabic RTL check (`?lang=ar`)
         rtl_url = f"{mobile_shell_url}?lang=ar"
         rtl_resp = page.goto(rtl_url, wait_until="networkidle")
@@ -1105,6 +1295,7 @@ def check_mobile_pwa_profile(
             and ltr_metrics["hasNav"]
             and ltr_metrics["hasMain"]
             and ltr_metrics["crisisPresent"]
+            and health_trends_ok
             and rtl_metrics["dir"] == "rtl"
             and rtl_metrics["lang"] == "ar"
             and rtl_metrics["zeroOverflow"]
@@ -1126,6 +1317,7 @@ def check_mobile_pwa_profile(
             "wasm_runtime": ltr_metrics.get("wasmRuntime", "static-shell"),
             "a11y_owner": ltr_metrics.get("a11yOwner", "shell"),
             "ltr": ltr_metrics,
+            "health_trends": health_trends_report,
             "rtl": rtl_metrics,
             "offline": {
                 "reloaded": offline_reload_ok,

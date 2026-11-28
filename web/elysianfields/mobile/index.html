@@ -63,6 +63,7 @@
 
     <nav class="mobile-nav" aria-label="Curie Mobile navigation">
       <a id="nav-account" class="touch-btn" href="#section-account">Account</a>
+      <a id="nav-health-trends" class="touch-btn" href="#section-health-trends">Health Trends</a>
       <a id="nav-connected-care" class="touch-btn" href="#section-connected-care">Connected Care</a>
       <a id="nav-for-my-doctor" class="touch-btn" href="#section-for-my-doctor">For my doctor</a>
     </nav>
@@ -78,6 +79,40 @@
             <button id="btn-mobile-signout" type="button" class="touch-btn">Sign out (offline-safe)</button>
           </div>
         </form>
+        <p id="owed-recovery-status" class="owed-recovery-banner" role="status" aria-live="polite">
+          <strong id="label-owed-recovery">Owed Sign-Out Recovery</strong>:
+          <span id="owed-recovery-text">All sign-outs confirmed (0 owed).</span>
+        </p>
+      </section>
+
+      <section id="section-health-trends" class="card" aria-label="Personal health trends and records">
+        <h2 id="heading-health-trends">Personal Health Trends &amp; Records</h2>
+        <p id="health-signed-out-notice" class="health-notice" role="status">
+          Signed out — personal health trends and records are cleared on this device (SignInHoldsNothing). Sign in to view or sync.
+        </p>
+        <div id="health-trends-content" class="health-trends-content" hidden>
+          <dl class="health-metrics-grid">
+            <div class="health-tile">
+              <dt id="label-health-steps">Steps</dt>
+              <dd id="health-metric-steps"></dd>
+            </div>
+            <div class="health-tile">
+              <dt id="label-health-hr">Resting HR</dt>
+              <dd id="health-metric-hr"></dd>
+            </div>
+            <div class="health-tile">
+              <dt id="label-health-bp">Blood Pressure</dt>
+              <dd id="health-metric-bp"></dd>
+            </div>
+            <div class="health-tile">
+              <dt id="label-health-sleep">Sleep</dt>
+              <dd id="health-metric-sleep"></dd>
+            </div>
+          </dl>
+          <h3 id="heading-health-records">Personal Records</h3>
+          <ul id="health-records-list" class="sent-list" aria-label="Personal health records" dir="auto"></ul>
+          <button id="btn-sync-health" type="button" class="touch-btn touch-btn-primary">Sync Health Snapshot</button>
+        </div>
       </section>
 
       <section id="section-connected-care" class="card" aria-label="Connected Care invitation">

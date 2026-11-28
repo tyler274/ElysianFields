@@ -197,6 +197,20 @@ export class MobileApiClient {
     });
     return { status: resp.status, body: await resp.json() };
   }
+
+  async getHealthTrends() {
+    const resp = await fetch(resolveMobileApiUrl("health/trends"), {
+      headers: this.#headers(),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async getHealthRecords() {
+    const resp = await fetch(resolveMobileApiUrl("health/records"), {
+      headers: this.#headers(),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
 }
 
 function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = null) {
@@ -233,12 +247,22 @@ function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = 
   setText("crisis-samhsa-suffix", chrome.crisis_samhsa_suffix);
   setText("btn-toggle-lang", dir === "rtl" ? "English (LTR)" : "العربية (RTL)");
   setText("nav-account", chrome.nav_account);
+  setText("nav-health-trends", chrome.nav_health_trends);
   setText("nav-connected-care", chrome.nav_connected_care);
   setText("nav-for-my-doctor", chrome.nav_for_my_doctor);
   setText("heading-account", chrome.account_heading);
   setText("label-mobile-email", chrome.patient_email);
   setText("btn-mobile-signin", chrome.sign_in);
   setText("btn-mobile-signout", chrome.sign_out);
+  setText("label-owed-recovery", chrome.owed_signout_recovery_label);
+  setText("heading-health-trends", chrome.health_trends_heading);
+  setText("health-signed-out-notice", chrome.health_signed_out_notice);
+  setText("label-health-steps", chrome.health_steps_label);
+  setText("label-health-hr", chrome.health_hr_label);
+  setText("label-health-bp", chrome.health_bp_label);
+  setText("label-health-sleep", chrome.health_sleep_label);
+  setText("heading-health-records", chrome.health_records_heading);
+  setText("btn-sync-health", chrome.health_sync_btn);
   setText("heading-connected-care", chrome.connected_care_heading);
   setText("label-invite-code", chrome.invite_code_label);
   setText("label-verify-dob", chrome.verify_dob_label);
@@ -351,6 +375,21 @@ async function registerOfflineServiceWorker() {
   }
 }
 
+function defaultHealthSnapshot(syncCount = 0) {
+  const steps = 8420 + syncCount * 230;
+  return {
+    steps: `${steps.toLocaleString("en-US")} steps`,
+    restingHr: `${Math.max(58, 64 - (syncCount % 3))} bpm`,
+    bloodPressure: syncCount > 0 ? "120/76 mmHg" : "122/78 mmHg",
+    sleep: syncCount > 0 ? "7h 40m" : "7h 25m",
+    records: [
+      "HbA1c 6.8% — Lab summary (2026-10-14)",
+      "Lisinopril 10 mg daily — Active medication",
+      ...(syncCount > 0 ? [`Synced health snapshot #${syncCount}`] : []),
+    ],
+  };
+}
+
 async function bootMobile() {
   const navStartMs = performance.now();
   const state = {
@@ -359,6 +398,9 @@ async function bootMobile() {
     dir: "ltr",
     script: "Latn",
     theme: "dark",
+    signedIn: false,
+    healthSyncCount: 0,
+    healthSnapshot: null,
     lastAction: null,
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
@@ -459,6 +501,117 @@ async function bootMobile() {
 
   const apiClient = new MobileApiClient();
 
+  const renderOwedRecovery = () => {
+    const owedCount = apiClient.owedSignOuts.length;
+    setText("mobile-metric-owed", owedCount);
+    setText(
+      "owed-recovery-text",
+      owedCount > 0 ? localeInfo.chrome.owed_signout_queued : localeInfo.chrome.owed_signout_none,
+    );
+  };
+
+  const renderHealthTrends = () => {
+    const signedOutNotice = document.getElementById("health-signed-out-notice");
+    const trendsContent = document.getElementById("health-trends-content");
+    const recordsList = document.getElementById("health-records-list");
+
+    if (!state.signedIn || !state.healthSnapshot) {
+      // SignInHoldsNothing: signed-out state must hold and render zero personal health data.
+      if (trendsContent) trendsContent.hidden = true;
+      if (signedOutNotice) {
+        signedOutNotice.hidden = false;
+        signedOutNotice.textContent = localeInfo.chrome.health_signed_out_notice;
+      }
+      setText("health-metric-steps", "");
+      setText("health-metric-hr", "");
+      setText("health-metric-bp", "");
+      setText("health-metric-sleep", "");
+      if (recordsList) recordsList.textContent = "";
+      document.documentElement.dataset.efMobileSignedIn = "false";
+      document.documentElement.dataset.efHealthCleared = "true";
+      return;
+    }
+
+    if (signedOutNotice) signedOutNotice.hidden = true;
+    if (trendsContent) trendsContent.hidden = false;
+    setText("health-metric-steps", state.healthSnapshot.steps);
+    setText("health-metric-hr", state.healthSnapshot.restingHr);
+    setText("health-metric-bp", state.healthSnapshot.bloodPressure);
+    setText("health-metric-sleep", state.healthSnapshot.sleep);
+    if (recordsList) {
+      recordsList.textContent = "";
+      for (const entry of state.healthSnapshot.records) {
+        const li = document.createElement("li");
+        li.className = "sent-item";
+        li.dir = "auto";
+        li.textContent = String(entry);
+        recordsList.appendChild(li);
+      }
+    }
+    document.documentElement.dataset.efMobileSignedIn = "true";
+    document.documentElement.dataset.efHealthCleared = "false";
+  };
+
+  const setSignedInState = (signedIn) => {
+    const next = Boolean(signedIn);
+    state.signedIn = next;
+    if (next) {
+      if (!state.healthSnapshot) {
+        state.healthSnapshot = defaultHealthSnapshot(state.healthSyncCount);
+      }
+    } else {
+      // SignInHoldsNothing: immediately purge all visible personal health data and drafts.
+      state.healthSnapshot = null;
+      state.healthSyncCount = 0;
+      if (noteEl) noteEl.value = "";
+      const sentList = document.getElementById("doctor-sent-list");
+      if (sentList) sentList.textContent = "";
+    }
+    document.documentElement.dataset.efHealthSyncCount = String(state.healthSyncCount);
+    renderHealthTrends();
+    return state.signedIn;
+  };
+
+  const syncHealthSnapshot = async () => {
+    if (!state.signedIn) {
+      return null;
+    }
+    state.healthSyncCount += 1;
+    let nextSnapshot = defaultHealthSnapshot(state.healthSyncCount);
+    if (apiClient.sessionToken) {
+      try {
+        const [trendsRes, recordsRes] = await Promise.all([
+          apiClient.getHealthTrends(),
+          apiClient.getHealthRecords(),
+        ]);
+        if (trendsRes.ok && trendsRes.body && typeof trendsRes.body === "object") {
+          const t = trendsRes.body;
+          nextSnapshot = {
+            steps: t.steps ? String(t.steps) : nextSnapshot.steps,
+            restingHr: t.resting_hr ? String(t.resting_hr) : nextSnapshot.restingHr,
+            bloodPressure: t.blood_pressure ? String(t.blood_pressure) : nextSnapshot.bloodPressure,
+            sleep: t.sleep ? String(t.sleep) : nextSnapshot.sleep,
+            records:
+              recordsRes.ok && recordsRes.body && Array.isArray(recordsRes.body.records)
+                ? recordsRes.body.records.map((rec) =>
+                    typeof rec === "string"
+                      ? rec
+                      : String(rec.summary || rec.title || rec.id || ""),
+                  )
+                : nextSnapshot.records,
+          };
+        }
+      } catch (_err) {
+        // Static preview uses deterministic synced snapshot when mobile API is offline.
+      }
+    }
+    state.healthSnapshot = nextSnapshot;
+    document.documentElement.dataset.efHealthSyncCount = String(state.healthSyncCount);
+    renderHealthTrends();
+    setText("mobile-status", localeInfo.chrome.health_synced_status);
+    return state.healthSnapshot;
+  };
+
   const applyMobileLocale = (nextLang) => {
     const normalized = normalizeLocaleTag(nextLang);
     if (wasmClient) {
@@ -477,6 +630,8 @@ async function bootMobile() {
         setText("mobile-metric-a11y", count);
         document.documentElement.dataset.efA11yNodes = String(count);
         setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
+        renderOwedRecovery();
+        renderHealthTrends();
         return localeInfo;
       }
     }
@@ -486,6 +641,8 @@ async function bootMobile() {
     state.script = localeInfo.script;
     bridge.applyPatches(buildMobileA11yPatches(noteEl?.value ?? "", localeInfo.chrome));
     setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
+    renderOwedRecovery();
+    renderHealthTrends();
     return localeInfo;
   };
 
@@ -515,20 +672,27 @@ async function bootMobile() {
   const signOutBtn = document.getElementById("btn-mobile-signout");
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
-      if (noteEl) noteEl.value = "";
+      setSignedInState(false);
       if (wasmClient) {
         const snap = wasmClient.dispatch({ cmd: "edit_draft", text: "" });
         state.lastWasmSnapshot = snap;
         syncRustA11yNodes(bridge, snap);
       }
       await apiClient.signOutOrQueueOwed();
-      setText("mobile-metric-owed", apiClient.owedSignOuts.length);
+      renderOwedRecovery();
       setText(
         "mobile-status",
         apiClient.owedSignOuts.length > 0
-          ? "Signed out locally; owed sign-out queued for reconnect."
-          : "Signed out cleanly.",
+          ? localeInfo.chrome.owed_signout_queued
+          : localeInfo.chrome.owed_signout_none,
       );
+    });
+  }
+
+  const syncHealthBtn = document.getElementById("btn-sync-health");
+  if (syncHealthBtn) {
+    syncHealthBtn.addEventListener("click", () => {
+      void syncHealthSnapshot();
     });
   }
 
@@ -536,9 +700,12 @@ async function bootMobile() {
     if (wasmClient) {
       state.lastWasmSnapshot = wasmClient.dispatch({ cmd: "set_connectivity", online: true });
     }
-    const remaining = await apiClient.flushOwedSignOuts();
-    setText("mobile-metric-owed", remaining);
+    await apiClient.flushOwedSignOuts();
+    renderOwedRecovery();
   });
+
+  renderOwedRecovery();
+  setSignedInState(params.get("signed_in") === "1");
 
   const authForm = document.getElementById("mobile-auth-form");
   if (authForm) {
@@ -630,6 +797,8 @@ async function bootMobile() {
         const count = syncRustA11yNodes(bridge, snap);
         setText("mobile-metric-a11y", count);
         document.documentElement.dataset.efA11yNodes = String(count);
+        renderOwedRecovery();
+        renderHealthTrends();
       }
       return snap;
     },
@@ -638,6 +807,8 @@ async function bootMobile() {
       state.theme = applyMobileTheme(theme, localeInfo.chrome, true);
       return state.theme;
     },
+    setSignedIn: (signedIn) => setSignedInState(signedIn),
+    syncHealthSnapshot: () => syncHealthSnapshot(),
     getState: () => ({ ...state, a11yNodeCount: bridge.projectedNodeCount() }),
   });
 

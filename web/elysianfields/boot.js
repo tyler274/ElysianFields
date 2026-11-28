@@ -215,6 +215,51 @@ export class ClinicApiClient {
     const text = await resp.text();
     return { status: resp.status, events: parseSseEvents(text) };
   }
+
+  async getToday() {
+    const resp = await fetch(resolveMountUrl("api/today"), {
+      headers: this.#headers(),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async updateTodayStanding(itemId, standing, versionId) {
+    const resp = await fetch(resolveMountUrl("api/today/standing"), {
+      method: "POST",
+      headers: this.#headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        item_id: itemId,
+        standing,
+        version_id: versionId,
+      }),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async getWorkspaceMemory(workspaceId) {
+    const resp = await fetch(
+      resolveMountUrl(`api/workspaces/${encodeURIComponent(workspaceId)}/memory`),
+      { headers: this.#headers() },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async issueConnectedCareInvite(workspaceId, patientId, expectedDob) {
+    const resp = await fetch(
+      resolveMountUrl(
+        `api/workspaces/${encodeURIComponent(workspaceId)}/connected-care/invitations`,
+      ),
+      {
+        method: "POST",
+        headers: this.#headers({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          patient_id: patientId,
+          expected_dob: expectedDob,
+        }),
+      },
+    );
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
 }
 
 async function detectGraphicsCapabilities(canvas) {
@@ -425,10 +470,34 @@ function applyClinicDocumentLocale(
   setText("btn-dismiss-privacy", chrome.privacy_cover_dismiss);
   setText("btn-shortcuts", chrome.shortcuts_btn);
   setText("shortcuts-title", chrome.shortcuts_title);
+  setText("shortcut-tabs-desc", chrome.shortcuts_tabs_desc);
   setText("shortcut-privacy-desc", chrome.shortcuts_privacy_desc);
   setText("shortcut-help-desc", chrome.shortcuts_help_desc);
   setText("shortcut-escape-desc", chrome.shortcuts_escape_desc);
   setText("btn-close-shortcuts", chrome.shortcuts_close);
+
+  const tablistEl = document.getElementById("workstation-tabs");
+  if (tablistEl && chrome.workstation_tabs_label) {
+    tablistEl.setAttribute("aria-label", chrome.workstation_tabs_label);
+  }
+  setText("tab-chat", chrome.tab_chat);
+  setText("tab-today", chrome.tab_today);
+  setText("tab-messages", chrome.tab_messages);
+  setText("tab-memory", chrome.tab_memory);
+  setText("heading-today", chrome.today_heading);
+  setText("heading-today-visits", chrome.today_visits_heading);
+  setText("heading-messages", chrome.messages_heading);
+  setText("heading-messages-patient", chrome.messages_patient_label);
+  setText("heading-messages-draft", chrome.messages_draft_label);
+  setText("btn-copy-reply", chrome.messages_copy_reply);
+  setText("btn-close-reply", chrome.messages_close_reply);
+  setText("btn-undo-close", chrome.messages_undo_close);
+  setText("messages-closed-notice", chrome.messages_closed_status);
+  setText("heading-memory", chrome.memory_heading);
+  setText("heading-memory-connected-care", chrome.memory_connected_care_heading);
+  setText("btn-issue-invite", chrome.memory_issue_invite);
+  setText("label-memory-invite", chrome.memory_invite_label);
+
   setText("metric-locale", `${dir} / ${normalizedLang} (${meta.script})`);
 
   const activeTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
@@ -448,6 +517,81 @@ function applyClinicDocumentLocale(
   return { lang: normalizedLang, dir, script: meta.script, chrome };
 }
 
+const WORKSTATION_TABS = ["chat", "today", "messages", "memory"];
+
+function urgencySortRank(urgency) {
+  const normalized = String(urgency || "routine").toLowerCase();
+  if (normalized === "critical" || normalized === "stat") return 0;
+  if (normalized === "urgent" || normalized === "high") return 1;
+  return 2;
+}
+
+function defaultTodayData() {
+  return {
+    channelHealthy: true,
+    channelBanners: [],
+    items: [
+      {
+        item: {
+          item_id: "today-item-urgent-1",
+          workspace_id: "ws-demo-1",
+          urgency: "urgent",
+          waiting_since_epoch_secs: 1700000100,
+          kind: "patient_message",
+          version_id: "ver-1",
+          summary: "Avery, Jordan — Home BP log (122/78 mmHg) & lisinopril confirmation",
+          can_mark_done: true,
+        },
+        seen: false,
+        done: false,
+      },
+      {
+        item: {
+          item_id: "today-item-routine-2",
+          workspace_id: "ws-demo-1",
+          urgency: "routine",
+          waiting_since_epoch_secs: 1700000400,
+          kind: "lab_followup",
+          version_id: "ver-2",
+          summary: "Avery, Jordan — Quarterly HbA1c 6.8% review",
+          can_mark_done: true,
+        },
+        seen: false,
+        done: false,
+      },
+    ],
+    scheduledVisits: [
+      {
+        visit_id: "visit-1",
+        patient_label: "Avery, Jordan (Synthetic)",
+        scheduled_window: "09:30 · Glycemic & BP follow-up",
+      },
+      {
+        visit_id: "visit-2",
+        patient_label: "Patel, Maya (Synthetic)",
+        scheduled_window: "10:15 · Medication reconciliation",
+      },
+    ],
+  };
+}
+
+function defaultMemoryEntries() {
+  return [
+    {
+      entry_id: "mem-chart-1",
+      authority: "chart_record",
+      summary: "HbA1c 6.8% (2026-10-14) · Lisinopril 10 mg PO daily",
+      source_ref: "chart:lab-hba1c",
+    },
+    {
+      entry_id: "mem-instr-1",
+      authority: "physician_instruction",
+      summary: "Keep home BP target < 130/80 mmHg; review serum potassium at next visit.",
+      source_ref: "clinician:bp-target",
+    },
+  ];
+}
+
 async function boot() {
   const navStartMs = performance.now();
   const state = {
@@ -456,6 +600,7 @@ async function boot() {
     surfaceGeneration: 1,
     preservedDraft: "",
     activeWorkspaceId: "ws-demo-1",
+    activeTab: "chat",
     lastAction: null,
     lang: "en",
     dir: "ltr",
@@ -467,6 +612,12 @@ async function boot() {
     wasmAbiVersion: null,
     lastWasmSnapshot: null,
     userEditedDraft: false,
+    todayData: defaultTodayData(),
+    memoryEntries: defaultMemoryEntries(),
+    lastInviteCode: null,
+    inviteCounter: 0,
+    replyClosed: false,
+    lastCopiedReply: null,
   };
 
   document.addEventListener("securitypolicyviolation", () => {
@@ -769,6 +920,8 @@ async function boot() {
         setText("metric-a11y-nodes", count);
         document.documentElement.dataset.efA11yNodes = String(count);
         setText("status-banner", `${localeInfo.chrome.status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
+        renderTodayTab();
+        renderMemoryTab();
         return localeInfo;
       }
     }
@@ -778,6 +931,8 @@ async function boot() {
     state.script = localeInfo.script;
     bridge.applyPatches(buildInitialA11yPatches(composerEl?.value ?? "", localeInfo.chrome));
     setText("status-banner", `${localeInfo.chrome.status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
+    renderTodayTab();
+    renderMemoryTab();
     return localeInfo;
   };
 
@@ -814,6 +969,398 @@ async function boot() {
   }
 
   const apiClient = new ClinicApiClient();
+
+  const renderTodayTab = () => {
+    const chrome = localeInfo.chrome;
+    const bannerEl = document.getElementById("today-channel-banner");
+    if (bannerEl) {
+      const liveBanner = state.todayData.channelBanners.find(
+        (entry) => typeof entry === "string" && entry.trim().length > 0,
+      );
+      if (liveBanner) {
+        bannerEl.textContent = liveBanner;
+      } else {
+        bannerEl.textContent = state.todayData.channelHealthy
+          ? chrome.today_channel_ok
+          : chrome.today_channel_degraded;
+      }
+    }
+
+    const itemsList = document.getElementById("today-items-list");
+    if (itemsList) {
+      itemsList.textContent = "";
+      const sorted = [...state.todayData.items].sort((a, b) => {
+        const rankDiff = urgencySortRank(a.item?.urgency) - urgencySortRank(b.item?.urgency);
+        if (rankDiff !== 0) return rankDiff;
+        return (a.item?.waiting_since_epoch_secs ?? 0) - (b.item?.waiting_since_epoch_secs ?? 0);
+      });
+
+      for (const entry of sorted) {
+        const item = entry.item || {};
+        const itemId = String(item.item_id || "today-item");
+        const versionId = String(item.version_id || "ver-1");
+        const standing = entry.done ? "done" : entry.seen ? "seen" : "pending";
+
+        const li = document.createElement("li");
+        li.className = "workflow-card";
+        li.dataset.todayItemId = itemId;
+        li.dataset.urgency = String(item.urgency || "routine");
+        li.dataset.standing = standing;
+
+        const header = document.createElement("div");
+        header.className = "workflow-card-header";
+
+        const urgencyBadge = document.createElement("span");
+        urgencyBadge.className =
+          urgencySortRank(item.urgency) <= 1 ? "workflow-badge workflow-badge-accent" : "workflow-badge";
+        urgencyBadge.textContent = String(item.urgency || "routine").toUpperCase();
+
+        const standingBadge = document.createElement("span");
+        standingBadge.className = "workflow-badge";
+        standingBadge.dataset.standingBadge = standing;
+        standingBadge.textContent =
+          standing === "done"
+            ? chrome.today_done_badge
+            : standing === "seen"
+              ? chrome.today_seen_badge
+              : chrome.today_pending_badge;
+
+        header.appendChild(urgencyBadge);
+        header.appendChild(standingBadge);
+
+        const body = document.createElement("p");
+        body.className = "workflow-body";
+        body.dir = "auto";
+        body.textContent = String(item.summary || itemId);
+
+        const actions = document.createElement("div");
+        actions.className = "workflow-actions";
+
+        const seenBtn = document.createElement("button");
+        seenBtn.type = "button";
+        seenBtn.className = "btn";
+        seenBtn.dataset.todayAction = "seen";
+        seenBtn.dataset.itemId = itemId;
+        seenBtn.dataset.versionId = versionId;
+        seenBtn.textContent = chrome.today_mark_seen;
+        seenBtn.addEventListener("click", () => {
+          void handleTodayStanding(itemId, "seen", versionId);
+        });
+
+        const doneBtn = document.createElement("button");
+        doneBtn.type = "button";
+        doneBtn.className = "btn btn-primary";
+        doneBtn.dataset.todayAction = "done";
+        doneBtn.dataset.itemId = itemId;
+        doneBtn.dataset.versionId = versionId;
+        doneBtn.textContent = chrome.today_mark_done;
+        doneBtn.addEventListener("click", () => {
+          void handleTodayStanding(itemId, "done", versionId);
+        });
+
+        actions.appendChild(seenBtn);
+        if (item.can_mark_done !== false) {
+          actions.appendChild(doneBtn);
+        }
+
+        li.appendChild(header);
+        li.appendChild(body);
+        li.appendChild(actions);
+        itemsList.appendChild(li);
+      }
+    }
+
+    const visitsList = document.getElementById("today-visits-list");
+    if (visitsList) {
+      visitsList.textContent = "";
+      for (const visit of state.todayData.scheduledVisits) {
+        const li = document.createElement("li");
+        li.className = "transcript-item";
+        li.dir = "auto";
+        const label = visit.patient_label || visit.patient_id || visit.visit_id || "Scheduled visit";
+        const windowText = visit.scheduled_window || visit.starts_at || "";
+        li.textContent = windowText ? `${label} · ${windowText}` : String(label);
+        visitsList.appendChild(li);
+      }
+    }
+  };
+
+  const handleTodayStanding = async (itemId, standing, versionId) => {
+    let appliedStanding = standing;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.updateTodayStanding(itemId, standing, versionId);
+        if (res.ok && res.body && typeof res.body.standing === "string") {
+          appliedStanding = res.body.standing;
+          setText("metric-api-state", `today:${appliedStanding} (${res.status})`);
+        }
+      } catch (_err) {
+        // Static preview fallback updates local standing deterministically.
+      }
+    }
+    for (const entry of state.todayData.items) {
+      if (entry.item && entry.item.item_id === itemId) {
+        if (appliedStanding === "seen") {
+          entry.seen = true;
+        } else if (appliedStanding === "done") {
+          entry.seen = true;
+          entry.done = true;
+        }
+      }
+    }
+    renderTodayTab();
+  };
+
+  const refreshTodayQueue = async () => {
+    renderTodayTab();
+    if (!apiClient.sessionToken) {
+      return;
+    }
+    try {
+      const res = await apiClient.getToday();
+      if (res.ok && res.body && typeof res.body === "object") {
+        const liveItems = Array.isArray(res.body.items) ? res.body.items : [];
+        const liveVisits = Array.isArray(res.body.scheduled_visits)
+          ? res.body.scheduled_visits
+          : [];
+        const liveBanners = Array.isArray(res.body.channel_banners)
+          ? res.body.channel_banners
+              .map((entry) =>
+                typeof entry === "string"
+                  ? entry
+                  : entry && typeof entry.message === "string"
+                    ? entry.message
+                    : "",
+              )
+              .filter(Boolean)
+          : [];
+        if (liveItems.length > 0) {
+          state.todayData.items = liveItems;
+        }
+        if (liveVisits.length > 0) {
+          state.todayData.scheduledVisits = liveVisits;
+        }
+        state.todayData.channelBanners = liveBanners;
+        state.todayData.channelHealthy = liveBanners.length === 0;
+        setText("metric-api-state", `today (${res.status})`);
+        renderTodayTab();
+      }
+    } catch (_err) {
+      // Retain deterministic local preview queue when running without clinic API.
+    }
+  };
+
+  const renderMemoryTab = () => {
+    const chrome = localeInfo.chrome;
+    const list = document.getElementById("memory-entries-list");
+    if (list) {
+      list.textContent = "";
+      for (const entry of state.memoryEntries) {
+        const isChart = String(entry.authority || "").toLowerCase() === "chart_record";
+        const li = document.createElement("li");
+        li.className = "workflow-card";
+        li.dataset.memoryAuthority = isChart ? "chart_record" : "physician_instruction";
+
+        const header = document.createElement("div");
+        header.className = "workflow-card-header";
+
+        const badge = document.createElement("span");
+        badge.className = isChart ? "workflow-badge" : "workflow-badge workflow-badge-accent";
+        badge.textContent = isChart ? chrome.memory_chart_record : chrome.memory_physician_instruction;
+        header.appendChild(badge);
+
+        const body = document.createElement("p");
+        body.className = "workflow-body";
+        body.dir = "auto";
+        body.textContent = String(
+          entry.summary || entry.content || entry.statement || entry.entry_id || "",
+        );
+
+        li.appendChild(header);
+        li.appendChild(body);
+        list.appendChild(li);
+      }
+    }
+    const codeEl = document.getElementById("memory-invite-code");
+    if (codeEl) {
+      codeEl.textContent = state.lastInviteCode || chrome.memory_invite_none;
+    }
+  };
+
+  const refreshWorkspaceMemory = async () => {
+    renderMemoryTab();
+    if (!apiClient.sessionToken) {
+      return;
+    }
+    try {
+      const res = await apiClient.getWorkspaceMemory(state.activeWorkspaceId);
+      if (res.ok && res.body && Array.isArray(res.body.entries) && res.body.entries.length > 0) {
+        state.memoryEntries = res.body.entries;
+        setText("metric-api-state", `memory (${res.status})`);
+        renderMemoryTab();
+      }
+    } catch (_err) {
+      // Retain deterministic preview entries when offline.
+    }
+  };
+
+  const handleIssueConnectedCareInvite = async () => {
+    let inviteCode = null;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.issueConnectedCareInvite(
+          state.activeWorkspaceId,
+          "patient-demo-1",
+          "1985-04-12",
+        );
+        if (res.ok && res.body && typeof res.body.invite_code === "string") {
+          inviteCode = res.body.invite_code;
+          setText("metric-api-state", `invite (${res.status})`);
+        }
+      } catch (_err) {
+        // Static preview fallback generates a deterministic valid EF-XXXXXX invite code.
+      }
+    }
+    if (!inviteCode) {
+      state.inviteCounter += 1;
+      const numeric = String(482912 + state.inviteCounter).padStart(6, "0").slice(-6);
+      inviteCode = `EF-${numeric}`;
+    }
+    state.lastInviteCode = inviteCode;
+    document.documentElement.dataset.efLastInviteCode = inviteCode;
+    renderMemoryTab();
+    return inviteCode;
+  };
+
+  const selectWorkstationTab = (tabId, moveFocus = false) => {
+    const normalized = WORKSTATION_TABS.includes(tabId) ? tabId : "chat";
+    state.activeTab = normalized;
+    document.documentElement.dataset.efActiveTab = normalized;
+    for (const candidate of WORKSTATION_TABS) {
+      const tabBtn = document.getElementById(`tab-${candidate}`);
+      const panelEl = document.getElementById(`panel-${candidate}`);
+      const isSelected = candidate === normalized;
+      if (tabBtn) {
+        tabBtn.setAttribute("aria-selected", isSelected ? "true" : "false");
+        tabBtn.tabIndex = isSelected ? 0 : -1;
+        if (isSelected && moveFocus) {
+          tabBtn.focus();
+        }
+      }
+      if (panelEl) {
+        panelEl.hidden = !isSelected;
+      }
+    }
+    if (normalized === "today") {
+      void refreshTodayQueue();
+    } else if (normalized === "memory") {
+      void refreshWorkspaceMemory();
+    }
+    return normalized;
+  };
+
+  for (const tabId of WORKSTATION_TABS) {
+    const tabBtn = document.getElementById(`tab-${tabId}`);
+    if (tabBtn) {
+      tabBtn.addEventListener("click", () => {
+        selectWorkstationTab(tabId, false);
+      });
+    }
+  }
+
+  const tablistEl = document.getElementById("workstation-tabs");
+  if (tablistEl) {
+    tablistEl.addEventListener("keydown", (event) => {
+      const currentIdx = WORKSTATION_TABS.indexOf(state.activeTab);
+      if (currentIdx < 0) return;
+      const isRtl = document.documentElement.dir === "rtl";
+      let nextIdx = null;
+      if (event.key === "ArrowRight") {
+        nextIdx = isRtl
+          ? (currentIdx - 1 + WORKSTATION_TABS.length) % WORKSTATION_TABS.length
+          : (currentIdx + 1) % WORKSTATION_TABS.length;
+      } else if (event.key === "ArrowLeft") {
+        nextIdx = isRtl
+          ? (currentIdx + 1) % WORKSTATION_TABS.length
+          : (currentIdx - 1 + WORKSTATION_TABS.length) % WORKSTATION_TABS.length;
+      } else if (event.key === "Home") {
+        nextIdx = 0;
+      } else if (event.key === "End") {
+        nextIdx = WORKSTATION_TABS.length - 1;
+      }
+      if (nextIdx !== null) {
+        event.preventDefault();
+        selectWorkstationTab(WORKSTATION_TABS[nextIdx], true);
+      }
+    });
+  }
+
+  const copyReplyBtn = document.getElementById("btn-copy-reply");
+  if (copyReplyBtn) {
+    copyReplyBtn.addEventListener("click", () => {
+      const draftText = document.getElementById("messages-draft-text")?.textContent?.trim() ?? "";
+      state.lastCopiedReply = draftText;
+      document.documentElement.dataset.efReplyCopied = "true";
+      setText("messages-action-status", localeInfo.chrome.messages_copied_status);
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        void navigator.clipboard.writeText(draftText).catch(() => {
+          // Headless contexts without clipboard permission still record copy confirmation.
+        });
+      }
+    });
+  }
+
+  const closeReplyBtn = document.getElementById("btn-close-reply");
+  const undoCloseBtn = document.getElementById("btn-undo-close");
+  const draftCardEl = document.getElementById("messages-draft-card");
+  const closedBarEl = document.getElementById("messages-closed-bar");
+
+  if (closeReplyBtn) {
+    closeReplyBtn.addEventListener("click", () => {
+      state.replyClosed = true;
+      if (draftCardEl) draftCardEl.hidden = true;
+      if (closedBarEl) closedBarEl.hidden = false;
+      document.documentElement.dataset.efReplyClosed = "true";
+      setText("messages-action-status", localeInfo.chrome.messages_closed_status);
+    });
+  }
+
+  if (undoCloseBtn) {
+    undoCloseBtn.addEventListener("click", () => {
+      state.replyClosed = false;
+      if (draftCardEl) draftCardEl.hidden = false;
+      if (closedBarEl) closedBarEl.hidden = true;
+      document.documentElement.dataset.efReplyClosed = "false";
+      setText("messages-action-status", localeInfo.chrome.messages_restored_status);
+    });
+  }
+
+  const issueInviteBtn = document.getElementById("btn-issue-invite");
+  if (issueInviteBtn) {
+    issueInviteBtn.addEventListener("click", () => {
+      void handleIssueConnectedCareInvite();
+    });
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !state.privacyCoverActive &&
+      !state.shortcutsOpen
+    ) {
+      const tabIndex = Number(event.key) - 1;
+      if (Number.isInteger(tabIndex) && tabIndex >= 0 && tabIndex < WORKSTATION_TABS.length) {
+        event.preventDefault();
+        selectWorkstationTab(WORKSTATION_TABS[tabIndex], false);
+      }
+    }
+  });
+
+  renderTodayTab();
+  renderMemoryTab();
+  selectWorkstationTab(searchParams.get("tab") || "chat", false);
 
   const authForm = document.getElementById("auth-form");
   if (authForm) {
@@ -933,6 +1480,11 @@ async function boot() {
       setPrivacyCoverActive(false);
       closeShortcutsDialog(true);
     },
+    selectTab: (tabId) => selectWorkstationTab(tabId, false),
+    getActiveTab: () => state.activeTab,
+    refreshToday: () => refreshTodayQueue(),
+    refreshMemory: () => refreshWorkspaceMemory(),
+    issueConnectedCareInvite: () => handleIssueConnectedCareInvite(),
     dispatchWasm: (cmd) => {
       if (!wasmClient) return null;
       const snap = wasmClient.dispatch(cmd);
@@ -946,6 +1498,8 @@ async function boot() {
         const count = bridge.projectedNodeCount();
         setText("metric-a11y-nodes", count);
         document.documentElement.dataset.efA11yNodes = String(count);
+        renderTodayTab();
+        renderMemoryTab();
       }
       return snap;
     },

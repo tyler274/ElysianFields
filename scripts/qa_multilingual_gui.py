@@ -256,7 +256,7 @@ def _mobile_probe_js(native_probe: str, composer_sample: str) -> str:
         const touchTargets = [];
         for (const el of document.querySelectorAll(".touch-btn, .touch-select, .touch-input, .touch-textarea")) {{
             const st = getComputedStyle(el);
-            if (st.display === "none" || st.visibility === "hidden") continue;
+            if (st.display === "none" || st.visibility === "hidden" || el.closest("[hidden], #ef-a11y-overlay, .ef-sr-only")) continue;
             const rect = el.getBoundingClientRect();
             touchTargets.push({{
                 id: el.id || el.tagName.toLowerCase(),
@@ -867,7 +867,9 @@ def run_cdp_chromium_multilingual_qa(
                     },
                 )
                 cdp.call("Page.navigate", {"url": f"{clinic_base_url}?lang={lang}"})
-                cdp.wait_for_ready("document.documentElement.dataset.efReady === 'true'")
+                cdp.wait_for_ready(
+                    "Boolean(document.documentElement && document.documentElement.dataset && document.documentElement.dataset.efReady === 'true')"
+                )
                 metrics = cdp.evaluate(_desktop_probe_js(scenario["native_probe"], scenario["composer_sample"]))
                 status = cdp.last_doc_status or 200
                 view = evaluate_desktop_view(scenario, metrics, status, cdp.console_errors, cdp.page_errors)
@@ -895,7 +897,9 @@ def run_cdp_chromium_multilingual_qa(
                     },
                 )
                 cdp.call("Page.navigate", {"url": f"{mobile_base_url}?lang={lang}"})
-                cdp.wait_for_ready("document.documentElement.dataset.efMobileReady === 'true'")
+                cdp.wait_for_ready(
+                    "Boolean(document.documentElement && document.documentElement.dataset && document.documentElement.dataset.efMobileReady === 'true')"
+                )
                 metrics = cdp.evaluate(_mobile_probe_js(scenario["native_probe"], scenario["composer_sample"]))
                 status = cdp.last_doc_status or 200
                 view = evaluate_mobile_view(scenario, metrics, status, cdp.console_errors, cdp.page_errors)

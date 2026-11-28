@@ -311,6 +311,26 @@ class _FakePage:
                 }
             if self._eval_calls == 2:
                 return {"tag": "input", "id": "signin-email", "movedOffBody": True}
+            if self._eval_calls == 3:
+                return {
+                    "tabCount": 4,
+                    "todayVisible": True,
+                    "todayChannelBannerOk": True,
+                    "todaySeenOk": True,
+                    "todayDoneOk": True,
+                    "todayVisitsCount": 2,
+                    "messagesVisible": True,
+                    "messagesCopyOk": True,
+                    "messagesCloseOk": True,
+                    "messagesUndoOk": True,
+                    "memoryVisible": True,
+                    "memoryChartRecordCount": 1,
+                    "memoryInstructionCount": 1,
+                    "inviteCode": "EF-482913",
+                    "inviteCodeValid": True,
+                    "returnedToChat": True,
+                    "cspViolations": 0,
+                }
             return {
                 "dir": "rtl",
                 "lang": "ar",
@@ -351,6 +371,17 @@ class _FakePage:
                 }
             if self._eval_calls == 2:
                 return {
+                    "initialSignedOutHidden": True,
+                    "initialStepsEmpty": True,
+                    "signedInVisible": True,
+                    "metricsPresent": True,
+                    "recordsCount": 2,
+                    "syncedOk": True,
+                    "signedOutCleared": True,
+                    "cspViolations": 0,
+                }
+            if self._eval_calls == 3:
+                return {
                     "dir": "rtl",
                     "lang": "ar",
                     "wasmRuntime": "bevy-rust-wasm",
@@ -360,7 +391,7 @@ class _FakePage:
                     "zeroOverflow": True,
                     "cspViolations": 0,
                 }
-            if self._eval_calls == 3:
+            if self._eval_calls == 4:
                 return True
             return {"nonBlank": True, "crisisPresent": True}
         return {
@@ -445,6 +476,11 @@ class MockedPlaywrightFlowTests(unittest.TestCase):
             entry = report["results"][engine]
             self.assertTrue(entry["passed"])
             self.assertTrue(entry["checks"]["clinic_shell"]["passed"])
+            self.assertTrue(entry["checks"]["clinic_shell"]["workstation_tabs"]["passed"])
+            self.assertEqual(entry["checks"]["clinic_shell"]["workstation_tabs"]["tabCount"], 4)
+            self.assertEqual(
+                entry["checks"]["clinic_shell"]["workstation_tabs"]["inviteCode"], "EF-482913"
+            )
             self.assertTrue(entry["checks"]["wasm_csp"]["passed"])
             self.assertEqual(entry["checks"]["wasm_csp"]["add_result"], 42)
             self.assertTrue(entry["checks"]["mv3_popup"]["passed"])
@@ -457,6 +493,8 @@ class MockedPlaywrightFlowTests(unittest.TestCase):
         self.assertIn("pixel_7_chromium", mobile_section["profiles"])
         for profile in mobile_section["profiles"].values():
             self.assertTrue(profile["passed"])
+            self.assertTrue(profile["health_trends"]["passed"])
+            self.assertTrue(profile["health_trends"]["signedOutCleared"])
             self.assertEqual(profile["rtl"]["dir"], "rtl")
             self.assertTrue(profile["offline"]["crisis_lines_present"])
 
@@ -513,6 +551,100 @@ class MockedPlaywrightFlowTests(unittest.TestCase):
         )
         self.assertFalse(over_budget["overall_passed"])
         self.assertFalse(over_budget["wasm_bundles"]["mobile"]["within_budget"])
+
+
+class WebShellParityAssetTests(unittest.TestCase):
+    def test_clinic_and_mobile_html_enforce_strict_csp_and_workstation_parity(self) -> None:
+        root = browser_e2e.repo_root()
+        clinic_html = (root / "web" / "elysianfields" / "index.html").read_text(encoding="utf-8")
+        mobile_html = (root / "web" / "elysianfields" / "mobile" / "index.html").read_text(
+            encoding="utf-8"
+        )
+
+        for label, html in (("clinic", clinic_html), ("mobile", mobile_html)):
+            self.assertNotIn("onclick=", html.lower(), f"{label} must have zero inline handlers")
+            self.assertNotIn("style=", html.lower(), f"{label} must have zero inline styles")
+            self.assertNotIn('href="/', html, f"{label} must not assume domain-root href")
+            self.assertNotIn('src="/', html, f"{label} must not assume domain-root src")
+
+        for token in (
+            'role="tablist"',
+            'id="tab-chat"',
+            'id="tab-today"',
+            'id="tab-messages"',
+            'id="tab-memory"',
+            'id="today-channel-banner"',
+            'id="today-items-list"',
+            'id="today-visits-list"',
+            'id="btn-copy-reply"',
+            'id="btn-close-reply"',
+            'id="btn-undo-close"',
+            'id="memory-entries-list"',
+            'id="btn-issue-invite"',
+            'id="memory-invite-code"',
+        ):
+            self.assertIn(token, clinic_html)
+
+        for token in (
+            'id="nav-health-trends"',
+            'id="owed-recovery-status"',
+            'id="section-health-trends"',
+            'id="health-signed-out-notice"',
+            'id="health-trends-content"',
+            'id="health-metric-steps"',
+            'id="health-metric-hr"',
+            'id="health-metric-bp"',
+            'id="health-metric-sleep"',
+            'id="health-records-list"',
+            'id="btn-sync-health"',
+        ):
+            self.assertIn(token, mobile_html)
+
+    def test_locales_catalog_covers_all_12_locales_with_workstation_and_mobile_keys(self) -> None:
+        root = browser_e2e.repo_root()
+        locales_js = (root / "web" / "elysianfields" / "locales.js").read_text(encoding="utf-8")
+        expected_locales = (
+            "en",
+            "he",
+            "ar",
+            '"zh-Hans"',
+            "ja",
+            "vi",
+            "hi",
+            "es",
+            "fr",
+            "pt",
+            "de",
+            "ko",
+        )
+        for locale_key in expected_locales:
+            self.assertIn(f"  {locale_key}: {{", locales_js)
+
+        required_keys = (
+            "tab_chat",
+            "tab_today",
+            "tab_messages",
+            "tab_memory",
+            "today_channel_ok",
+            "today_mark_seen",
+            "today_mark_done",
+            "messages_copy_reply",
+            "messages_close_reply",
+            "messages_undo_close",
+            "memory_chart_record",
+            "memory_physician_instruction",
+            "memory_issue_invite",
+            "owed_signout_recovery_label",
+            "health_trends_heading",
+            "health_sync_btn",
+            "health_signed_out_notice",
+        )
+        for key in required_keys:
+            self.assertEqual(
+                locales_js.count(f"    {key}:"),
+                12,
+                f"expected 12 localized entries for key {key}",
+            )
 
 
 if __name__ == "__main__":

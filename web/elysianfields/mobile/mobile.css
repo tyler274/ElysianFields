@@ -196,6 +196,83 @@ body {
   overflow-wrap: break-word;
 }
 
+.card h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+.owed-recovery-banner,
+.health-notice {
+  margin: 0;
+  padding-block: 0.55rem;
+  padding-inline: 0.75rem;
+  border-radius: 0.4rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 4px solid var(--accent-bg);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.health-notice[hidden],
+.health-trends-content[hidden] {
+  display: none;
+}
+
+.health-trends-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.health-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+@media (max-width: 320px) {
+  .health-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.health-tile {
+  padding-block: 0.55rem;
+  padding-inline: 0.7rem;
+  border-radius: 0.4rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.health-tile dt {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow-wrap: break-word;
+}
+
+.health-tile dd {
+  margin: 0.2rem 0 0 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  direction: ltr;
+  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
+}
+
+html[dir="rtl"] .health-tile dd {
+  text-align: right;
+}
+
 .stack-form {
   display: flex;
   flex-direction: column;
