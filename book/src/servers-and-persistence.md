@@ -35,10 +35,16 @@ Migrations are idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`) and verifi
   - Strictly stateless server rendering semantic HTML with zero JavaScript requirement.
   - Guarantees crisis helplines (`988`, `911`, `SAMHSA`) render before facility listings on `/dei`, marks `/invite` with `noindex, nofollow`, blocks `/grafana/` with `404` + `no-store`, and exposes `/health` and `/readyz`.
 
-## Zero-PHI Prometheus Observability
+## Zero-PHI Prometheus Observability, Structured JSON Logs, and Graceful Shutdown
 
 Every server exposes a zero-dependency Prometheus text exposition endpoint (`text/plain; version=0.0.4; charset=utf-8`, `Cache-Control: private, no-store, max-age=0`) carrying only low-cardinality operational metrics and strictly zero PHI, emails, tokens, or patient identifiers:
 
 - **Clinic**: `GET /elysianfields/api/metrics` (`ef_clinic_http_requests_total{status_class=...}`, `ef_clinic_sse_streams_total`, `ef_clinic_wal_seq`, `ef_clinic_uptime_seconds`, `ef_clinic_db_ready`).
 - **Mobile**: `GET /elysianfields/mobile-api/metrics` (`ef_mobile_http_requests_total{status_class=...}`, `ef_mobile_wal_seq`, `ef_mobile_uptime_seconds`, `ef_mobile_db_ready`).
 - **Public**: `GET /metrics` (`ef_public_http_requests_total{status_class=...}`, `ef_public_uptime_seconds`).
+
+Shared request telemetry and lifecycle draining live in `ef_core::telemetry` (`crates/ef-core/src/telemetry.rs`) and are integrated across all three servers:
+
+- **`X-Request-Id` Propagation**: Accepts valid client-supplied `X-Request-Id` headers or generates a fresh correlation ID, echoing `X-Request-Id` on every HTTP response.
+- **Zero-PHI Structured JSON Access Logs (`EF_ACCESS_LOG_JSON=1`)**: Emits single-line JSON access records containing only service name, HTTP method, normalized route template (query strings stripped), status code, duration in milliseconds, and `request_id` — strictly excluding clinical prose, emails, DOBs, and bearer tokens.
+- **Graceful TCP Shutdown (`ShutdownSignal`)**: Coordinates clean listener exit and in-flight connection drain across `ef-clinic-server`, `ef-mobile-server`, and `ef-public-site`, verified in `crates/ef-clinic-server/tests/telemetry_and_shutdown.rs`, `crates/ef-mobile-server/tests/telemetry_and_shutdown.rs`, and `crates/ef-public-site/tests/telemetry_and_shutdown.rs`.
