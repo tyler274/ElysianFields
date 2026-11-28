@@ -350,6 +350,137 @@ html[dir="rtl"] .metric-list dd {
   color: var(--fallback-text);
 }
 
+.workstation-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-block-end: 0.65rem;
+  border-block-end: 1px solid var(--border-subtle);
+  max-width: 100%;
+}
+
+.tab-btn {
+  text-align: center;
+}
+
+.tab-btn[aria-selected="true"] {
+  background: var(--accent-bg);
+  border-color: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
+.today-channel-banner {
+  margin: 0;
+  padding-block: 0.6rem;
+  padding-inline: 0.85rem;
+  border-radius: 0.4rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 4px solid var(--accent-bg);
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.workflow-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.workflow-card {
+  padding-block: 0.75rem;
+  padding-inline: 0.85rem;
+  border-radius: 0.45rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.workflow-card[hidden] {
+  display: none;
+}
+
+.workflow-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.workflow-body,
+.workflow-meta,
+.workflow-status {
+  margin: 0;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  unicode-bidi: plaintext;
+}
+
+.workflow-status {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.workflow-badge {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 0.2rem;
+  padding-inline: 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.workflow-badge-accent {
+  background: var(--accent-bg);
+  border-color: var(--accent-bg);
+  color: var(--accent-text);
+}
+
+.workflow-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.invite-code-pill {
+  display: inline-block;
+  padding-block: 0.2rem;
+  padding-inline: 0.55rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
 #elysian-canvas {
   width: 100%;
   max-width: 100%;

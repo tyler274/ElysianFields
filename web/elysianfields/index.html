@@ -63,31 +63,130 @@
       </nav>
 
       <main id="clinic-main" class="panel" aria-label="Clinical workspace">
-        <h2 id="heading-workspace">Clinical Transcript &amp; Composer</h2>
-        <section aria-label="Evidence citations">
-          <h3 id="heading-evidence">Evidence Panel</h3>
-          <ul id="evidence-list" class="evidence-list" dir="auto">
-            <li id="sample-evidence-item" class="transcript-item" dir="auto">Ready to inspect cited clinical evidence under /elysianfields/api/.</li>
-          </ul>
+        <div id="workstation-tabs" class="workstation-tabs" role="tablist" aria-label="Workstation views">
+          <button
+            id="tab-chat"
+            type="button"
+            class="btn tab-btn"
+            role="tab"
+            aria-selected="true"
+            aria-controls="panel-chat"
+            data-tab="chat"
+            tabindex="0"
+          >Chat</button>
+          <button
+            id="tab-today"
+            type="button"
+            class="btn tab-btn"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-today"
+            data-tab="today"
+            tabindex="-1"
+          >Today</button>
+          <button
+            id="tab-messages"
+            type="button"
+            class="btn tab-btn"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-messages"
+            data-tab="messages"
+            tabindex="-1"
+          >Messages</button>
+          <button
+            id="tab-memory"
+            type="button"
+            class="btn tab-btn"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-memory"
+            data-tab="memory"
+            tabindex="-1"
+          >Memory &amp; Care</button>
+        </div>
+
+        <div id="panel-chat" class="tab-panel" role="tabpanel" aria-labelledby="tab-chat">
+          <h2 id="heading-workspace">Clinical Transcript &amp; Composer</h2>
+          <section aria-label="Evidence citations">
+            <h3 id="heading-evidence">Evidence Panel</h3>
+            <ul id="evidence-list" class="evidence-list" dir="auto">
+              <li id="sample-evidence-item" class="transcript-item" dir="auto">Ready to inspect cited clinical evidence under /elysianfields/api/.</li>
+            </ul>
+          </section>
+
+          <section aria-label="Transcript stream">
+            <h3 id="heading-transcript">Transcript Stream</h3>
+            <ul id="transcript-list" class="transcript-list" aria-live="polite" dir="auto">
+              <li id="sample-transcript-item" class="transcript-item" dir="auto">Select a patient workspace or submit a question below.</li>
+            </ul>
+          </section>
+
+          <form id="composer-form" class="composer-form" aria-label="Clinical prompt composer">
+            <label id="label-composer" for="composer-draft">Clinical prompt (preserved across context loss):</label>
+            <textarea id="composer-draft" rows="3" dir="auto">Summarize recent glycemic control and active medications.</textarea>
+            <div class="composer-actions">
+              <button id="btn-send-prompt" type="submit" class="btn btn-primary">Send prompt</button>
+              <button id="btn-load-wasm" type="button" class="btn">Load Wasm runtime</button>
+            </div>
+          </form>
+
+          <canvas id="elysian-canvas" width="640" height="180" aria-label="Elysian Fields WebGL2/WebGPU surface"></canvas>
+        </div>
+
+        <section id="panel-today" class="tab-panel" role="tabpanel" aria-labelledby="tab-today" hidden>
+          <h2 id="heading-today">Today Queue &amp; Visits</h2>
+          <p id="today-channel-banner" class="today-channel-banner" role="status" aria-live="polite">
+            TodaySaysSo · Clinic messaging channel healthy
+          </p>
+          <ul id="today-items-list" class="workflow-list" aria-label="Urgency-sorted today items"></ul>
+          <h3 id="heading-today-visits">Scheduled Visits</h3>
+          <ul id="today-visits-list" class="workflow-list" aria-label="Scheduled visits"></ul>
         </section>
 
-        <section aria-label="Transcript stream">
-          <h3 id="heading-transcript">Transcript Stream</h3>
-          <ul id="transcript-list" class="transcript-list" aria-live="polite" dir="auto">
-            <li id="sample-transcript-item" class="transcript-item" dir="auto">Select a patient workspace or submit a question below.</li>
-          </ul>
-        </section>
-
-        <form id="composer-form" class="composer-form" aria-label="Clinical prompt composer">
-          <label id="label-composer" for="composer-draft">Clinical prompt (preserved across context loss):</label>
-          <textarea id="composer-draft" rows="3" dir="auto">Summarize recent glycemic control and active medications.</textarea>
-          <div class="composer-actions">
-            <button id="btn-send-prompt" type="submit" class="btn btn-primary">Send prompt</button>
-            <button id="btn-load-wasm" type="button" class="btn">Load Wasm runtime</button>
+        <section id="panel-messages" class="tab-panel" role="tabpanel" aria-labelledby="tab-messages" hidden>
+          <h2 id="heading-messages">Patient Messages &amp; Draft Replies</h2>
+          <article id="messages-patient-card" class="workflow-card">
+            <h3 id="heading-messages-patient">Incoming Patient Message</h3>
+            <p id="messages-patient-body" class="workflow-body" dir="auto">
+              Home BP averaged 122/78 mmHg this week; requesting confirmation on continuing morning lisinopril 10 mg.
+            </p>
+          </article>
+          <article id="messages-draft-card" class="workflow-card">
+            <h3 id="heading-messages-draft">AI Draft Reply (requires clinician review)</h3>
+            <p id="messages-draft-text" class="workflow-body" dir="auto">
+              Thank you for sharing your home readings (122/78 mmHg). Continue lisinopril 10 mg daily as prescribed and recheck before our next visit.
+            </p>
+            <div class="workflow-actions">
+              <button id="btn-copy-reply" type="button" class="btn btn-primary">Copy Reply</button>
+              <button id="btn-close-reply" type="button" class="btn">Close Reply</button>
+            </div>
+          </article>
+          <div id="messages-closed-bar" class="workflow-card" hidden>
+            <p id="messages-closed-notice" class="workflow-body">
+              Draft reply closed. Select Undo Close to restore it.
+            </p>
+            <div class="workflow-actions">
+              <button id="btn-undo-close" type="button" class="btn btn-primary">Undo Close</button>
+            </div>
           </div>
-        </form>
+          <p id="messages-action-status" class="workflow-status" role="status" aria-live="polite"></p>
+        </section>
 
-        <canvas id="elysian-canvas" width="640" height="180" aria-label="Elysian Fields WebGL2/WebGPU surface"></canvas>
+        <section id="panel-memory" class="tab-panel" role="tabpanel" aria-labelledby="tab-memory" hidden>
+          <h2 id="heading-memory">Clinical Memory &amp; Connected Care</h2>
+          <ul id="memory-entries-list" class="workflow-list" aria-label="Clinical memory entries"></ul>
+          <div id="memory-connected-care" class="workflow-card">
+            <h3 id="heading-memory-connected-care">Connected Care Invitations</h3>
+            <div class="workflow-actions">
+              <button id="btn-issue-invite" type="button" class="btn btn-primary">Issue Connected Care Invite</button>
+            </div>
+            <p class="workflow-meta">
+              <span id="label-memory-invite">Latest invitation code</span>:
+              <code id="memory-invite-code" class="invite-code-pill" dir="ltr">No active invite issued yet.</code>
+            </p>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -147,6 +246,8 @@
     <div class="modal-card">
       <h2 id="shortcuts-title">Keyboard Shortcuts</h2>
       <dl class="shortcuts-list">
+        <dt><kbd dir="ltr">Ctrl/Cmd + 1–4</kbd></dt>
+        <dd id="shortcut-tabs-desc">Switch workstation tabs (Chat, Today, Messages, Memory)</dd>
         <dt><kbd dir="ltr">Ctrl/Cmd + Shift + L</kbd></dt>
         <dd id="shortcut-privacy-desc">Toggle Privacy Cover</dd>
         <dt><kbd dir="ltr">?</kbd></dt>
