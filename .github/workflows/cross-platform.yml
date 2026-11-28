@@ -59,8 +59,15 @@ jobs:
       - name: Run full workspace tests on macOS ARM64
         run: |
           mkdir -p cross-platform-evidence
+          HEADLESS_EXCLUDES="$(python3 scripts/ci_scope.py headless-workspace-excludes)"
+          DESKTOP_CRATES="$(python3 scripts/ci_scope.py desktop-crates)"
           start_ts=$(python3 -c 'import time; print(time.time())')
-          cargo test --locked --workspace
+          # shellcheck disable=SC2086
+          cargo test --locked --workspace ${HEADLESS_EXCLUDES}
+          if [ -n "${DESKTOP_CRATES}" ]; then
+            # shellcheck disable=SC2086
+            cargo test --locked ${DESKTOP_CRATES}
+          fi
           end_ts=$(python3 -c 'import time; print(time.time())')
           python3 - "$start_ts" "$end_ts" <<'PY'
           import json, sys
@@ -351,8 +358,15 @@ jobs:
         run: |
           mkdir -p cross-platform-evidence
           PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          HEADLESS_EXCLUDES="$($PY scripts/ci_scope.py headless-workspace-excludes)"
+          DESKTOP_CRATES="$($PY scripts/ci_scope.py desktop-crates)"
           start_ts=$($PY -c 'import time; print(time.time())')
-          cargo test --locked --workspace
+          # shellcheck disable=SC2086
+          cargo test --locked --workspace ${HEADLESS_EXCLUDES}
+          if [ -n "${DESKTOP_CRATES}" ]; then
+            # shellcheck disable=SC2086
+            cargo test --locked ${DESKTOP_CRATES}
+          fi
           end_ts=$($PY -c 'import time; print(time.time())')
           $PY - "$start_ts" "$end_ts" <<'PY'
           import json, sys

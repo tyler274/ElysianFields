@@ -66,12 +66,16 @@ unused_result_ok = "warn"
 
 # Keep workspace incremental builds fast while optimizing Bevy and third-party
 # crates lightly so dev/test execution remains responsive without paying full
-# opt-level=3 cold-compile latency.
+# opt-level=3 cold-compile latency. Restrict workspace debuginfo to line tables
+# and omit third-party DWARF/PDB debuginfo so GPU/Bevy test binaries stay small
+# and link quickly across Linux, macOS, and Windows MSVC.
 [profile.dev]
 opt-level = 0
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 1
+debug = false
 
 # Strip release symbols and use ThinLTO so Wasm post-processing (`wasm-opt`)
 # avoids parsing tens of megabytes of debug sections and stays well within the
