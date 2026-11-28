@@ -15,6 +15,7 @@ on:
       - 'scripts/qa_ux_accessibility.py'
       - 'scripts/package_desktop.py'
       - 'scripts/run_desktop.sh'
+      - 'scripts/verify_compose_stack.sh'
       - 'scripts/verify_postgres_migrations.sh'
       - 'scripts/verify_pgwire_live.sh'
       - 'assets/desktop/**'
@@ -2006,11 +2007,21 @@ jobs:
           trap - EXIT
           echo "All 3 rootless OCI containers verified and torn down cleanly."
 
+          echo "Running live 5-container Docker Compose + Caddy gateway E2E (reusing built images)"
+          bash scripts/verify_compose_stack.sh \
+            --no-build \
+            --clinic-image "$clinic_tag" \
+            --mobile-image "$mobile_tag" \
+            --public-image "$public_tag" \
+            --report cross-platform-evidence/compose-gateway-e2e.json
+
       - name: Upload OCI container qualification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: qualification-oci-container-${{ github.run_id }}-${{ github.run_attempt }}
-          path: cross-platform-evidence/oci-container-build.json
+          path: |
+            cross-platform-evidence/oci-container-build.json
+            cross-platform-evidence/compose-gateway-e2e.json
           if-no-files-found: warn
           retention-days: 30

@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEPLOY_DIR = REPO_ROOT / "deploy"
 LAUNCHER = REPO_ROOT / "scripts" / "run_local_stack.sh"
 DESKTOP_LAUNCHER = REPO_ROOT / "scripts" / "run_desktop.sh"
+COMPOSE_VERIFIER = REPO_ROOT / "scripts" / "verify_compose_stack.sh"
 
 
 class DeployAndLocalStackTests(unittest.TestCase):
@@ -203,6 +204,64 @@ class DeployAndLocalStackTests(unittest.TestCase):
             for data in queries.findall(".//data")
         ]
         self.assertIn("tel", tel_schemes, "AndroidManifest.xml must declare explicit tel: crisis intent query")
+
+    def test_verify_compose_stack_script_and_ci_wiring(self) -> None:
+        self.assertTrue(COMPOSE_VERIFIER.is_file(), f"missing {COMPOSE_VERIFIER}")
+        syntax = subprocess.run(["bash", "-n", str(COMPOSE_VERIFIER)], capture_output=True, text=True, check=False)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+        help_res = subprocess.run(["bash", str(COMPOSE_VERIFIER), "--help"], capture_output=True, text=True, check=False)
+        self.assertEqual(help_res.returncode, 0, help_res.stderr)
+        for needle in ("--no-build", "--clinic-image", "--mobile-image", "--public-image", "--report"):
+            self.assertIn(needle, help_res.stdout)
+
+        bad_res = subprocess.run(["bash", str(COMPOSE_VERIFIER), "--bogus"], capture_output=True, text=True, check=False)
+        self.assertEqual(bad_res.returncode, 2)
+
+        script_text = COMPOSE_VERIFIER.read_text(encoding="utf-8")
+        for needle in (
+            "deploy/docker-compose.yml",
+            "--profile gateway",
+            "http://127.0.0.1:8080",
+            "/elysianfields/api/health",
+            "/elysianfields/api/metrics",
+            "/elysianfields/mobile/",
+            "/elysianfields/mobile-api/readyz",
+            "/elysianfields/mobile-api/metrics",
+            "ef_clinic_db_ready",
+            "ef_mobile_db_ready",
+            "ef_clinic_wal_events",
+            "::error",
+            "last_error=",
+            "services=[",
+            "down -v",
+        ):
+            self.assertIn(needle, script_text)
+
+        wf = (REPO_ROOT / ".github" / "workflows" / "cross-platform.yml").read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_compose_stack.sh", wf)
+        self.assertIn("compose-gateway-e2e.json", wf)
+
+    def test_engineering_book_has_all_eight_chapters_and_zero_ticket_ids(self) -> None:
+        book_src = REPO_ROOT / "book" / "src"
+        summary = (book_src / "SUMMARY.md").read_text(encoding="utf-8")
+        expected_chapters = (
+            "clean-room-protocol.md",
+            "architecture.md",
+            "crate-map.md",
+            "desktop-apps.md",
+            "web-and-mobile.md",
+            "servers-and-persistence.md",
+            "deployment-and-releases.md",
+            "ci-and-verification.md",
+        )
+        for chapter in expected_chapters:
+            self.assertIn(f"./{chapter}", summary, f"missing {chapter} in book/src/SUMMARY.md")
+            path = book_src / chapter
+            self.assertTrue(path.is_file(), f"missing chapter file {path}")
+            content = path.read_text(encoding="utf-8")
+            self.assertGreater(len(content.strip()), 200, f"chapter {chapter} appears empty")
+            self.assertNotRegex(content, r"\bTYL-[0-9]+\b")
 
 
 if __name__ == "__main__":
