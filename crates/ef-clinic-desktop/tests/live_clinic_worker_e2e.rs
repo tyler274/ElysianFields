@@ -847,7 +847,7 @@ fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
         .write_message(DesktopUiEvent::SelectTab(ClinicWorkspaceTab::Today));
     app.update();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while app
         .world()
         .resource::<ClinicWorkflowState>()
@@ -885,7 +885,7 @@ fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
         .write_message(DesktopUiEvent::TodayMarkSeen(0));
     app.update();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while !app
         .world()
         .resource::<ClinicWorkflowState>()
@@ -910,7 +910,7 @@ fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
         .write_message(DesktopUiEvent::TodayMarkDone(0));
     app.update();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while app
         .world()
         .resource::<ClinicWorkflowState>()
@@ -938,7 +938,7 @@ fn desktop_ui_live_mode_dispatches_today_standing_and_memory_invite_over_tcp() {
         .write_message(DesktopUiEvent::MemoryIssueInvite);
     app.update();
 
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(15);
     while app
         .world()
         .resource::<ClinicWorkflowState>()

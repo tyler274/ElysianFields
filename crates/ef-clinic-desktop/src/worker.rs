@@ -485,15 +485,54 @@ fn http_json_request(
     stream
         .flush()
         .map_err(|err| format!("failed to flush {path} request: {err}"))?;
+    let _ = stream.shutdown(std::net::Shutdown::Write);
 
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|err| format!("failed to read {path} response: {err}"))?;
+    let mut header_end: Option<usize> = None;
+    let mut content_length: Option<usize> = None;
+    let mut buf = [0u8; 4096];
+    loop {
+        match stream.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                raw.extend_from_slice(&buf[..n]);
+                if header_end.is_none()
+                    && let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n")
+                {
+                    header_end = Some(pos);
+                    let head = String::from_utf8_lossy(&raw[..pos]);
+                    for line in head.lines().skip(1) {
+                        if let Some((k, v)) = line.split_once(':')
+                            && k.trim().eq_ignore_ascii_case("content-length")
+                            && let Ok(len) = v.trim().parse::<usize>()
+                        {
+                            content_length = Some(len);
+                            break;
+                        }
+                    }
+                }
+                if let (Some(pos), Some(len)) = (header_end, content_length)
+                    && raw.len() >= pos + 4 + len
+                {
+                    raw.truncate(pos + 4 + len);
+                    break;
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+                ) && header_end.is_some() =>
+            {
+                break;
+            }
+            Err(err) => return Err(format!("failed to read {path} response: {err}")),
+        }
+    }
 
-    let separator = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
+    let separator = header_end
+        .or_else(|| raw.windows(4).position(|w| w == b"\r\n\r\n"))
         .ok_or_else(|| format!("malformed HTTP response from {path}: missing header terminator"))?;
     let head = String::from_utf8_lossy(&raw[..separator]);
     let status_line = head
