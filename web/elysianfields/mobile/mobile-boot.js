@@ -578,28 +578,32 @@ async function bootMobile() {
     }
     state.healthSyncCount += 1;
     let nextSnapshot = defaultHealthSnapshot(state.healthSyncCount);
-    try {
-      const [trendsRes, recordsRes] = await Promise.all([
-        apiClient.getHealthTrends(),
-        apiClient.getHealthRecords(),
-      ]);
-      if (trendsRes.ok && trendsRes.body && typeof trendsRes.body === "object") {
-        const t = trendsRes.body;
-        nextSnapshot = {
-          steps: t.steps ? String(t.steps) : nextSnapshot.steps,
-          restingHr: t.resting_hr ? String(t.resting_hr) : nextSnapshot.restingHr,
-          bloodPressure: t.blood_pressure ? String(t.blood_pressure) : nextSnapshot.bloodPressure,
-          sleep: t.sleep ? String(t.sleep) : nextSnapshot.sleep,
-          records:
-            recordsRes.ok && recordsRes.body && Array.isArray(recordsRes.body.records)
-              ? recordsRes.body.records.map((rec) =>
-                  typeof rec === "string" ? rec : String(rec.summary || rec.title || rec.id || ""),
-                )
-              : nextSnapshot.records,
-        };
+    if (apiClient.sessionToken) {
+      try {
+        const [trendsRes, recordsRes] = await Promise.all([
+          apiClient.getHealthTrends(),
+          apiClient.getHealthRecords(),
+        ]);
+        if (trendsRes.ok && trendsRes.body && typeof trendsRes.body === "object") {
+          const t = trendsRes.body;
+          nextSnapshot = {
+            steps: t.steps ? String(t.steps) : nextSnapshot.steps,
+            restingHr: t.resting_hr ? String(t.resting_hr) : nextSnapshot.restingHr,
+            bloodPressure: t.blood_pressure ? String(t.blood_pressure) : nextSnapshot.bloodPressure,
+            sleep: t.sleep ? String(t.sleep) : nextSnapshot.sleep,
+            records:
+              recordsRes.ok && recordsRes.body && Array.isArray(recordsRes.body.records)
+                ? recordsRes.body.records.map((rec) =>
+                    typeof rec === "string"
+                      ? rec
+                      : String(rec.summary || rec.title || rec.id || ""),
+                  )
+                : nextSnapshot.records,
+          };
+        }
+      } catch (_err) {
+        // Static preview uses deterministic synced snapshot when mobile API is offline.
       }
-    } catch (_err) {
-      // Static preview uses deterministic synced snapshot when mobile API is offline.
     }
     state.healthSnapshot = nextSnapshot;
     document.documentElement.dataset.efHealthSyncCount = String(state.healthSyncCount);

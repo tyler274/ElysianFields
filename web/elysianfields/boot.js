@@ -1087,14 +1087,16 @@ async function boot() {
 
   const handleTodayStanding = async (itemId, standing, versionId) => {
     let appliedStanding = standing;
-    try {
-      const res = await apiClient.updateTodayStanding(itemId, standing, versionId);
-      if (res.ok && res.body && typeof res.body.standing === "string") {
-        appliedStanding = res.body.standing;
-        setText("metric-api-state", `today:${appliedStanding} (${res.status})`);
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.updateTodayStanding(itemId, standing, versionId);
+        if (res.ok && res.body && typeof res.body.standing === "string") {
+          appliedStanding = res.body.standing;
+          setText("metric-api-state", `today:${appliedStanding} (${res.status})`);
+        }
+      } catch (_err) {
+        // Static preview fallback updates local standing deterministically.
       }
-    } catch (_err) {
-      // Static preview fallback updates local standing deterministically.
     }
     for (const entry of state.todayData.items) {
       if (entry.item && entry.item.item_id === itemId) {
@@ -1111,6 +1113,9 @@ async function boot() {
 
   const refreshTodayQueue = async () => {
     renderTodayTab();
+    if (!apiClient.sessionToken) {
+      return;
+    }
     try {
       const res = await apiClient.getToday();
       if (res.ok && res.body && typeof res.body === "object") {
@@ -1184,6 +1189,9 @@ async function boot() {
 
   const refreshWorkspaceMemory = async () => {
     renderMemoryTab();
+    if (!apiClient.sessionToken) {
+      return;
+    }
     try {
       const res = await apiClient.getWorkspaceMemory(state.activeWorkspaceId);
       if (res.ok && res.body && Array.isArray(res.body.entries) && res.body.entries.length > 0) {
@@ -1198,18 +1206,20 @@ async function boot() {
 
   const handleIssueConnectedCareInvite = async () => {
     let inviteCode = null;
-    try {
-      const res = await apiClient.issueConnectedCareInvite(
-        state.activeWorkspaceId,
-        "patient-demo-1",
-        "1985-04-12",
-      );
-      if (res.ok && res.body && typeof res.body.invite_code === "string") {
-        inviteCode = res.body.invite_code;
-        setText("metric-api-state", `invite (${res.status})`);
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.issueConnectedCareInvite(
+          state.activeWorkspaceId,
+          "patient-demo-1",
+          "1985-04-12",
+        );
+        if (res.ok && res.body && typeof res.body.invite_code === "string") {
+          inviteCode = res.body.invite_code;
+          setText("metric-api-state", `invite (${res.status})`);
+        }
+      } catch (_err) {
+        // Static preview fallback generates a deterministic valid EF-XXXXXX invite code.
       }
-    } catch (_err) {
-      // Static preview fallback generates a deterministic valid EF-XXXXXX invite code.
     }
     if (!inviteCode) {
       state.inviteCounter += 1;
@@ -1287,18 +1297,16 @@ async function boot() {
 
   const copyReplyBtn = document.getElementById("btn-copy-reply");
   if (copyReplyBtn) {
-    copyReplyBtn.addEventListener("click", async () => {
+    copyReplyBtn.addEventListener("click", () => {
       const draftText = document.getElementById("messages-draft-text")?.textContent?.trim() ?? "";
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        try {
-          await navigator.clipboard.writeText(draftText);
-        } catch (_err) {
-          // Headless contexts without clipboard permission still record copy confirmation.
-        }
-      }
       state.lastCopiedReply = draftText;
       document.documentElement.dataset.efReplyCopied = "true";
       setText("messages-action-status", localeInfo.chrome.messages_copied_status);
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        void navigator.clipboard.writeText(draftText).catch(() => {
+          // Headless contexts without clipboard permission still record copy confirmation.
+        });
+      }
     });
   }
 
