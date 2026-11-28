@@ -237,7 +237,7 @@ impl UiLocale {
 }
 
 /// Compile-time exhaustive message keys covering shared controls, Curie Clinic,
-/// and Curie Mobile (103 keys across all 12 locales = 1,236 statically checked strings).
+/// and Curie Mobile (107 keys across all 12 locales = 1,284 statically checked strings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UiKey {
     // Shared core actions & chrome (20)
@@ -350,10 +350,15 @@ pub enum UiKey {
     ClinicPrivacyDismissed,
     ClinicCopyTranscriptButton,
     ClinicStatusSendFailed,
+    // Progressive streaming & cancellation extensions (4)
+    Cancel,
+    Retry,
+    Streaming,
+    Cancelled,
 }
 
 impl UiKey {
-    pub const ALL: [Self; 103] = [
+    pub const ALL: [Self; 107] = [
         Self::AppBrandClinic,
         Self::AppBrandMobile,
         Self::ActionSignIn,
@@ -457,6 +462,10 @@ impl UiKey {
         Self::ClinicPrivacyDismissed,
         Self::ClinicCopyTranscriptButton,
         Self::ClinicStatusSendFailed,
+        Self::Cancel,
+        Self::Retry,
+        Self::Streaming,
+        Self::Cancelled,
     ];
 }
 
@@ -1940,6 +1949,62 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             he: "לא ניתן היה לשלוח את ההודעה",
             vi: "Không thể gửi tin nhắn",
             hi: "संदेश भेजा नहीं जा सका",
+        },
+        UiKey::Cancel => LocalizedRow {
+            en: "Cancel",
+            es: "Cancelar",
+            fr: "Annuler",
+            pt: "Cancelar",
+            de: "Abbrechen",
+            zh_hans: "取消",
+            ja: "キャンセル",
+            ko: "취소",
+            ar: "إلغاء",
+            he: "ביטול",
+            vi: "Hủy",
+            hi: "रद्द करें",
+        },
+        UiKey::Retry => LocalizedRow {
+            en: "Retry",
+            es: "Reintentar",
+            fr: "Réessayer",
+            pt: "Tentar novamente",
+            de: "Erneut versuchen",
+            zh_hans: "重试",
+            ja: "再試行",
+            ko: "다시 시도",
+            ar: "إعادة المحاولة",
+            he: "ניסיון חוזר",
+            vi: "Thử lại",
+            hi: "पुनः प्रयास करें",
+        },
+        UiKey::Streaming => LocalizedRow {
+            en: "Streaming...",
+            es: "Transmitiendo...",
+            fr: "Diffusion en cours...",
+            pt: "Transmitindo...",
+            de: "Wird gestreamt...",
+            zh_hans: "正在流式输出...",
+            ja: "ストリーミング中...",
+            ko: "스트리밍 중...",
+            ar: "جارٍ البث...",
+            he: "מזרים תשובה...",
+            vi: "Đang truyền trực tiếp...",
+            hi: "स्ट्रीम हो रहा है...",
+        },
+        UiKey::Cancelled => LocalizedRow {
+            en: "Cancelled",
+            es: "Cancelado",
+            fr: "Annulé",
+            pt: "Cancelado",
+            de: "Abgebrochen",
+            zh_hans: "已取消",
+            ja: "キャンセル済み",
+            ko: "취소됨",
+            ar: "تم الإلغاء",
+            he: "בוטל",
+            vi: "Đã hủy",
+            hi: "रद्द किया गया",
         },
     };
     row.pick(locale)

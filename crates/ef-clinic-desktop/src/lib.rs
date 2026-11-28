@@ -28,7 +28,9 @@ pub use ui::{
     ClinicDesktopUiPlugin, DesktopActionButton, DesktopScreenshotConfig, DesktopUiEvent,
     DesktopUiSlot,
 };
-pub use worker::{LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState};
+pub use worker::{
+    LivePromptOutcome, LivePromptRequest, LivePromptWorker, LiveSubmissionState, LiveWorkerCommand,
+};
 
 use thiserror::Error;
 
@@ -169,6 +171,8 @@ fn run_windowed_gpu_app(
         citations: initial_citations,
         selected_citation_index: 0,
         transcript: initial_transcript,
+        streaming_draft: None,
+        last_failed_prompt: None,
         status_message: String::new(),
         status_override: None,
         status_banner: DesktopStatusBanner::DefaultReady,

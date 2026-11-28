@@ -92,6 +92,8 @@ pub enum DesktopStatusBanner {
     #[default]
     DefaultReady,
     Sending,
+    Streaming(Option<String>),
+    Cancelled,
     Copied,
     PrivacyDismissed,
     SendFailed(String),
@@ -107,6 +109,10 @@ pub struct DesktopWorkspaceState {
     pub citations: Vec<DesktopCitationCard>,
     pub selected_citation_index: usize,
     pub transcript: Vec<DesktopTranscriptEntry>,
+    /// Progressive streaming assistant draft accumulated live as SSE `DeltaChunk` frames arrive.
+    pub streaming_draft: Option<String>,
+    /// Most recent prompt text held while in flight or failed so Retry can re-submit cleanly.
+    pub last_failed_prompt: Option<String>,
     pub status_message: String,
     pub status_override: Option<String>,
     pub status_banner: DesktopStatusBanner,

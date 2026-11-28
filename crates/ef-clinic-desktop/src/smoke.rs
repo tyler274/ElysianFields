@@ -112,6 +112,8 @@ pub fn run_headless_smoke(
             citations: initial_citations,
             selected_citation_index: 0,
             transcript: Vec::new(),
+            streaming_draft: None,
+            last_failed_prompt: None,
             status_message: String::new(),
             status_override: None,
             status_banner: DesktopStatusBanner::DefaultReady,
