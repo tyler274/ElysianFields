@@ -400,9 +400,17 @@ impl ClinicService {
         self.web_dir = Some(dir);
     }
 
-    /// Durably seeds a Today queue item.
+    /// Durably seeds or updates a Today queue item (replacing by `item_id` when version advances).
     pub fn seed_today_item(&mut self, item: TodayQueueItem) -> Result<(), ClinicServiceError> {
-        self.today_candidates.push(item.clone());
+        if let Some(existing) = self
+            .today_candidates
+            .iter_mut()
+            .find(|c| c.item_id == item.item_id)
+        {
+            *existing = item.clone();
+        } else {
+            self.today_candidates.push(item.clone());
+        }
         self.wal.append(&WalEntry::AddTodayItem { item })?;
         Ok(())
     }
@@ -414,6 +422,94 @@ impl ClinicService {
     ) -> Result<(), ClinicServiceError> {
         self.scheduled_visits.push(visit.clone());
         self.wal.append(&WalEntry::AddScheduledVisit { visit })?;
+        Ok(())
+    }
+
+    /// Durably seeds a patient memory entry (`ChartRecord` or `PhysicianInstruction`).
+    pub fn seed_memory_entry(
+        &mut self,
+        workspace_id: &WorkspaceId,
+        topic: impl Into<String>,
+        statement: impl Into<String>,
+        observed_at: impl Into<String>,
+        authority: ef_clinic_workflows::memory::MemoryAuthority,
+    ) -> Result<String, ClinicServiceError> {
+        let topic = topic.into();
+        let statement = statement.into();
+        let observed_at = observed_at.into();
+        let store = self
+            .patient_memories
+            .entry(workspace_id.clone())
+            .or_insert_with(|| PatientMemoryStore::new(workspace_id.clone()));
+        let entry_id = store.record_entry(
+            topic.clone(),
+            statement.clone(),
+            observed_at.clone(),
+            authority,
+        );
+        self.wal.append(&WalEntry::MemoryRecordEntry {
+            workspace_id: workspace_id.clone(),
+            topic,
+            statement,
+            observed_at,
+            authority,
+        })?;
+        Ok(entry_id)
+    }
+
+    /// Durably seeds realistic demo Today items, scheduled visit, channel health, and patient
+    /// memory entries for `workspace_id` so live `--server` demo mode starts populated.
+    pub fn seed_demo_workflows(
+        &mut self,
+        workspace_id: &WorkspaceId,
+        patient_display_name: impl Into<String>,
+    ) -> Result<(), ClinicServiceError> {
+        use ef_clinic_workflows::memory::MemoryAuthority;
+        use ef_clinic_workflows::today::{TodayItemKind, TodayUrgency};
+
+        let now = self.clock_secs;
+        let display_name = patient_display_name.into();
+        self.set_channel_health("portal-inbox", ChannelHealthStatus::Connected)?;
+        self.seed_today_item(TodayQueueItem {
+            item_id: format!("today-urgent-{}", workspace_id.as_str()),
+            workspace_id: Some(workspace_id.clone()),
+            urgency: TodayUrgency::Now,
+            waiting_since_epoch_secs: now.saturating_sub(900),
+            kind: TodayItemKind::UrgentClinicalConcern,
+            version_id: 1,
+            summary: format!("Elevated potassium 5.6 mEq/L on BMP for {display_name}"),
+            can_mark_done: true,
+        })?;
+        self.seed_today_item(TodayQueueItem {
+            item_id: format!("today-briefing-{}", workspace_id.as_str()),
+            workspace_id: Some(workspace_id.clone()),
+            urgency: TodayUrgency::Today,
+            waiting_since_epoch_secs: now.saturating_sub(3_600),
+            kind: TodayItemKind::PreparedVisitBriefing,
+            version_id: 1,
+            summary: format!("Prepared follow-up visit briefing for {display_name}"),
+            can_mark_done: true,
+        })?;
+        self.seed_scheduled_visit(ScheduledVisitEntry {
+            workspace_id: workspace_id.clone(),
+            display_name,
+            scheduled_at_epoch_secs: now.saturating_add(3_600),
+            briefing_ready: true,
+        })?;
+        self.seed_memory_entry(
+            workspace_id,
+            "Glycemic control",
+            "HbA1c improved from 7.4% to 6.8% on Metformin 1000 mg BID.",
+            "2026-10-15",
+            MemoryAuthority::ChartRecord,
+        )?;
+        self.seed_memory_entry(
+            workspace_id,
+            "Medication preference",
+            "Confirm home blood pressure log before adjusting lisinopril.",
+            "2026-10-16",
+            MemoryAuthority::PhysicianInstruction,
+        )?;
         Ok(())
     }
 
@@ -750,7 +846,12 @@ impl ClinicService {
             ["replies", conversation_id, action] => {
                 self.route_replies(req, conversation_id, Some(action))
             }
-            ["patients", workspace_id, "memory"] => self.route_patient_memory(req, workspace_id),
+            ["patients", workspace_id, "memory"] | ["workspaces", workspace_id, "memory"] => {
+                self.route_patient_memory(req, workspace_id)
+            }
+            ["workspaces", workspace_id, "connected-care", "invitations"] => {
+                self.route_workspace_connected_care_create_invitation(req, workspace_id)
+            }
             ["patients", workspace_id, "search"] => {
                 self.route_patient_semantic_search(req, workspace_id)
             }
@@ -1736,7 +1837,15 @@ impl ClinicService {
                     .put(&workspace_id, chat_id.as_str(), text, expected_revision);
             }
             WalEntry::AddTodayItem { item } => {
-                self.today_candidates.push(item);
+                if let Some(existing) = self
+                    .today_candidates
+                    .iter_mut()
+                    .find(|c| c.item_id == item.item_id)
+                {
+                    *existing = item;
+                } else {
+                    self.today_candidates.push(item);
+                }
             }
             WalEntry::AddScheduledVisit { visit } => {
                 self.scheduled_visits.push(visit);

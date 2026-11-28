@@ -10,7 +10,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 
 use crate::dei::{
-    DeiSearchQuery, DeiStateShard, render_dei_index_html, render_dei_state_html, sample_dei_shards,
+    DeiSearchQuery, DeiStateShard, render_dei_finder_html, render_dei_state_html, sample_dei_shards,
 };
 use crate::demo::{DemoTurnOutcome, SyntheticDemoEngine};
 use crate::html::{RobotsPolicy, escape_html, render_semantic_page};
@@ -467,7 +467,13 @@ impl PublicSiteRouter {
             ("POST", "/demo/turn") => self.handle_demo_turn(&req.body),
             ("GET", "/recovery") | ("GET", "/recovery/") | ("GET", "/dei") | ("GET", "/dei/") => {
                 let shards: Vec<DeiStateShard> = self.dei_shards.values().cloned().collect();
-                PublicResponse::html(200, "public, max-age=300", render_dei_index_html(&shards))
+                let query = parse_dei_query(raw_query);
+                let cache_control = if raw_query.is_some_and(|q| !q.is_empty()) {
+                    "public, max-age=120"
+                } else {
+                    "public, max-age=300"
+                };
+                PublicResponse::html(200, cache_control, render_dei_finder_html(&shards, &query))
             }
             ("GET", "/dei/search") | ("GET", "/recovery/search") => {
                 self.handle_dei_search(raw_query)
@@ -542,8 +548,20 @@ impl PublicSiteRouter {
 
     fn handle_dei_search(&self, raw_query: Option<&str>) -> PublicResponse {
         let query = parse_dei_query(raw_query);
+        let state_filter = query
+            .state
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_ascii_lowercase);
         let mut all_facilities = Vec::new();
         for shard in self.dei_shards.values() {
+            if let Some(ref st) = state_filter
+                && shard.state_code.to_ascii_lowercase() != *st
+                && shard.state_name.to_ascii_lowercase() != *st
+            {
+                continue;
+            }
             for fac in shard.filter(&query) {
                 all_facilities.push(fac.clone());
             }
@@ -644,6 +662,7 @@ fn parse_dei_query(raw_query: Option<&str>) -> DeiSearchQuery {
         };
         let decoded = decode_query_value(v);
         match k {
+            "state" => query.state = Some(decoded),
             "city" => query.city = Some(decoded),
             "service" => query.service = Some(decoded),
             "q" => query.text = Some(decoded),
@@ -654,5 +673,40 @@ fn parse_dei_query(raw_query: Option<&str>) -> DeiSearchQuery {
 }
 
 fn decode_query_value(raw: &str) -> String {
-    raw.replace('+', " ").replace("%20", " ")
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        match bytes[idx] {
+            b'+' => {
+                out.push(b' ');
+                idx += 1;
+            }
+            b'%' if idx + 2 < bytes.len() => {
+                if let (Some(hi), Some(lo)) =
+                    (hex_nibble(bytes[idx + 1]), hex_nibble(bytes[idx + 2]))
+                {
+                    out.push((hi << 4) | lo);
+                    idx += 3;
+                } else {
+                    out.push(b'%');
+                    idx += 1;
+                }
+            }
+            other => {
+                out.push(other);
+                idx += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+const fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }

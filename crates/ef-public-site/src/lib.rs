@@ -14,7 +14,7 @@ pub use dei::{
     DeiCacheError, DeiDisplayMode, DeiSearchQuery, DeiServiceWorkerCache, DeiShardCache,
     DeiShardLoadState, DeiStateShard, RecoveryFacility, ServiceWorkerAssetPair,
     VersionedShardPayload, crisis_lines_appear_before_listings, render_crisis_lines_banner,
-    render_dei_index_html, render_dei_state_html, sample_dei_shards,
+    render_dei_finder_html, render_dei_index_html, render_dei_state_html, sample_dei_shards,
 };
 pub use demo::{
     DemoError, DemoTurnOutcome, DemoTurnRecord, SyntheticChartPassage, SyntheticDemoChart,
