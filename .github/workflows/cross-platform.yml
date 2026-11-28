@@ -8,9 +8,12 @@ on:
   pull_request:
     paths:
       - '.github/workflows/cross-platform.yml'
+      - 'crates/ef-clinic-desktop/**'
+      - 'crates/ef-mobile-desktop/**'
       - 'scripts/browser_e2e.py'
       - 'scripts/qa_multilingual_gui.py'
       - 'scripts/qa_ux_accessibility.py'
+      - 'scripts/run_desktop.sh'
       - 'scripts/verify_postgres_migrations.sh'
       - 'scripts/verify_pgwire_live.sh'
       - 'web/elysianfields/**'
@@ -101,6 +104,57 @@ jobs:
                   indent=2,
               )
               + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Build & headless-smoke native Bevy desktop release apps (macOS ARM64)
+        run: |
+          mkdir -p cross-platform-evidence
+          crates=()
+          [ -d crates/ef-clinic-desktop ] && crates+=(ef-clinic-desktop)
+          [ -d crates/ef-mobile-desktop ] && crates+=(ef-mobile-desktop)
+
+          if [ "${#crates[@]}" -eq 0 ]; then
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path("cross-platform-evidence/macos-desktop-apps.json").write_text(
+              json.dumps({"status": "not-present", "apps": {}}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            exit 0
+          fi
+
+          pkg_flags=()
+          for c in "${crates[@]}"; do pkg_flags+=(-p "$c"); done
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          cargo build --locked --release "${pkg_flags[@]}"
+          end_ts=$(python3 -c 'import time; print(time.time())')
+
+          python3 - "$start_ts" "$end_ts" "${crates[@]}" <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          build_secs = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          apps = {}
+          for crate in sys.argv[3:]:
+              bin_path = Path("target/release") / crate
+              assert bin_path.is_file(), f"missing release binary {bin_path}"
+              proc = subprocess.run([str(bin_path), "--headless-smoke"], capture_output=True, text=True, check=True)
+              out_text = proc.stdout.strip()
+              try:
+                  smoke = json.loads(out_text)
+              except json.JSONDecodeError:
+                  smoke = {"raw_stdout": out_text}
+              apps[crate] = {
+                  "binary": bin_path.name,
+                  "bytes": bin_path.stat().st_size,
+                  "headless_smoke": smoke,
+                  "status": "passed",
+              }
+          Path("cross-platform-evidence/macos-desktop-apps.json").write_text(
+              json.dumps({"status": "passed", "build_duration_secs": build_secs, "apps": apps}, indent=2) + "\n",
               encoding="utf-8",
           )
           PY
@@ -249,6 +303,7 @@ jobs:
               "rustc": rustc_ver,
               "workspace_tests": load_opt("cross-platform-evidence/macos-workspace-tests.json"),
               "native_release": load_opt("cross-platform-evidence/macos-native-release.json"),
+              "desktop_apps": load_opt("cross-platform-evidence/macos-desktop-apps.json"),
               "ios_sim_check": load_opt("cross-platform-evidence/macos-ios-sim.json"),
               "elymalloc_probe": load_opt("cross-platform-evidence/macos-elymalloc-probe.json"),
           }
@@ -346,6 +401,58 @@ jobs:
           )
           PY
 
+      - name: Build & headless-smoke native Bevy desktop release apps (Windows MSVC)
+        run: |
+          mkdir -p cross-platform-evidence
+          PY=$(command -v python3 >/dev/null 2>&1 && python3 --version >/dev/null 2>&1 && echo python3 || echo python)
+          crates=()
+          [ -d crates/ef-clinic-desktop ] && crates+=(ef-clinic-desktop)
+          [ -d crates/ef-mobile-desktop ] && crates+=(ef-mobile-desktop)
+
+          if [ "${#crates[@]}" -eq 0 ]; then
+            $PY - <<'PY'
+          import json
+          from pathlib import Path
+          Path("cross-platform-evidence/windows-desktop-apps.json").write_text(
+              json.dumps({"status": "not-present", "apps": {}}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            exit 0
+          fi
+
+          pkg_flags=()
+          for c in "${crates[@]}"; do pkg_flags+=(-p "$c"); done
+          start_ts=$($PY -c 'import time; print(time.time())')
+          cargo build --locked --release "${pkg_flags[@]}"
+          end_ts=$($PY -c 'import time; print(time.time())')
+
+          $PY - "$start_ts" "$end_ts" "${crates[@]}" <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          build_secs = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          apps = {}
+          for crate in sys.argv[3:]:
+              bin_path = Path("target/release") / f"{crate}.exe"
+              assert bin_path.is_file(), f"missing release binary {bin_path}"
+              proc = subprocess.run([str(bin_path), "--headless-smoke"], capture_output=True, text=True, check=True)
+              out_text = proc.stdout.strip()
+              try:
+                  smoke = json.loads(out_text)
+              except json.JSONDecodeError:
+                  smoke = {"raw_stdout": out_text}
+              apps[crate] = {
+                  "binary": bin_path.name,
+                  "bytes": bin_path.stat().st_size,
+                  "headless_smoke": smoke,
+                  "status": "passed",
+              }
+          Path("cross-platform-evidence/windows-desktop-apps.json").write_text(
+              json.dumps({"status": "passed", "build_duration_secs": build_secs, "apps": apps}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
       - name: Probe pinned ElyMalloc (cce11466) on Windows x86_64 MSVC
         continue-on-error: true
         run: |
@@ -418,6 +525,7 @@ jobs:
               "rustc": rustc_ver,
               "workspace_tests": load_opt("cross-platform-evidence/windows-workspace-tests.json"),
               "native_release": load_opt("cross-platform-evidence/windows-native-release.json"),
+              "desktop_apps": load_opt("cross-platform-evidence/windows-desktop-apps.json"),
               "elymalloc_probe": load_opt("cross-platform-evidence/windows-elymalloc-probe.json"),
           }
           out = Path("cross-platform-evidence/desktop-windows.json")
@@ -431,6 +539,127 @@ jobs:
         with:
           name: qualification-desktop-windows-${{ github.run_id }}-${{ github.run_attempt }}
           path: cross-platform-evidence/desktop-windows.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  desktop-linux-native:
+    name: Desktop Linux x86_64 Native Bevy Apps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+      RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install fast Linux linker and Bevy desktop GUI libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            lld \
+            clang \
+            pkg-config \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libvulkan-dev \
+            libudev-dev
+
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc --version
+          cargo --version
+
+      - name: Cache Linux desktop Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-desktop-linux
+          shared-key: native
+          cache-on-failure: true
+
+      - name: Build & headless-smoke native Bevy desktop release apps (Linux x86_64)
+        run: |
+          mkdir -p cross-platform-evidence
+          crates=()
+          [ -d crates/ef-clinic-desktop ] && crates+=(ef-clinic-desktop)
+          [ -d crates/ef-mobile-desktop ] && crates+=(ef-mobile-desktop)
+
+          if [ "${#crates[@]}" -eq 0 ]; then
+            python3 - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+          report = {
+              "job": "desktop-linux-native",
+              "runner_os": os.environ.get("RUNNER_OS", platform.system()),
+              "runner_arch": os.environ.get("RUNNER_ARCH", platform.machine()),
+              "platform": platform.platform(),
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "status": "not-present",
+              "apps": {},
+          }
+          out = Path("cross-platform-evidence/desktop-linux-native.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+            exit 0
+          fi
+
+          pkg_flags=()
+          for c in "${crates[@]}"; do pkg_flags+=(-p "$c"); done
+          start_ts=$(python3 -c 'import time; print(time.time())')
+          cargo build --locked --release "${pkg_flags[@]}"
+          end_ts=$(python3 -c 'import time; print(time.time())')
+
+          python3 - "$start_ts" "$end_ts" "${crates[@]}" <<'PY'
+          import json, os, platform, subprocess, sys
+          from pathlib import Path
+          build_secs = round(float(sys.argv[2]) - float(sys.argv[1]), 2)
+          apps = {}
+          for crate in sys.argv[3:]:
+              bin_path = Path("target/release") / crate
+              assert bin_path.is_file(), f"missing release binary {bin_path}"
+              proc = subprocess.run([str(bin_path), "--headless-smoke"], capture_output=True, text=True, check=True)
+              out_text = proc.stdout.strip()
+              try:
+                  smoke = json.loads(out_text)
+              except json.JSONDecodeError:
+                  smoke = {"raw_stdout": out_text}
+              apps[crate] = {
+                  "binary": bin_path.name,
+                  "bytes": bin_path.stat().st_size,
+                  "headless_smoke": smoke,
+                  "status": "passed",
+              }
+          report = {
+              "job": "desktop-linux-native",
+              "runner_os": os.environ.get("RUNNER_OS", platform.system()),
+              "runner_arch": os.environ.get("RUNNER_ARCH", platform.machine()),
+              "platform": platform.platform(),
+              "revision": os.environ.get("GITHUB_SHA", ""),
+              "rustc": subprocess.check_output(["rustc", "--version"], text=True).strip(),
+              "build_duration_secs": build_secs,
+              "apps": apps,
+              "status": "passed",
+          }
+          out = Path("cross-platform-evidence/desktop-linux-native.json")
+          out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+          print(out.read_text(encoding="utf-8"))
+          PY
+
+      - name: Upload Linux desktop qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-desktop-linux-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cross-platform-evidence/desktop-linux-native.json
           if-no-files-found: warn
           retention-days: 30
 
