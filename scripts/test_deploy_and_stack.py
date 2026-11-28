@@ -9,6 +9,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEPLOY_DIR = REPO_ROOT / "deploy"
 LAUNCHER = REPO_ROOT / "scripts" / "run_local_stack.sh"
+DESKTOP_LAUNCHER = REPO_ROOT / "scripts" / "run_desktop.sh"
 
 
 class DeployAndLocalStackTests(unittest.TestCase):
@@ -90,8 +91,46 @@ class DeployAndLocalStackTests(unittest.TestCase):
             "multilingual-screenshots/",
             "ux-accessibility-qa-report.json",
             "ux-screenshots/",
+            "desktop-linux-native:",
+            "Desktop Linux x86_64 Native Bevy Apps",
+            "crates/ef-clinic-desktop/**",
+            "crates/ef-mobile-desktop/**",
+            "scripts/run_desktop.sh",
+            "ef-clinic-desktop",
+            "ef-mobile-desktop",
+            "--headless-smoke",
+            "macos-desktop-apps.json",
+            "windows-desktop-apps.json",
+            "desktop-linux-native.json",
         ):
             self.assertIn(needle, wf)
+
+    def test_run_desktop_launcher_syntax_help_and_unknown_flag(self) -> None:
+        self.assertTrue(DESKTOP_LAUNCHER.is_file())
+        syntax = subprocess.run(["bash", "-n", str(DESKTOP_LAUNCHER)], capture_output=True, text=True, check=False)
+        self.assertEqual(syntax.returncode, 0, syntax.stderr)
+
+        help_res = subprocess.run(["bash", str(DESKTOP_LAUNCHER), "--help"], capture_output=True, text=True, check=False)
+        self.assertEqual(help_res.returncode, 0, help_res.stderr)
+        for needle in ("clinic", "mobile", "--demo", "--with-server", "--smoke", "--locale", "--theme"):
+            self.assertIn(needle, help_res.stdout)
+
+        bad_res = subprocess.run(["bash", str(DESKTOP_LAUNCHER), "--bogus"], capture_output=True, text=True, check=False)
+        self.assertEqual(bad_res.returncode, 2)
+
+    def test_flake_exposes_linux_bevy_desktop_gui_runtime_libs(self) -> None:
+        flake_text = (REPO_ROOT / "flake.nix").read_text(encoding="utf-8")
+        for lib_name in (
+            "libxkbcommon",
+            "wayland",
+            "xorg.libX11",
+            "xorg.libXcursor",
+            "xorg.libXi",
+            "xorg.libXrandr",
+            "vulkan-loader",
+            "LD_LIBRARY_PATH",
+        ):
+            self.assertIn(lib_name, flake_text)
 
 
 if __name__ == "__main__":

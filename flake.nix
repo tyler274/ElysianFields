@@ -111,6 +111,20 @@
             git
           ];
 
+          linuxGuiLibs = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            libxkbcommon
+            wayland
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+            vulkan-loader
+          ]);
+
+          linuxGuiEnv = pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath linuxGuiLibs;
+          };
+
           mkShellWithProfile = profile: extraPackages: extraEnv:
             pkgs.mkShell ({
               name = "elysian-realm-${profile}";
@@ -120,7 +134,7 @@
             } // extraEnv);
         in
         {
-          default = mkShellWithProfile "default" [ ] { };
+          default = mkShellWithProfile "default" linuxGuiLibs linuxGuiEnv;
           agent = mkShellWithProfile "agent" [ ] { };
           # Optional M6 Stars evaluation shell exposing the pinned upstream
           # ElyMalloc and ElyLD source trees without altering default builds.
