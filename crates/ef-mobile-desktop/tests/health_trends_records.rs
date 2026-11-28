@@ -17,7 +17,7 @@ use ef_mobile_desktop::{
 };
 use ef_mobile_domain::{FileReceiptJournal, MobileClientScreen};
 use ef_mobile_server::{MobileService, TcpMobileServer};
-use ef_ui_catalog::{A11yProjection, CatalogA11ySyncStatus};
+use ef_ui_catalog::{A11yProjection, CatalogA11ySyncStatus, Locale, UiKey, translate};
 
 fn fresh_temp_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -331,4 +331,95 @@ fn live_server_sync_health_snapshot_and_sign_out_wipe() {
     server.shutdown();
     let _ = fs::remove_dir_all(&db_dir);
     let _ = fs::remove_dir_all(&journal_dir);
+}
+
+#[test]
+fn mobile_recovery_and_health_chrome_fully_localized_for_he_ar_and_hi() {
+    let en_flush = translate(Locale::En, UiKey::MobileFlushOwedSignOuts);
+    let en_ready = translate(Locale::En, UiKey::MobileReadyToFlush);
+    let en_reconnect = translate(Locale::En, UiKey::MobileReconnectToFlush);
+    let en_heading = translate(Locale::En, UiKey::MobileSectionHealthTrends);
+    let en_sync = translate(Locale::En, UiKey::MobileActionSyncHealth);
+    let en_notice = translate(Locale::En, UiKey::MobileHealthSignedOutNotice);
+
+    for (tag, locale) in [("he", Locale::He), ("ar", Locale::Ar), ("hi", Locale::Hi)] {
+        let cfg = MobileDesktopConfig::parse_args(["--demo", "--locale", tag, "--no-prefs"])
+            .expect("localized cfg");
+        let mut app = build_headless_mobile_desktop_app(&cfg);
+        app.update();
+
+        // 1. Verify all 3 Health Trends card keys + Flush button label render in target locale (zero English).
+        let heading = text_slot(&mut app, TextSlot::HealthTrendsHeading);
+        assert_eq!(heading, translate(locale, UiKey::MobileSectionHealthTrends));
+        assert_ne!(heading, en_heading);
+
+        let sync_label = text_slot(&mut app, TextSlot::SyncHealthBtnLabel);
+        assert_eq!(sync_label, translate(locale, UiKey::MobileActionSyncHealth));
+        assert_ne!(sync_label, en_sync);
+
+        let notice = text_slot(&mut app, TextSlot::HealthTrendsBody);
+        assert_eq!(
+            notice,
+            translate(locale, UiKey::MobileHealthSignedOutNotice)
+        );
+        assert_ne!(notice, en_notice);
+
+        let flush_idle = text_slot(&mut app, TextSlot::FlushOwedBtnLabel);
+        assert_eq!(
+            flush_idle,
+            translate(locale, UiKey::MobileFlushOwedSignOuts)
+        );
+        assert_ne!(flush_idle, en_flush);
+
+        // 2. Sign in -> Go offline -> Sign out -> verify localized MobileReconnectToFlush banner (zero English).
+        dispatch_demo(&mut app, DesktopAction::SignIn);
+        dispatch_demo(&mut app, DesktopAction::ToggleConnectivity);
+        dispatch_demo(&mut app, DesktopAction::OfflineSignOut);
+
+        let offline_banner = text_slot(&mut app, TextSlot::OwedRecoveryBanner);
+        let expected_reconnect = translate(locale, UiKey::MobileReconnectToFlush);
+        assert!(
+            offline_banner.contains(expected_reconnect),
+            "locale {tag} offline banner missing MobileReconnectToFlush: {offline_banner}"
+        );
+        assert!(
+            !offline_banner.contains(en_reconnect)
+                && !offline_banner.contains("reconnect to flush"),
+            "locale {tag} leaked English reconnect text: {offline_banner}"
+        );
+
+        // 3. Reconnect online -> verify localized MobileReadyToFlush banner & MobileFlushOwedSignOuts (1) button.
+        dispatch_demo(&mut app, DesktopAction::ToggleConnectivity);
+
+        let ready_banner = text_slot(&mut app, TextSlot::OwedRecoveryBanner);
+        let expected_ready = translate(locale, UiKey::MobileReadyToFlush);
+        assert!(
+            ready_banner.contains(expected_ready),
+            "locale {tag} ready banner missing MobileReadyToFlush: {ready_banner}"
+        );
+        assert!(
+            !ready_banner.contains(en_ready) && !ready_banner.contains("ready to flush"),
+            "locale {tag} leaked English ready text: {ready_banner}"
+        );
+
+        let flush_pending = text_slot(&mut app, TextSlot::FlushOwedBtnLabel);
+        assert_eq!(
+            flush_pending,
+            format!("{} (1)", translate(locale, UiKey::MobileFlushOwedSignOuts))
+        );
+        assert!(!flush_pending.contains(en_flush));
+
+        // 4. Flush -> returns cleanly to unbadged localized button label with 0 duplicate AccessKit nodes.
+        dispatch_demo(&mut app, DesktopAction::FlushOwedSignOuts);
+        assert_eq!(
+            text_slot(&mut app, TextSlot::FlushOwedBtnLabel),
+            translate(locale, UiKey::MobileFlushOwedSignOuts)
+        );
+        let audit = app
+            .world()
+            .resource::<A11yProjection>()
+            .verify_zero_duplicate_nodes()
+            .expect("zero duplicate AccessKit nodes");
+        assert_eq!(audit.duplicated_nodes, 0);
+    }
 }

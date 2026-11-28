@@ -973,7 +973,7 @@ fn mobile_preview_cli_flags_focus_and_owed_demo_render_and_pass_headless_smoke()
         }
     }
     assert!(
-        recovery_text.contains("ready to flush"),
+        recovery_text.contains(translate(Locale::En, UiKey::MobileReadyToFlush)),
         "expected OnlineFlushPending banner text, got `{recovery_text}`"
     );
     assert_eq!(
