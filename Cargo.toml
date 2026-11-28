@@ -15,6 +15,7 @@ members = [
     "crates/ef-boundaries",
     "crates/ef-clinic-server",
     "crates/ef-clinic-client",
+    "crates/ef-clinic-desktop",
     "crates/ef-connected-care",
     "crates/ef-clinic-workflows",
     "crates/ef-clinical-lib",
