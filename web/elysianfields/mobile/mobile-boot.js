@@ -211,6 +211,31 @@ export class MobileApiClient {
     });
     return { status: resp.status, ok: resp.ok, body: await resp.json() };
   }
+
+  async exportPatientData() {
+    const resp = await fetch(resolveMobileApiUrl("export"), {
+      headers: this.#headers(),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async disconnectConnectedCare(connectionId) {
+    const resp = await fetch(resolveMobileApiUrl("connected-care/disconnect"), {
+      method: "POST",
+      headers: this.#headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ connection_id: connectionId }),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
+
+  async deleteAccount(eventId, occurredAt) {
+    const resp = await fetch(resolveMobileApiUrl("account/delete"), {
+      method: "POST",
+      headers: this.#headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ event_id: eventId, occurred_at: occurredAt }),
+    });
+    return { status: resp.status, ok: resp.ok, body: await resp.json() };
+  }
 }
 
 function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = null) {
@@ -271,6 +296,11 @@ function applyLocaleAndDirection(lang, explicitDirection = null, wasmSnapshot = 
   setText("heading-for-my-doctor", chrome.for_my_doctor_heading);
   setText("label-doctor-note", chrome.doctor_note_label);
   setText("btn-send-doctor", chrome.review_and_send);
+  setText("heading-mobile-privacy", chrome.mobile_privacy_heading);
+  setText("mobile-privacy-signed-out-notice", chrome.mobile_privacy_signed_out_notice);
+  setText("btn-mobile-export", chrome.mobile_export_btn);
+  setText("btn-mobile-disconnect", chrome.mobile_disconnect_btn);
+  setText("btn-mobile-delete-account", chrome.mobile_delete_account_btn);
   setText("heading-mobile-diagnostics", chrome.mobile_diagnostics);
   setText("mobile-metric-dir", `${dir} / ${normalizedLang} (${meta.script})`);
 
@@ -401,6 +431,11 @@ async function bootMobile() {
     signedIn: false,
     healthSyncCount: 0,
     healthSnapshot: null,
+    connectedCareStanding: "connected",
+    activeConnectionId: "conn-demo-1",
+    lastExportSummary: null,
+    deleteReceiptId: null,
+    deleteCounter: 0,
     lastAction: null,
     wasmRuntime: "static-shell",
     wasmAbiVersion: null,
@@ -552,24 +587,170 @@ async function bootMobile() {
     document.documentElement.dataset.efHealthCleared = "false";
   };
 
+  const renderPrivacyControls = () => {
+    const chrome = localeInfo.chrome;
+    const signedOutNotice = document.getElementById("mobile-privacy-signed-out-notice");
+    const controlsEl = document.getElementById("mobile-privacy-controls");
+    const standingEl = document.getElementById("mobile-connected-care-standing");
+    const summaryEl = document.getElementById("mobile-privacy-summary");
+    const receiptEl = document.getElementById("mobile-privacy-receipt");
+
+    if (receiptEl) {
+      if (state.deleteReceiptId) {
+        receiptEl.hidden = false;
+        receiptEl.textContent = `${chrome.mobile_delete_receipt_prefix}: ${state.deleteReceiptId}`;
+      } else {
+        receiptEl.hidden = true;
+        receiptEl.textContent = "";
+      }
+    }
+
+    if (!state.signedIn) {
+      if (signedOutNotice) signedOutNotice.hidden = false;
+      if (controlsEl) controlsEl.hidden = true;
+      if (summaryEl) {
+        summaryEl.hidden = true;
+        summaryEl.textContent = "";
+      }
+      document.documentElement.dataset.efMobileExported = "false";
+      document.documentElement.dataset.efMobileCareStanding = "cleared";
+      return;
+    }
+
+    if (signedOutNotice) signedOutNotice.hidden = true;
+    if (controlsEl) controlsEl.hidden = false;
+    if (standingEl) {
+      standingEl.textContent =
+        state.connectedCareStanding === "disconnected"
+          ? chrome.mobile_care_disconnected
+          : chrome.mobile_care_connected;
+    }
+    document.documentElement.dataset.efMobileCareStanding = state.connectedCareStanding;
+
+    if (summaryEl) {
+      if (state.lastExportSummary) {
+        const s = state.lastExportSummary;
+        summaryEl.hidden = false;
+        summaryEl.textContent =
+          `${chrome.mobile_export_summary_prefix} · ${s.records} records · ${s.healthSamples} health samples · ${s.confirmedSends} confirmed sends (${s.exportedAt})`;
+        document.documentElement.dataset.efMobileExported = "true";
+        document.documentElement.dataset.efMobileExportRecords = String(s.records);
+        document.documentElement.dataset.efMobileExportSamples = String(s.healthSamples);
+      } else {
+        summaryEl.hidden = true;
+        summaryEl.textContent = "";
+        document.documentElement.dataset.efMobileExported = "false";
+      }
+    }
+  };
+
   const setSignedInState = (signedIn) => {
     const next = Boolean(signedIn);
     state.signedIn = next;
     if (next) {
+      state.deleteReceiptId = null;
+      state.connectedCareStanding = "connected";
+      document.documentElement.dataset.efMobileAccountDeleted = "false";
       if (!state.healthSnapshot) {
         state.healthSnapshot = defaultHealthSnapshot(state.healthSyncCount);
       }
     } else {
-      // SignInHoldsNothing: immediately purge all visible personal health data and drafts.
+      // SignInHoldsNothing: immediately purge all visible personal health data, export summary, Connected Care state, and drafts.
       state.healthSnapshot = null;
       state.healthSyncCount = 0;
+      state.lastExportSummary = null;
+      state.connectedCareStanding = "disconnected";
       if (noteEl) noteEl.value = "";
       const sentList = document.getElementById("doctor-sent-list");
       if (sentList) sentList.textContent = "";
+      const inviteInput = document.getElementById("invite-code");
+      const dobInput = document.getElementById("verify-dob");
+      if (inviteInput) inviteInput.value = "";
+      if (dobInput) dobInput.value = "";
     }
     document.documentElement.dataset.efHealthSyncCount = String(state.healthSyncCount);
     renderHealthTrends();
+    renderPrivacyControls();
     return state.signedIn;
+  };
+
+  const handleMobileExportData = async () => {
+    if (!state.signedIn) return null;
+    let summary = {
+      records: state.healthSnapshot ? state.healthSnapshot.records.length : 0,
+      healthSamples: 4 + state.healthSyncCount,
+      confirmedSends: document.querySelectorAll("#doctor-sent-list > li").length,
+      exportedAt: "preview-snapshot",
+    };
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.exportPatientData();
+        if (res.ok && res.body && typeof res.body === "object") {
+          summary = {
+            records: Array.isArray(res.body.records) ? res.body.records.length : 0,
+            healthSamples: Array.isArray(res.body.health_samples)
+              ? res.body.health_samples.length
+              : 0,
+            confirmedSends: Array.isArray(res.body.confirmed_sends)
+              ? res.body.confirmed_sends.length
+              : 0,
+            exportedAt: String(res.body.exported_at || "live"),
+          };
+        }
+      } catch (_err) {
+        // Static preview builds deterministic portable export summary without 401/console errors.
+      }
+    }
+    state.lastExportSummary = summary;
+    renderPrivacyControls();
+    setText("mobile-status", `${localeInfo.chrome.mobile_export_summary_prefix}.`);
+    return summary;
+  };
+
+  const handleMobileDisconnectCare = async () => {
+    if (!state.signedIn) return null;
+    if (apiClient.sessionToken) {
+      try {
+        await apiClient.disconnectConnectedCare(state.activeConnectionId);
+      } catch (_err) {
+        // Static preview transitions standing to disconnected cleanly.
+      }
+    }
+    state.connectedCareStanding = "disconnected";
+    renderPrivacyControls();
+    setText("mobile-status", localeInfo.chrome.mobile_care_disconnected);
+    return state.connectedCareStanding;
+  };
+
+  const handleMobileDeleteAccount = async () => {
+    if (!state.signedIn) return null;
+    state.deleteCounter += 1;
+    const eventId = `del-rcpt-${String(state.deleteCounter).padStart(4, "0")}`;
+    const occurredAt = new Date().toISOString();
+    let receiptId = eventId;
+    if (apiClient.sessionToken) {
+      try {
+        const res = await apiClient.deleteAccount(eventId, occurredAt);
+        if (res.ok && res.body && typeof res.body.receipt_event_id === "string") {
+          receiptId = res.body.receipt_event_id;
+        }
+      } catch (_err) {
+        // Static preview records deterministic local metadata-only receipt ID.
+      }
+    }
+    // SignInHoldsNothing: clear session and all personal data immediately, preserving only the metadata receipt ID.
+    apiClient.sessionToken = null;
+    state.deleteReceiptId = receiptId;
+    document.documentElement.dataset.efMobileAccountDeleted = "true";
+    document.documentElement.dataset.efMobileDeleteReceiptId = receiptId;
+    setSignedInState(false);
+    if (wasmClient) {
+      const snap = wasmClient.dispatch({ cmd: "edit_draft", text: "" });
+      state.lastWasmSnapshot = snap;
+      syncRustA11yNodes(bridge, snap);
+    }
+    setText("mobile-status", `${localeInfo.chrome.mobile_delete_receipt_prefix}: ${receiptId}`);
+    return receiptId;
   };
 
   const syncHealthSnapshot = async () => {
@@ -632,6 +813,7 @@ async function bootMobile() {
         setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
         renderOwedRecovery();
         renderHealthTrends();
+        renderPrivacyControls();
         return localeInfo;
       }
     }
@@ -643,6 +825,7 @@ async function bootMobile() {
     setText("mobile-status", `${localeInfo.chrome.mobile_status_ready} \u2066(${localeInfo.dir.toUpperCase()} · ${localeInfo.lang})\u2069.`);
     renderOwedRecovery();
     renderHealthTrends();
+    renderPrivacyControls();
     return localeInfo;
   };
 
@@ -693,6 +876,27 @@ async function bootMobile() {
   if (syncHealthBtn) {
     syncHealthBtn.addEventListener("click", () => {
       void syncHealthSnapshot();
+    });
+  }
+
+  const exportBtn = document.getElementById("btn-mobile-export");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      void handleMobileExportData();
+    });
+  }
+
+  const disconnectBtn = document.getElementById("btn-mobile-disconnect");
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener("click", () => {
+      void handleMobileDisconnectCare();
+    });
+  }
+
+  const deleteAccountBtn = document.getElementById("btn-mobile-delete-account");
+  if (deleteAccountBtn) {
+    deleteAccountBtn.addEventListener("click", () => {
+      void handleMobileDeleteAccount();
     });
   }
 
@@ -799,6 +1003,7 @@ async function bootMobile() {
         document.documentElement.dataset.efA11yNodes = String(count);
         renderOwedRecovery();
         renderHealthTrends();
+        renderPrivacyControls();
       }
       return snap;
     },
@@ -809,6 +1014,9 @@ async function bootMobile() {
     },
     setSignedIn: (signedIn) => setSignedInState(signedIn),
     syncHealthSnapshot: () => syncHealthSnapshot(),
+    exportPatientData: () => handleMobileExportData(),
+    disconnectConnectedCare: () => handleMobileDisconnectCare(),
+    deleteAccount: () => handleMobileDeleteAccount(),
     getState: () => ({ ...state, a11yNodeCount: bridge.projectedNodeCount() }),
   });
 

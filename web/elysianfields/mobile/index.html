@@ -139,6 +139,25 @@
         <ul id="doctor-sent-list" class="sent-list" aria-live="polite" dir="auto"></ul>
       </section>
 
+      <section id="section-privacy" class="card" aria-label="Patient privacy controls">
+        <h2 id="heading-mobile-privacy">Privacy &amp; Data Controls</h2>
+        <p id="mobile-privacy-signed-out-notice" class="health-notice" role="status">
+          Sign in to export your portable data, disconnect Connected Care, or delete your account.
+        </p>
+        <div id="mobile-privacy-controls" class="privacy-controls" hidden>
+          <p id="mobile-connected-care-standing" class="health-notice" role="status">
+            Connected Care: Connected
+          </p>
+          <div class="btn-row">
+            <button id="btn-mobile-export" type="button" class="touch-btn touch-btn-primary">Export My Data</button>
+            <button id="btn-mobile-disconnect" type="button" class="touch-btn">Disconnect Care</button>
+            <button id="btn-mobile-delete-account" type="button" class="touch-btn touch-btn-danger">Delete Account</button>
+          </div>
+          <p id="mobile-privacy-summary" class="privacy-summary" role="status" aria-live="polite" hidden></p>
+        </div>
+        <p id="mobile-privacy-receipt" class="privacy-receipt" role="status" aria-live="polite" hidden></p>
+      </section>
+
       <section class="card" aria-label="Mobile delivery diagnostics">
         <h2 id="heading-mobile-diagnostics">Mobile Diagnostics</h2>
         <dl class="metric-grid">

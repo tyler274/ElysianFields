@@ -153,11 +153,24 @@
             </p>
           </article>
           <article id="messages-draft-card" class="workflow-card">
-            <h3 id="heading-messages-draft">AI Draft Reply (requires clinician review)</h3>
+            <div class="workflow-card-header">
+              <h3 id="heading-messages-draft">AI Draft Reply (requires clinician review)</h3>
+              <span id="messages-origin-badge" class="workflow-badge workflow-badge-accent">AI Draft</span>
+            </div>
+            <p id="messages-concern-banner" class="concern-banner" role="note">
+              <strong id="label-messages-concern">Flagged concern</strong>:
+              <span id="messages-concern-text">Verify serum potassium and orthostatic symptoms before any lisinopril dose change.</span>
+            </p>
             <p id="messages-draft-text" class="workflow-body" dir="auto">
               Thank you for sharing your home readings (122/78 mmHg). Continue lisinopril 10 mg daily as prescribed and recheck before our next visit.
             </p>
+            <div class="composer-form">
+              <label id="label-messages-draft-input" for="messages-draft-input">Personal reply draft (editable)</label>
+              <textarea id="messages-draft-input" class="messages-draft-input" rows="3" dir="auto" placeholder="Edit your personal reply draft before copying..."></textarea>
+            </div>
             <div class="workflow-actions">
+              <button id="btn-save-draft" type="button" class="btn btn-primary">Save Draft</button>
+              <button id="btn-restore-ai-draft" type="button" class="btn">Restore AI Draft</button>
               <button id="btn-copy-reply" type="button" class="btn btn-primary">Copy Reply</button>
               <button id="btn-close-reply" type="button" class="btn">Close Reply</button>
             </div>

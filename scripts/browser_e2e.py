@@ -710,16 +710,46 @@ def check_clinic_shell_page(
             document.getElementById("tab-messages")?.click();
             const messagesPanel = document.getElementById("panel-messages");
             const messagesVisible = Boolean(messagesPanel && !messagesPanel.hidden);
+            const draftInput = document.getElementById("messages-draft-input");
+            const personalText = "Clinician personal draft: continue lisinopril 10 mg daily and recheck potassium.";
+            if (draftInput) {
+                draftInput.value = personalText;
+            }
+            document.getElementById("btn-save-draft")?.click();
+            const messagesPersonalDraftOk = await waitUntil(
+                () =>
+                    document.documentElement.dataset.efReplyOrigin === "personal_draft" &&
+                    (document.getElementById("messages-draft-text")?.textContent || "").includes("Clinician personal draft")
+            );
+            const concernBanner = document.getElementById("messages-concern-banner");
+            const messagesConcernStaysOk = Boolean(
+                concernBanner && !concernBanner.hidden && (concernBanner.textContent || "").trim().length > 0
+            );
             document.getElementById("btn-copy-reply")?.click();
             const messagesCopyOk = await waitUntil(
                 () => document.documentElement.dataset.efReplyCopied === "true"
             );
+            const messagesCopyMatchesPersonalOk = (
+                document.documentElement.dataset.efLastCopiedReply || ""
+            ).includes("Clinician personal draft");
             document.getElementById("btn-close-reply")?.click();
             const draftCard = document.getElementById("messages-draft-card");
             const closedBar = document.getElementById("messages-closed-bar");
             const messagesCloseOk = Boolean(draftCard && draftCard.hidden && closedBar && !closedBar.hidden);
             document.getElementById("btn-undo-close")?.click();
-            const messagesUndoOk = Boolean(draftCard && !draftCard.hidden && closedBar && closedBar.hidden);
+            const messagesUndoOk = Boolean(
+                draftCard &&
+                !draftCard.hidden &&
+                closedBar &&
+                closedBar.hidden &&
+                (document.getElementById("messages-draft-text")?.textContent || "").includes("Clinician personal draft")
+            );
+            document.getElementById("btn-restore-ai-draft")?.click();
+            const messagesRestoreAiOk = await waitUntil(
+                () =>
+                    document.documentElement.dataset.efReplyOrigin === "system_reply" &&
+                    !(document.getElementById("messages-draft-text")?.textContent || "").includes("Clinician personal draft")
+            );
 
             document.getElementById("tab-memory")?.click();
             const memoryPanel = document.getElementById("panel-memory");
@@ -751,9 +781,13 @@ def check_clinic_shell_page(
                 todayDoneOk,
                 todayVisitsCount,
                 messagesVisible,
+                messagesPersonalDraftOk,
+                messagesConcernStaysOk,
                 messagesCopyOk,
+                messagesCopyMatchesPersonalOk,
                 messagesCloseOk,
                 messagesUndoOk,
+                messagesRestoreAiOk,
                 memoryVisible,
                 memoryChartRecordCount,
                 memoryInstructionCount,
@@ -772,9 +806,13 @@ def check_clinic_shell_page(
         and workstation_tabs["todayDoneOk"]
         and workstation_tabs["todayVisitsCount"] >= 1
         and workstation_tabs["messagesVisible"]
+        and workstation_tabs["messagesPersonalDraftOk"]
+        and workstation_tabs["messagesConcernStaysOk"]
         and workstation_tabs["messagesCopyOk"]
+        and workstation_tabs["messagesCopyMatchesPersonalOk"]
         and workstation_tabs["messagesCloseOk"]
         and workstation_tabs["messagesUndoOk"]
+        and workstation_tabs["messagesRestoreAiOk"]
         and workstation_tabs["memoryVisible"]
         and workstation_tabs["memoryChartRecordCount"] >= 1
         and workstation_tabs["memoryInstructionCount"] >= 1
@@ -1157,6 +1195,44 @@ def check_mobile_pwa_profile(
                     () => Number(document.documentElement.dataset.efHealthSyncCount || "0") >= 1
                 );
 
+                document.getElementById("btn-mobile-export")?.click();
+                const exportOk = await waitUntil(
+                    () =>
+                        document.documentElement.dataset.efMobileExported === "true" &&
+                        Boolean(
+                            document.getElementById("mobile-privacy-summary") &&
+                            !document.getElementById("mobile-privacy-summary").hidden &&
+                            (document.getElementById("mobile-privacy-summary").textContent || "").trim().length > 0
+                        )
+                );
+
+                document.getElementById("btn-mobile-disconnect")?.click();
+                const disconnectOk = await waitUntil(
+                    () => document.documentElement.dataset.efMobileCareStanding === "disconnected"
+                );
+
+                document.getElementById("btn-mobile-delete-account")?.click();
+                const deleteAccountOk = await waitUntil(
+                    () =>
+                        document.documentElement.dataset.efMobileAccountDeleted === "true" &&
+                        Boolean(document.documentElement.dataset.efMobileDeleteReceiptId) &&
+                        Boolean(
+                            document.getElementById("mobile-privacy-receipt") &&
+                            !document.getElementById("mobile-privacy-receipt").hidden
+                        ) &&
+                        document.documentElement.dataset.efMobileSignedIn === "false" &&
+                        Boolean(content && content.hidden) &&
+                        Boolean(notice && !notice.hidden) &&
+                        Boolean(
+                            document.getElementById("mobile-privacy-controls") &&
+                            document.getElementById("mobile-privacy-controls").hidden
+                        ) &&
+                        (document.getElementById("health-metric-steps")?.textContent || "").trim() === "" &&
+                        document.querySelectorAll("#health-records-list > li").length === 0
+                );
+                const deleteReceiptId = document.documentElement.dataset.efMobileDeleteReceiptId || "";
+
+                window.__elysianMobileShell?.setSignedIn(true);
                 document.getElementById("btn-mobile-signout")?.click();
                 const signedOutCleared = await waitUntil(
                     () =>
@@ -1174,6 +1250,10 @@ def check_mobile_pwa_profile(
                     metricsPresent: Boolean(stepsText && hrText && bpText && sleepText),
                     recordsCount,
                     syncedOk,
+                    exportOk,
+                    disconnectOk,
+                    deleteAccountOk,
+                    deleteReceiptId,
                     signedOutCleared,
                     cspViolations: Number(document.documentElement.dataset.efCspViolations || "0"),
                 };
@@ -1186,6 +1266,10 @@ def check_mobile_pwa_profile(
             and health_trends["metricsPresent"]
             and health_trends["recordsCount"] >= 1
             and health_trends["syncedOk"]
+            and health_trends["exportOk"]
+            and health_trends["disconnectOk"]
+            and health_trends["deleteAccountOk"]
+            and bool(health_trends["deleteReceiptId"])
             and health_trends["signedOutCleared"]
             and health_trends["cspViolations"] == 0
         )
