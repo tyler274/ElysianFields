@@ -5,7 +5,7 @@
 # Usage:
 #   scripts/verify_compose_stack.sh [--no-build] [--project <name>]
 #     [--clinic-image <tag>] [--mobile-image <tag>] [--public-image <tag>]
-#     [--report <path.json>]
+#     [--subnet <cidr>] [--report <path.json>]
 #
 # Options:
 #   --no-build             Reuse already-built local images instead of rebuilding.
@@ -13,9 +13,10 @@
 #   --clinic-image <tag>   Tag existing clinic image for Compose reuse under --project.
 #   --mobile-image <tag>   Tag existing mobile image for Compose reuse under --project.
 #   --public-image <tag>   Tag existing public-site image for Compose reuse under --project.
+#   --subnet <cidr>        Explicit bridge subnet CIDR (or EF_COMPOSE_SUBNET) when default pools are full.
 #   --report <path.json>   Optional path to write structured JSON verification output.
 #   -h, --help             Show this usage text.
-set -euo pipefail
+set -Eeuo pipefail
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
@@ -25,10 +26,15 @@ project="elysian-compose-e2e"
 clinic_image=""
 mobile_image=""
 public_image=""
+subnet="${EF_COMPOSE_SUBNET:-}"
 report_path=""
+current_step="initialization"
+last_failed_cmd=""
+verify_log=""
+override_file=""
 
 usage() {
-  sed -n '2,18p' "$0"
+  sed -n '2,19p' "$0"
 }
 
 emit_error() {
@@ -39,6 +45,14 @@ emit_error() {
     echo "verify_compose_stack.sh ERROR: ${msg}" >&2
   fi
 }
+
+on_err() {
+  case "${BASH_COMMAND:-}" in
+    tee\ *|"") ;;
+    *) last_failed_cmd="${BASH_COMMAND}" ;;
+  esac
+}
+trap on_err ERR
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -73,6 +87,13 @@ while [ "$#" -gt 0 ]; do
     --public-image=*)
       public_image="${1#--public-image=}"
       ;;
+    --subnet)
+      shift
+      subnet="${1:?--subnet requires a CIDR}"
+      ;;
+    --subnet=*)
+      subnet="${1#--subnet=}"
+      ;;
     --report)
       shift
       report_path="${1:?--report requires a file path}"
@@ -92,21 +113,53 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-compose_cmd=(docker compose -p "$project" -f deploy/docker-compose.yml --profile gateway)
+compose_files=(-f deploy/docker-compose.yml)
+if [ -n "$subnet" ]; then
+  override_file=$(mktemp "${TMPDIR:-/tmp}/verify-compose-subnet.XXXXXX.yml")
+  cat >"$override_file" <<EOF
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${subnet}
+EOF
+  compose_files+=(-f "$override_file")
+fi
+
+compose_cmd=(docker compose -p "$project" "${compose_files[@]}" --profile gateway)
+verify_log=$(mktemp "${TMPDIR:-/tmp}/verify-compose-stack.XXXXXX.log")
 
 cleanup() {
   local rc=$?
   set +e
   if [ "$rc" -ne 0 ]; then
-    emit_error "5-container Compose gateway E2E failed (exit ${rc}); collecting diagnostics."
+    local ps_summary last_err_line summary_cmd
+    ps_summary=$("${compose_cmd[@]}" ps --format '{{.Service}}={{.State}}({{.Health}})' 2>/dev/null \
+      | tr '\n' ' ' | sed -e 's/[[:space:]]\+/ /g' -e 's/ $//' || true)
+    if [ -z "$ps_summary" ]; then
+      ps_summary="none"
+    fi
+    last_err_line=""
+    if [ -n "$verify_log" ] && [ -s "$verify_log" ]; then
+      last_err_line=$(grep -v '^[[:space:]]*$' "$verify_log" | tail -n 1 | tr '\r\n' ' ' | cut -c1-240 || true)
+    fi
+    summary_cmd=$(printf '%s' "${last_failed_cmd:-unknown}" | tr '\r\n' ' ' | cut -c1-120)
+    emit_error "step=${current_step}; exit=${rc}; cmd=${summary_cmd}; services=[${ps_summary}]; last_error=${last_err_line:-see logs}"
     "${compose_cmd[@]}" ps 2>&1 || true
     "${compose_cmd[@]}" logs --tail=60 2>&1 || true
   fi
   "${compose_cmd[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+  if [ -n "$verify_log" ]; then
+    rm -f "$verify_log"
+  fi
+  if [ -n "$override_file" ]; then
+    rm -f "$override_file"
+  fi
   exit "$rc"
 }
 trap cleanup EXIT INT TERM
 
+current_step="image-tagging"
 if [ -n "$clinic_image" ]; then
   docker tag "$clinic_image" "${project}-clinic:latest"
 fi
@@ -118,6 +171,7 @@ if [ -n "$public_image" ]; then
 fi
 
 # Start from a clean compose project state.
+current_step="compose-reset"
 "${compose_cmd[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 
 up_args=(up -d --wait --wait-timeout 90)
@@ -127,8 +181,10 @@ else
   up_args+=(--build)
 fi
 
+current_step="compose-up"
+last_failed_cmd="docker compose up -d --wait"
 echo "==> Starting 5-container Elysian Fields Compose + Caddy gateway stack (project=${project})"
-"${compose_cmd[@]}" "${up_args[@]}"
+"${compose_cmd[@]}" "${up_args[@]}" 2>&1 | tee "$verify_log"
 
 run_python() {
   if command -v python3 >/dev/null 2>&1; then
@@ -141,8 +197,10 @@ run_python() {
   fi
 }
 
+current_step="gateway-e2e-assertions"
+last_failed_cmd="python3 compose-gateway-e2e"
 echo "==> Verifying single-origin Caddy gateway (http://127.0.0.1:8080) routes, headers, metrics, and PG18 persistence"
-run_python - "$project" "${report_path}" <<'PY'
+run_python - "$project" "${report_path}" <<'PY' 2>&1 | tee "$verify_log"
 import json
 import os
 import re
@@ -228,9 +286,19 @@ clinic_health_json = json.loads(clinic_health_body)
 assert clinic_health_json.get("db_healthy") is True, f"clinic health not db_healthy: {clinic_health_json}"
 
 # 3. Mobile PWA + /mobile-api/readyz + /mobile-api/metrics via Caddy gateway.
-mobile_pwa_code, mobile_pwa_hdrs, _ = request("/elysianfields/mobile/")
+mobile_pwa_code, mobile_pwa_hdrs, mobile_pwa_body = request("/elysianfields/mobile/")
 assert mobile_pwa_code == 200, f"GET /elysianfields/mobile/ expected 200, got {mobile_pwa_code}"
 assert_gateway_headers(mobile_pwa_hdrs, "/elysianfields/mobile/")
+assert "/elysianfields/mobile" in mobile_pwa_body
+
+mobile_manifest_code, mobile_manifest_hdrs, _ = request("/elysianfields/mobile/manifest.webmanifest")
+assert mobile_manifest_code == 200, f"GET /elysianfields/mobile/manifest.webmanifest expected 200, got {mobile_manifest_code}"
+assert "application/manifest+json" in mobile_manifest_hdrs.get("content-type", ""), (
+    f"unexpected manifest content-type: {mobile_manifest_hdrs}"
+)
+
+mobile_sw_code, _, _ = request("/elysianfields/mobile/sw.js")
+assert mobile_sw_code == 200, f"GET /elysianfields/mobile/sw.js expected 200, got {mobile_sw_code}"
 
 mobile_readyz_code, _, mobile_readyz_body = request("/elysianfields/mobile-api/readyz")
 assert mobile_readyz_code == 200, f"GET /elysianfields/mobile-api/readyz expected 200, got {mobile_readyz_code}"
@@ -252,11 +320,11 @@ auth_code, _, auth_body = request(
 assert auth_code == 200, f"POST /elysianfields/api/auth/request-link expected 200, got {auth_code}: {auth_body}"
 
 unauth_prompt_code, _, _ = request(
-    "/elysianfields/api/patients/ws-1/prompts",
+    "/elysianfields/api/workspaces/ws-1/chats/chat-1/commands",
     method="POST",
     body={"prompt": "Summarize recent lab trend"},
 )
-assert unauth_prompt_code == 401, f"unauthenticated prompt expected 401, got {unauth_prompt_code}"
+assert unauth_prompt_code == 401, f"unauthenticated chat command expected 401, got {unauth_prompt_code}"
 
 clinic_metrics_code, _, clinic_metrics_body = request("/elysianfields/api/metrics")
 assert clinic_metrics_code == 200, f"GET /elysianfields/api/metrics expected 200, got {clinic_metrics_code}"
@@ -338,6 +406,8 @@ report = {
         "clinic_wal_seq_before_restart": wal_seq_before_restart,
         "clinic_wal_seq_after_restart": wal_seq_after_restart,
         "mobile_pwa_status": mobile_pwa_code,
+        "mobile_manifest_status": mobile_manifest_code,
+        "mobile_sw_status": mobile_sw_code,
         "mobile_readyz_verified": True,
         "mobile_metrics_db_ready": 1,
         "zero_phi_in_metrics": True,

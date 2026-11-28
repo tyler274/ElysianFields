@@ -232,6 +232,8 @@ class DeployAndLocalStackTests(unittest.TestCase):
             "ef_mobile_db_ready",
             "ef_clinic_wal_events",
             "::error",
+            "last_error=",
+            "services=[",
             "down -v",
         ):
             self.assertIn(needle, script_text)
