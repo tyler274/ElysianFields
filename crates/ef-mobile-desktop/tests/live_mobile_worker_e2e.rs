@@ -341,7 +341,7 @@ fn live_mobile_worker_round_trip_idempotent_delivery_and_owed_sign_out_recovery(
     let offline_banner = text_slot_value(&mut app, TextSlot::OwedRecoveryBanner);
     assert!(offline_banner.contains(translate(Locale::En, UiKey::MobileConnectivityOffline)));
     assert!(offline_banner.contains("1"));
-    assert!(offline_banner.contains("reconnect to flush"));
+    assert!(offline_banner.contains(translate(Locale::En, UiKey::MobileReconnectToFlush)));
 
     // Confirm session is still alive on the server prior to reconnect flush.
     let probe_transport = LiveHttpMobileTransport::new(addr);
@@ -361,7 +361,7 @@ fn live_mobile_worker_round_trip_idempotent_delivery_and_owed_sign_out_recovery(
     );
     let pending_banner = text_slot_value(&mut app, TextSlot::OwedRecoveryBanner);
     assert!(pending_banner.contains(translate(Locale::En, UiKey::MobileConnectivityOnline)));
-    assert!(pending_banner.contains("ready to flush"));
+    assert!(pending_banner.contains(translate(Locale::En, UiKey::MobileReadyToFlush)));
     assert_eq!(
         text_slot_value(&mut app, TextSlot::FlushOwedBtnLabel),
         format!("{FLUSH_OWED_SIGN_OUTS_LABEL} (1)")

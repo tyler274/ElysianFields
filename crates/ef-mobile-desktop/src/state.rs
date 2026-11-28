@@ -140,7 +140,8 @@ impl OwedRecoveryBannerState {
                 if *owed_count == 0 {
                     format!("{conn} | {owed_label}: 0")
                 } else {
-                    format!("{conn} | {owed_label}: {owed_count} (reconnect to flush)")
+                    let reconnect = translate(locale, UiKey::MobileReconnectToFlush);
+                    format!("{conn} | {owed_label}: {owed_count} ({reconnect})")
                 }
             }
             Self::OnlineFlushPending { owed_count, worker } => {
@@ -154,7 +155,8 @@ impl OwedRecoveryBannerState {
                         WorkerOperation::FlushOwedSignOuts.in_flight_label()
                     ),
                     PendingWorkerState::Idle | PendingWorkerState::InFlight { .. } => {
-                        format!("{conn} | {owed_label}: {owed_count} (ready to flush)")
+                        let ready = translate(locale, UiKey::MobileReadyToFlush);
+                        format!("{conn} | {owed_label}: {owed_count} ({ready})")
                     }
                 }
             }
@@ -168,11 +170,11 @@ impl OwedRecoveryBannerState {
     }
 }
 
-/// Product-local heading and privacy notices for the Personal Health Trends & Records card.
+/// English reference strings matching the 12-locale catalog keys for Personal Health Trends & Records.
 pub const HEALTH_TRENDS_HEADING: &str = "Personal Health Trends & Records";
 pub const SYNC_DEMO_HEALTH_LABEL: &str = "Sync Demo Health Snapshot";
 pub const SIGNED_OUT_HEALTH_NOTICE: &str =
-    "Signed out — personal health trends and records are hidden until you sign in.";
+    "Sign in to view your personal health trends and records.";
 pub const SIGNED_IN_HEALTH_EMPTY_NOTICE: &str =
     "No personal health trends synced yet. Select Sync Demo Health Snapshot to refresh.";
 
@@ -220,11 +222,11 @@ impl PersonalHealthPanelView {
         }
     }
 
-    /// Returns the rendered body text for the health trend metrics slot.
+    /// Returns the localized rendered body text for the health trend metrics slot.
     #[must_use]
-    pub fn trends_body(&self) -> String {
+    pub fn trends_body(&self, locale: Locale) -> String {
         match self {
-            Self::SignedOut => SIGNED_OUT_HEALTH_NOTICE.to_owned(),
+            Self::SignedOut => translate(locale, UiKey::MobileHealthSignedOutNotice).to_owned(),
             Self::SignedInEmpty => SIGNED_IN_HEALTH_EMPTY_NOTICE.to_owned(),
             Self::SignedInPopulated { trends_summary, .. } => trends_summary.clone(),
         }

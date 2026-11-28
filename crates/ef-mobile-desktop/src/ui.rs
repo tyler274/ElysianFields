@@ -20,9 +20,8 @@ use crate::forms::{
     paste_clipboard_into_surface,
 };
 use crate::state::{
-    DesktopAction, DesktopActionQueue, HEALTH_TRENDS_HEADING, MobileDesktopUiState,
-    OwedRecoveryBannerState, PersonalHealthPanelView, SIGNED_OUT_HEALTH_NOTICE,
-    SYNC_DEMO_HEALTH_LABEL, process_desktop_actions_system,
+    DesktopAction, DesktopActionQueue, MobileDesktopUiState, OwedRecoveryBannerState,
+    PersonalHealthPanelView, process_desktop_actions_system,
 };
 use crate::worker::{LiveServerWorker, PendingWorkerState, poll_live_server_worker_system};
 
@@ -469,7 +468,7 @@ fn spawn_mobile_desktop_ui(
                         DesktopAction::FlushOwedSignOuts,
                         ButtonStyle::Secondary,
                         TextSlot::FlushOwedBtnLabel,
-                        FLUSH_OWED_SIGN_OUTS_LABEL,
+                        translate(locale, UiKey::MobileFlushOwedSignOuts),
                         A11ySemanticKey::TryAgainButton,
                         18,
                         &tokens,
@@ -478,8 +477,9 @@ fn spawn_mobile_desktop_ui(
             });
 
             // 4. Personal Health Trends & Records Section (SignInHoldsNothing enforced).
+            let health_heading = translate(locale, UiKey::MobileSectionHealthTrends);
             let mut health_region_a11y = accesskit::Node::new(accesskit::Role::Region);
-            health_region_a11y.set_label(HEALTH_TRENDS_HEADING.to_owned());
+            health_region_a11y.set_label(health_heading.to_owned());
             root.spawn((
                 CardSurfaceNode,
                 HealthTrendsCardNode,
@@ -502,14 +502,14 @@ fn spawn_mobile_desktop_ui(
             ))
             .with_children(|card| {
                 card.spawn((
-                    Text::new(HEALTH_TRENDS_HEADING.to_owned()),
+                    Text::new(health_heading.to_owned()),
                     desktop_text_font(14.5),
                     TextColor(tokens.text_primary.to_bevy_color()),
                     TextSlot::HealthTrendsHeading,
                     TextTone::Primary,
                 ));
                 card.spawn((
-                    Text::new(SIGNED_OUT_HEALTH_NOTICE.to_owned()),
+                    Text::new(translate(locale, UiKey::MobileHealthSignedOutNotice).to_owned()),
                     desktop_text_font(12.0),
                     TextColor(tokens.text_secondary.to_bevy_color()),
                     TextSlot::HealthTrendsBody,
@@ -539,7 +539,7 @@ fn spawn_mobile_desktop_ui(
                         DesktopAction::SyncDemoHealthSnapshot,
                         ButtonStyle::Secondary,
                         TextSlot::SyncHealthBtnLabel,
-                        SYNC_DEMO_HEALTH_LABEL,
+                        translate(locale, UiKey::MobileActionSyncHealth),
                         A11ySemanticKey::CitationChip(1),
                         20,
                         &tokens,
@@ -1328,13 +1328,14 @@ fn sync_desktop_visuals_system(
     let crisis_samhsa = translate(locale, UiKey::MobileCrisisLineSamhsa);
 
     let recovery_banner_text = recovery_state.format_banner(locale);
+    let flush_label = translate(locale, UiKey::MobileFlushOwedSignOuts);
     let flush_btn_text = if owed_count > 0 {
-        format!("{FLUSH_OWED_SIGN_OUTS_LABEL} ({owed_count})")
+        format!("{flush_label} ({owed_count})")
     } else {
-        FLUSH_OWED_SIGN_OUTS_LABEL.to_owned()
+        flush_label.to_owned()
     };
     let health_panel_view = PersonalHealthPanelView::from_client_state(&mobile_state);
-    let health_trends_body = health_panel_view.trends_body();
+    let health_trends_body = health_panel_view.trends_body(locale);
     let health_records_body = health_panel_view.records_body();
 
     for (slot, tone, mut text, mut color) in &mut text_q {
@@ -1383,10 +1384,14 @@ fn sync_desktop_visuals_system(
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
             TextSlot::FlushOwedBtnLabel => flush_btn_text.clone(),
-            TextSlot::HealthTrendsHeading => HEALTH_TRENDS_HEADING.to_owned(),
+            TextSlot::HealthTrendsHeading => {
+                translate(locale, UiKey::MobileSectionHealthTrends).to_owned()
+            }
             TextSlot::HealthTrendsBody => health_trends_body.clone(),
             TextSlot::HealthRecordsBody => health_records_body.clone(),
-            TextSlot::SyncHealthBtnLabel => SYNC_DEMO_HEALTH_LABEL.to_owned(),
+            TextSlot::SyncHealthBtnLabel => {
+                translate(locale, UiKey::MobileActionSyncHealth).to_owned()
+            }
             TextSlot::ConnectedCareHeading => chrome.nav_connected_care.clone(),
             TextSlot::ConnectedCareSummary => format!(
                 "{}\n{}: {} | {}: {}\n{} | {}",
