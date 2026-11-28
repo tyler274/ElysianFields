@@ -36,4 +36,9 @@ For container-free local testing, `scripts/run_local_stack.sh --smoke` launches 
 - **`macos-arm64`**: `elysian-fields-desktop-<ver>-macos-arm64.tar.gz` containing `Curie Clinic.app` and `Curie Mobile.app` bundles with valid XML `Info.plist` (`NSHighResolutionCapable=true`, `LSMinimumSystemVersion=13.0`).
 - **`windows-x86_64`**: `elysian-fields-desktop-<ver>-windows-x86_64.zip` containing `ef-{clinic,mobile}-desktop.exe`, `.cmd` double-click launchers, and `README-Windows.txt`.
 
-`.github/workflows/release.yml` runs on `v*.*.*` tag pushes and manual `workflow_dispatch`, builds and smoke-tests all three desktop bundles plus the `/elysianfields/` Wasm static client archive, aggregates and verifies unified `SHA256SUMS.txt`, and publishes the GitHub Release on version tags.
+`.github/workflows/release.yml` runs on `v*.*.*` tag pushes and manual `workflow_dispatch`:
+
+- **Pre-Release `cargo-deny` Gate**: Runs `EmbarkStudios/cargo-deny-action@v2` (`--all-features check advisories bans licenses sources`) as a required dependency of `publish-release`.
+- **Aligned Build Caches**: Shares `Swatinem/rust-cache@v2` keys (`cross-macos-arm64-v2`, `cross-windows-msvc-v2`, `wasm32-v3`) with `cross-platform.yml` and `ci.yml` so release builds reuse warm target caches.
+- **Deterministic CycloneDX 1.5 SBOM (`scripts/generate_sbom.py`)**: Parses `Cargo.lock` and workspace manifests with zero third-party Python dependencies to emit and `--verify` `elysian-fields-<ver>-sbom.cdx.json` (`509` components: `28` workspace crates and `481` external crates, deterministic `urn:uuid:...` serial number, `pkg:cargo/` purls, SHA-256 hashes, and dependency graph).
+- **Checksums and Publication**: Builds and smoke-tests all three desktop bundles plus the `/elysianfields/` Wasm static client archive, aggregates and verifies unified `SHA256SUMS.txt` (including `*.cdx.json`), and publishes the GitHub Release on version tags.
