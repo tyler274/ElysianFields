@@ -299,7 +299,7 @@ fn messages_tab_supports_copy_reply_close_reply_and_undo_close_invariants() {
     let mut app = build_workstation_app(ClinicWorkspaceTab::Messages);
 
     let initial_body = slot_text(&mut app, DesktopUiSlot::MessagesCardBody);
-    assert!(initial_body.contains("SystemReply"));
+    assert!(initial_body.contains(translate(Locale::En, UiKey::MessagesSystemDraftBadge)));
     assert!(initial_body.contains("src-avery-note-1"));
     assert!(initial_body.contains("Flagged concern:"));
     assert_eq!(
@@ -400,4 +400,101 @@ fn memory_and_care_tab_shows_disagreement_authority_badges_and_issues_ef_invite_
     send_event(&mut app, DesktopUiEvent::MemoryIssueInvite);
     let invite_text_again = slot_text(&mut app, DesktopUiSlot::MemoryActiveInviteCodeText);
     assert!(invite_text_again.contains("EF-000001"));
+}
+
+#[test]
+fn messages_tab_personal_draft_controls_and_badges_localize_without_english_fallback() {
+    let mut app = build_workstation_app(ClinicWorkspaceTab::Messages);
+
+    let en_save = translate(Locale::En, UiKey::MessagesSaveDraft);
+    let en_restore = translate(Locale::En, UiKey::MessagesRestoreAiDraft);
+    let en_placeholder = translate(Locale::En, UiKey::MessagesDraftPlaceholder);
+    let en_personal_badge = translate(Locale::En, UiKey::MessagesPersonalDraftBadge);
+    let en_ai_badge = translate(Locale::En, UiKey::MessagesSystemDraftBadge);
+
+    // Verify Hebrew RTL, Arabic RTL, and Hindi Devanagari (plus all non-English locales)
+    // render localized Messages buttons, draft placeholder, and origin badges with zero English fallback.
+    for locale in [Locale::He, Locale::Ar, Locale::Hi] {
+        send_event(&mut app, DesktopUiEvent::SetLocale(locale));
+
+        // Ensure draft box is empty so placeholder text is active.
+        send_event(&mut app, DesktopUiEvent::UpdateReplyDraft(String::new()));
+
+        let save_label = slot_text(&mut app, DesktopUiSlot::MessagesSaveDraftLabel);
+        let restore_label = slot_text(&mut app, DesktopUiSlot::MessagesRestoreSystemLabel);
+        let draft_placeholder = slot_text(&mut app, DesktopUiSlot::MessagesDraftText);
+        let ai_card_body = slot_text(&mut app, DesktopUiSlot::MessagesCardBody);
+
+        assert_eq!(save_label, translate(locale, UiKey::MessagesSaveDraft));
+        assert_eq!(
+            restore_label,
+            translate(locale, UiKey::MessagesRestoreAiDraft)
+        );
+        assert_eq!(
+            draft_placeholder,
+            translate(locale, UiKey::MessagesDraftPlaceholder)
+        );
+        assert!(
+            ai_card_body.contains(translate(locale, UiKey::MessagesSystemDraftBadge)),
+            "expected localized AI draft badge in {locale:?}, got: {ai_card_body}"
+        );
+
+        // Zero English fallback on Save Draft, Restore AI Draft, placeholder, and origin badge.
+        assert_ne!(save_label, en_save);
+        assert_ne!(restore_label, en_restore);
+        assert_ne!(draft_placeholder, en_placeholder);
+        assert!(!ai_card_body.contains(en_ai_badge));
+        assert!(!ai_card_body.contains("SystemReply"));
+
+        // Save a personal draft -> origin badge updates to localized PersonalDraft badge
+        // and Restore AI Draft button becomes visible with localized label.
+        send_event(
+            &mut app,
+            DesktopUiEvent::UpdateReplyDraft("Continue Metformin 1000 mg BID.".to_owned()),
+        );
+        send_event(&mut app, DesktopUiEvent::MessagesSaveDraft);
+        assert_eq!(
+            slot_display(&mut app, DesktopUiSlot::MessagesRestoreSystemBtn),
+            Display::Flex
+        );
+        let personal_card_body = slot_text(&mut app, DesktopUiSlot::MessagesCardBody);
+        assert!(
+            personal_card_body.contains(translate(locale, UiKey::MessagesPersonalDraftBadge)),
+            "expected localized Personal Draft badge in {locale:?}, got: {personal_card_body}"
+        );
+        assert!(!personal_card_body.contains(en_personal_badge));
+        assert!(!personal_card_body.contains("PersonalDraft"));
+
+        // Restore AI draft back so next locale starts cleanly on SystemReply.
+        send_event(&mut app, DesktopUiEvent::MessagesRestoreSystem);
+        assert_eq!(
+            slot_display(&mut app, DesktopUiSlot::MessagesRestoreSystemBtn),
+            Display::None
+        );
+    }
+
+    // Also verify zero English fallback across all 11 non-English locales for all 5 keys.
+    for locale in Locale::ALL
+        .into_iter()
+        .filter(|locale| *locale != Locale::En)
+    {
+        for key in [
+            UiKey::MessagesSaveDraft,
+            UiKey::MessagesRestoreAiDraft,
+            UiKey::MessagesDraftPlaceholder,
+            UiKey::MessagesPersonalDraftBadge,
+            UiKey::MessagesSystemDraftBadge,
+        ] {
+            let localized = translate(locale, key);
+            assert!(
+                !localized.trim().is_empty(),
+                "empty translation for {locale:?} / {key:?}"
+            );
+            assert_ne!(
+                localized,
+                translate(Locale::En, key),
+                "unexpected English fallback for {locale:?} / {key:?}"
+            );
+        }
+    }
 }

@@ -237,7 +237,7 @@ impl UiLocale {
 }
 
 /// Compile-time exhaustive message keys covering shared controls, Curie Clinic,
-/// and Curie Mobile (128 keys across all 12 locales = 1,536 statically checked strings).
+/// and Curie Mobile (138 keys across all 12 locales = 1,656 statically checked strings).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UiKey {
     // Shared core actions & chrome (20)
@@ -384,10 +384,16 @@ pub enum UiKey {
     MobileDisconnectCare,
     MobileExportReady,
     MobileAccountDeleted,
+    // Clinic Messages Personal Draft extensions (5)
+    MessagesSaveDraft,
+    MessagesRestoreAiDraft,
+    MessagesDraftPlaceholder,
+    MessagesPersonalDraftBadge,
+    MessagesSystemDraftBadge,
 }
 
 impl UiKey {
-    pub const ALL: [Self; 133] = [
+    pub const ALL: [Self; 138] = [
         Self::AppBrandClinic,
         Self::AppBrandMobile,
         Self::ActionSignIn,
@@ -521,6 +527,11 @@ impl UiKey {
         Self::MobileDisconnectCare,
         Self::MobileExportReady,
         Self::MobileAccountDeleted,
+        Self::MessagesSaveDraft,
+        Self::MessagesRestoreAiDraft,
+        Self::MessagesDraftPlaceholder,
+        Self::MessagesPersonalDraftBadge,
+        Self::MessagesSystemDraftBadge,
     ];
 }
 
@@ -2424,6 +2435,76 @@ pub const fn translate(locale: Locale, key: UiKey) -> &'static str {
             he: "החשבון נמחק לצמיתות",
             vi: "Tài khoản đã bị xóa vĩnh viễn",
             hi: "खाता स्थायी रूप से हटा दिया गया",
+        },
+        UiKey::MessagesSaveDraft => LocalizedRow {
+            en: "Save Draft",
+            es: "Guardar borrador",
+            fr: "Enregistrer le brouillon",
+            pt: "Salvar rascunho",
+            de: "Entwurf speichern",
+            zh_hans: "保存草稿",
+            ja: "下書きを保存",
+            ko: "임시 저장",
+            ar: "حفظ المسودة",
+            he: "שמירת טיוטה",
+            vi: "Lưu bản nháp",
+            hi: "ड्राफ़्ट सहेजें",
+        },
+        UiKey::MessagesRestoreAiDraft => LocalizedRow {
+            en: "Restore AI Draft",
+            es: "Restaurar borrador IA",
+            fr: "Restaurer le brouillon IA",
+            pt: "Restaurar rascunho da IA",
+            de: "KI-Entwurf wiederherstellen",
+            zh_hans: "恢复 AI 草稿",
+            ja: "AI 下書きを復元",
+            ko: "AI 초안 복원",
+            ar: "استعادة مسودة الذكاء الاصطناعي",
+            he: "שחזור טיוטת AI",
+            vi: "Khôi phục bản nháp AI",
+            hi: "AI ड्राफ़्ट पुनर्स्थापित करें",
+        },
+        UiKey::MessagesDraftPlaceholder => LocalizedRow {
+            en: "Edit personal reply draft...",
+            es: "Editar borrador de respuesta personal...",
+            fr: "Modifier le brouillon de réponse personnelle...",
+            pt: "Editar rascunho de resposta pessoal...",
+            de: "Persönlichen Antwortentwurf bearbeiten...",
+            zh_hans: "编辑个人回复草稿...",
+            ja: "個人返信の下書きを編集...",
+            ko: "개인 답변 초안 편집...",
+            ar: "تعديل مسودة الرد الشخصي...",
+            he: "עריכת טיוטת תשובה אישית...",
+            vi: "Chỉnh sửa bản nháp phản hồi cá nhân...",
+            hi: "व्यक्तिगत उत्तर ड्राफ़्ट संपादित करें...",
+        },
+        UiKey::MessagesPersonalDraftBadge => LocalizedRow {
+            en: "Personal Draft",
+            es: "Borrador personal",
+            fr: "Brouillon personnel",
+            pt: "Rascunho pessoal",
+            de: "Persönlicher Entwurf",
+            zh_hans: "个人草稿",
+            ja: "個人の下書き",
+            ko: "개인 초안",
+            ar: "مسودة شخصية",
+            he: "טיוטה אישית",
+            vi: "Bản nháp cá nhân",
+            hi: "व्यक्तिगत ड्राफ़्ट",
+        },
+        UiKey::MessagesSystemDraftBadge => LocalizedRow {
+            en: "AI Draft",
+            es: "Borrador IA",
+            fr: "Brouillon IA",
+            pt: "Rascunho da IA",
+            de: "KI-Entwurf",
+            zh_hans: "AI 草稿",
+            ja: "AI 下書き",
+            ko: "AI 초안",
+            ar: "مسودة الذكاء الاصطناعي",
+            he: "טיוטת AI",
+            vi: "Bản nháp AI",
+            hi: "AI ड्राफ़्ट",
         },
     };
     row.pick(locale)

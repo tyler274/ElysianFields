@@ -752,6 +752,7 @@ impl ClinicWorkflowState {
                 &card.reply_state_label,
                 &card.basis_citations,
                 card.flagged_concern.as_deref(),
+                locale,
             );
         }
         self.format_messages_card(locale)
@@ -770,6 +771,7 @@ impl ClinicWorkflowState {
             card.reply_state_label,
             &card.basis_citations,
             card.flagged_concern.as_deref(),
+            locale,
         )
     }
 }
@@ -781,6 +783,7 @@ fn format_reply_card_parts(
     reply_state_label: &str,
     basis_citations: &[SourceKey],
     flagged_concern: Option<&str>,
+    locale: Locale,
 ) -> String {
     let mut lines = Vec::new();
     if open_messages.is_empty() {
@@ -791,9 +794,9 @@ fn format_reply_card_parts(
         }
     }
     let origin_label = match visible_reply_origin {
-        VisibleReplyOrigin::SystemReply => "SystemReply",
-        VisibleReplyOrigin::PersonalDraft => "PersonalDraft",
-        VisibleReplyOrigin::None => "None",
+        VisibleReplyOrigin::SystemReply => translate(locale, UiKey::MessagesSystemDraftBadge),
+        VisibleReplyOrigin::PersonalDraft => translate(locale, UiKey::MessagesPersonalDraftBadge),
+        VisibleReplyOrigin::None => "-",
     };
     if let Some(reply_text) = visible_reply_text {
         lines.push(format!(
