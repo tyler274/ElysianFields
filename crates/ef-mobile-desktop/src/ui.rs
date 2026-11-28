@@ -19,12 +19,11 @@ use ef_mobile_domain::{ConnectivityState, MobileClientScreen};
 use ef_ui_catalog::{
     A11yNodeMarker, A11ySemanticKey, ChromeProduct, ComposerAction, ComposerOutcome,
     ComposerSurface, IdleRedrawGate, NodeInteractivity, RedrawReason, SrgbColor, ThemeMode,
-    ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome,
+    ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome, translate,
 };
 
 use crate::state::{
-    CRISIS_LINE_911, CRISIS_LINE_988, CRISIS_LINE_SAMHSA, DesktopAction, DesktopActionQueue,
-    MobileDesktopUiState, process_desktop_actions_system,
+    DesktopAction, DesktopActionQueue, MobileDesktopUiState, process_desktop_actions_system,
 };
 
 /// High-contrast WCAG 2.1 AA crimson banner palette for Dark and Light themes.
@@ -234,6 +233,7 @@ fn spawn_mobile_desktop_ui(
             });
 
             // Status strip
+            let locale = ui_locale.current;
             root.spawn((
                 CardSurfaceNode,
                 Node {
@@ -247,7 +247,11 @@ fn spawn_mobile_desktop_ui(
             ))
             .with_children(|strip| {
                 strip.spawn((
-                    Text::new(format!("{} | {}", desktop.mode_label, desktop.last_status)),
+                    Text::new(format!(
+                        "{} | {}",
+                        desktop.localized_mode_label(locale),
+                        desktop.localized_status(locale)
+                    )),
                     desktop_text_font(12.0),
                     TextColor(tokens.text_secondary.to_bevy_color()),
                     TextSlot::StatusBanner,
@@ -256,9 +260,12 @@ fn spawn_mobile_desktop_ui(
             });
 
             // 2. Crisis-First Banner pinned visibly at top (988, 911, SAMHSA 1-800-662-4357).
+            let crisis_988 = translate(locale, UiKey::MobileCrisisLine988);
+            let crisis_911 = translate(locale, UiKey::MobileCrisisLine911);
+            let crisis_samhsa = translate(locale, UiKey::MobileCrisisLineSamhsa);
             let mut crisis_a11y = accesskit::Node::new(accesskit::Role::Alert);
             crisis_a11y.set_label(format!(
-                "{} - {CRISIS_LINE_988}; {CRISIS_LINE_911}; {CRISIS_LINE_SAMHSA}",
+                "{} - {crisis_988}; {crisis_911}; {crisis_samhsa}",
                 chrome.crisis_heading
             ));
             root.spawn((
@@ -289,9 +296,7 @@ fn spawn_mobile_desktop_ui(
                     TextTone::CrisisHeading,
                 ));
                 banner.spawn((
-                    Text::new(format!(
-                        "- {CRISIS_LINE_988}\n- {CRISIS_LINE_911}\n- {CRISIS_LINE_SAMHSA}"
-                    )),
+                    Text::new(format!("- {crisis_988}\n- {crisis_911}\n- {crisis_samhsa}")),
                     desktop_text_font(12.0),
                     TextColor(crisis.text.to_bevy_color()),
                     TextSlot::CrisisBody,
@@ -323,8 +328,12 @@ fn spawn_mobile_desktop_ui(
                 ));
                 card.spawn((
                     Text::new(format!(
-                        "Email: {} | Status: Signed out | Online | Owed sign-outs: 0",
-                        desktop.patient_email
+                        "{}: {} | {} | {} | {}: 0",
+                        translate(locale, UiKey::MobileLabelEmail),
+                        desktop.patient_email,
+                        translate(locale, UiKey::MobileStatusSignedOut),
+                        translate(locale, UiKey::MobileConnectivityOnline),
+                        translate(locale, UiKey::MobileLabelOwedSignOuts),
                     )),
                     desktop_text_font(12.0),
                     TextColor(tokens.text_secondary.to_bevy_color()),
@@ -358,7 +367,7 @@ fn spawn_mobile_desktop_ui(
                         DesktopAction::ToggleConnectivity,
                         ButtonStyle::Secondary,
                         TextSlot::ConnectivityBtnLabel,
-                        "Go Offline",
+                        translate(locale, UiKey::MobileActionGoOffline),
                         A11ySemanticKey::ListRow(2),
                         14,
                         &tokens,
@@ -400,10 +409,14 @@ fn spawn_mobile_desktop_ui(
                 ));
                 card.spawn((
                     Text::new(format!(
-                        "{}\nInvite: {} | DOB: {}\nConsent: Explicit Share required (never auto-shared)",
+                        "{}\n{}: {} | {}: {}\n{} | {}",
                         desktop.practice_preview_name,
+                        translate(locale, UiKey::MobileLabelInvite),
                         desktop.invite_code_display,
-                        desktop.dob_display
+                        translate(locale, UiKey::MobileLabelDob),
+                        desktop.dob_display,
+                        translate(locale, UiKey::MobileDobNotVerified),
+                        translate(locale, UiKey::MobileSharingNotShared),
                     )),
                     desktop_text_font(12.0),
                     TextColor(tokens.text_secondary.to_bevy_color()),
@@ -468,7 +481,7 @@ fn spawn_mobile_desktop_ui(
                     TextTone::Primary,
                 ));
                 card.spawn((
-                    Text::new("Curated note (type directly; nothing sends until Review & Send):"),
+                    Text::new(translate(locale, UiKey::MobileCuratedNoteLabel)),
                     desktop_text_font(11.5),
                     TextColor(tokens.text_secondary.to_bevy_color()),
                     TextSlot::ComposerLabel,
@@ -488,7 +501,7 @@ fn spawn_mobile_desktop_ui(
                 ))
                 .with_children(|box_node| {
                     box_node.spawn((
-                        Text::new("Type a short update for your care team..."),
+                        Text::new(translate(locale, UiKey::MobileCuratedNotePlaceholder)),
                         desktop_text_font(12.5),
                         TextColor(tokens.input_fg.to_bevy_color()),
                         TextSlot::ComposerContent,
@@ -517,7 +530,10 @@ fn spawn_mobile_desktop_ui(
                     );
                 });
                 card.spawn((
-                    Text::new("Sent updates: 0"),
+                    Text::new(format!(
+                        "{}: 0",
+                        translate(locale, UiKey::MobileLabelSentUpdates)
+                    )),
                     desktop_text_font(11.5),
                     TextColor(tokens.text_secondary.to_bevy_color()),
                     TextSlot::SentSummary,
@@ -761,74 +777,115 @@ fn sync_desktop_visuals_system(
         node.flex_direction = row_dir;
     }
 
+    let locale = ui_locale.current;
     let connectivity_label = match mobile_state.auth_device.connectivity() {
-        ConnectivityState::Online => "Online",
-        ConnectivityState::Offline => "Offline",
+        ConnectivityState::Online => translate(locale, UiKey::MobileConnectivityOnline),
+        ConnectivityState::Offline => translate(locale, UiKey::MobileConnectivityOffline),
     };
     let toggle_connectivity_label = match mobile_state.auth_device.connectivity() {
-        ConnectivityState::Online => "Go Offline",
-        ConnectivityState::Offline => "Go Online",
+        ConnectivityState::Online => translate(locale, UiKey::MobileActionGoOffline),
+        ConnectivityState::Offline => translate(locale, UiKey::MobileActionGoOnline),
     };
     let screen_summary = match mobile_state.auth_device.screen() {
-        MobileClientScreen::EnterYourEmail => "Signed out".to_owned(),
+        MobileClientScreen::EnterYourEmail => {
+            translate(locale, UiKey::MobileStatusSignedOut).to_owned()
+        }
         MobileClientScreen::CheckYourEmail { pending_email } => {
-            format!("Check email ({})", pending_email.as_str())
+            format!(
+                "{} ({})",
+                translate(locale, UiKey::MobileStatusCheckEmail),
+                pending_email.as_str()
+            )
         }
         MobileClientScreen::SignedIn { account_id, .. } => {
-            format!("Signed in ({})", account_id.as_str())
+            format!(
+                "{} ({})",
+                translate(locale, UiKey::MobileStatusSignedIn),
+                account_id.as_str()
+            )
         }
-        MobileClientScreen::SessionEnded => "Session ended".to_owned(),
+        MobileClientScreen::SessionEnded => {
+            translate(locale, UiKey::MobileStatusSessionEnded).to_owned()
+        }
     };
     let owed_count = mobile_state.auth_device.owed_sign_outs().len();
 
     let dob_summary = match &mobile_state.last_dob_outcome {
-        None => "DOB not verified yet".to_owned(),
-        Some(DobVerificationOutcome::Verified { .. }) => "DOB verified".to_owned(),
-        Some(DobVerificationOutcome::Mismatch { remaining_attempts }) => {
-            format!("DOB mismatch ({remaining_attempts} attempts left)")
+        None => translate(locale, UiKey::MobileDobNotVerified).to_owned(),
+        Some(DobVerificationOutcome::Verified { .. }) => {
+            translate(locale, UiKey::MobileDobVerified).to_owned()
         }
-        Some(DobVerificationOutcome::LockedOut) => "Locked out".to_owned(),
+        Some(DobVerificationOutcome::Mismatch { remaining_attempts }) => {
+            format!(
+                "{} ({remaining_attempts})",
+                translate(locale, UiKey::MobileDobMismatch)
+            )
+        }
+        Some(DobVerificationOutcome::LockedOut) => {
+            translate(locale, UiKey::MobileDobLockedOut).to_owned()
+        }
     };
     let standing_summary = match &mobile_state.last_connection_standing {
-        None => "Not shared (explicit Share required)".to_owned(),
+        None => translate(locale, UiKey::MobileSharingNotShared).to_owned(),
         Some(standing) => match standing.state {
             ConnectedCareState::Connected => {
                 let conn_id = standing
                     .active_connection_id
                     .as_ref()
-                    .map_or("active", |id| id.as_str());
-                format!("Connected ({conn_id})")
+                    .map_or("", |id| id.as_str());
+                if conn_id.is_empty() {
+                    translate(locale, UiKey::MobileSharingShared).to_owned()
+                } else {
+                    format!(
+                        "{} ({conn_id})",
+                        translate(locale, UiKey::MobileSharingShared)
+                    )
+                }
             }
-            ConnectedCareState::NotInvited => "Not invited".to_owned(),
-            ConnectedCareState::Invited => "Invited (explicit Share required)".to_owned(),
-            ConnectedCareState::InvitedLocked => "Invitation locked".to_owned(),
-            ConnectedCareState::Ended => "Disconnected".to_owned(),
+            ConnectedCareState::NotInvited => {
+                translate(locale, UiKey::MobileSharingNotInvited).to_owned()
+            }
+            ConnectedCareState::Invited => {
+                translate(locale, UiKey::MobileSharingInvited).to_owned()
+            }
+            ConnectedCareState::InvitedLocked => {
+                translate(locale, UiKey::MobileSharingLocked).to_owned()
+            }
+            ConnectedCareState::Ended => {
+                translate(locale, UiKey::MobileSharingDisconnected).to_owned()
+            }
         },
     };
 
     let composer_display = if composer.display_text().is_empty() {
-        "Type a short update for your care team...".to_owned()
+        translate(locale, UiKey::MobileCuratedNotePlaceholder).to_owned()
     } else {
         composer.display_text()
     };
 
+    let sent_label = translate(locale, UiKey::MobileLabelSentUpdates);
     let sent_summary = if let Some(last) = mobile_state.sent_envelopes.last() {
         let preview = last
             .items
             .first()
-            .map_or("(empty)", |item| item.verbatim_payload.as_str());
+            .map_or("-", |item| item.verbatim_payload.as_str());
         format!(
-            "Sent updates: {} | Latest: {preview}",
-            mobile_state.sent_envelopes.len()
+            "{sent_label}: {} | {}: {preview}",
+            mobile_state.sent_envelopes.len(),
+            translate(locale, UiKey::MobileLabelLatest),
         )
     } else {
-        "Sent updates: 0".to_owned()
+        format!("{sent_label}: 0")
     };
 
     let theme_btn_text = match ui_theme.mode {
         ThemeMode::Dark => ui_locale.t(UiKey::LabelThemeLight).to_owned(),
         ThemeMode::Light => ui_locale.t(UiKey::LabelThemeDark).to_owned(),
     };
+
+    let crisis_988 = translate(locale, UiKey::MobileCrisisLine988);
+    let crisis_911 = translate(locale, UiKey::MobileCrisisLine911);
+    let crisis_samhsa = translate(locale, UiKey::MobileCrisisLineSamhsa);
 
     for (slot, tone, mut text, mut color) in &mut text_q {
         *color = TextColor(match tone {
@@ -842,31 +899,37 @@ fn sync_desktop_visuals_system(
 
         let next_text = match slot {
             TextSlot::BrandTitle => chrome.app_brand.clone(),
-            TextSlot::LocaleBtnLabel => ui_locale.current.short_badge().to_owned(),
+            TextSlot::LocaleBtnLabel => locale.short_badge().to_owned(),
             TextSlot::ThemeBtnLabel => theme_btn_text.clone(),
             TextSlot::StatusBanner => format!(
                 "{} | {} ({})",
-                desktop.mode_label,
-                desktop.last_status,
-                ui_locale.current.bcp47_tag()
+                desktop.localized_mode_label(locale),
+                desktop.localized_status(locale),
+                locale.bcp47_tag()
             ),
             TextSlot::CrisisHeading => chrome.crisis_heading.clone(),
             TextSlot::CrisisBody => {
-                format!("- {CRISIS_LINE_988}\n- {CRISIS_LINE_911}\n- {CRISIS_LINE_SAMHSA}")
+                format!("- {crisis_988}\n- {crisis_911}\n- {crisis_samhsa}")
             }
             TextSlot::AccountHeading => chrome.nav_account.clone(),
             TextSlot::AccountSummary => format!(
-                "Email: {} | {} | {} | Owed sign-outs: {owed_count}",
-                desktop.patient_email, screen_summary, connectivity_label
+                "{}: {} | {} | {} | {}: {owed_count}",
+                translate(locale, UiKey::MobileLabelEmail),
+                desktop.patient_email,
+                screen_summary,
+                connectivity_label,
+                translate(locale, UiKey::MobileLabelOwedSignOuts),
             ),
             TextSlot::SignInBtnLabel => chrome.sign_in.clone(),
             TextSlot::ConnectivityBtnLabel => toggle_connectivity_label.to_owned(),
             TextSlot::SignOutBtnLabel => chrome.sign_out.clone(),
             TextSlot::ConnectedCareHeading => chrome.nav_connected_care.clone(),
             TextSlot::ConnectedCareSummary => format!(
-                "{}\nInvite: {} | DOB: {}\n{} | {}",
+                "{}\n{}: {} | {}: {}\n{} | {}",
                 desktop.practice_preview_name,
+                translate(locale, UiKey::MobileLabelInvite),
                 desktop.invite_code_display,
+                translate(locale, UiKey::MobileLabelDob),
                 desktop.dob_display,
                 dob_summary,
                 standing_summary
@@ -874,9 +937,7 @@ fn sync_desktop_visuals_system(
             TextSlot::VerifyDobBtnLabel => chrome.verify_dob.clone(),
             TextSlot::ShareBtnLabel => chrome.share.clone(),
             TextSlot::ForMyDoctorHeading => chrome.nav_for_my_doctor.clone(),
-            TextSlot::ComposerLabel => {
-                "Curated note (type directly; nothing sends until Review & Send):".to_owned()
-            }
+            TextSlot::ComposerLabel => translate(locale, UiKey::MobileCuratedNoteLabel).to_owned(),
             TextSlot::ComposerContent => composer_display.clone(),
             TextSlot::ReviewSendBtnLabel => chrome.review_and_send.clone(),
             TextSlot::SentSummary => sent_summary.clone(),

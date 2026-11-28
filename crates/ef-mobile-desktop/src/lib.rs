@@ -18,18 +18,20 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use bevy::window::{Window, WindowPlugin, WindowResolution};
 use bevy::winit::WinitSettings;
 use ef_mobile_client::CurieMobileClientPlugin;
-use ef_ui_catalog::{UiLocale, UiTheme};
+use ef_ui_catalog::{ChromeProduct, DesktopPrefsStore, UiLocale, UiTheme};
 
 pub use config::{
     ConfigError, DEFAULT_DEMO_EMAIL, LaunchMode, MOBILE_WINDOW_HEIGHT, MOBILE_WINDOW_TITLE,
-    MOBILE_WINDOW_WIDTH, MobileDesktopConfig, RunTarget, parse_server_addr,
+    MOBILE_WINDOW_WIDTH, MobileDesktopConfig, MobilePrefOverrides, PreferenceMode, RunTarget,
+    parse_server_addr,
 };
 pub use smoke::{
     MobileDesktopSmokeReport, SmokeError, build_headless_mobile_desktop_app, run_headless_smoke,
 };
 pub use state::{
     CRISIS_LINE_911, CRISIS_LINE_988, CRISIS_LINE_SAMHSA, DEMO_DOB_DAY, DEMO_DOB_MONTH,
-    DEMO_DOB_YEAR, DesktopAction, DesktopActionQueue, MobileDesktopUiState, next_locale,
+    DEMO_DOB_YEAR, DesktopAction, DesktopActionQueue, MobileDesktopUiState, MobileModeKind,
+    next_locale,
 };
 pub use ui::{
     ActionButton, ButtonStyle, CardSurfaceNode, ComposerBoxNode, CrisisBannerNode,
@@ -47,7 +49,23 @@ struct ScreenshotCaptureState {
 
 /// Launches the real GPU-windowed Bevy `0.20.1` Curie Mobile desktop application (`420x860`).
 pub fn run_windowed_app(config: &MobileDesktopConfig, screenshot_path: Option<PathBuf>) {
-    let (ui_state, transport_res) = MobileDesktopUiState::from_config(config);
+    let mut effective_config = config.clone();
+    let prefs_store = if effective_config.should_use_prefs() {
+        DesktopPrefsStore::for_product(ChromeProduct::Mobile)
+    } else {
+        DesktopPrefsStore::disabled()
+    };
+    if prefs_store.is_enabled() {
+        match prefs_store.load() {
+            Ok(Some(saved)) => effective_config.apply_saved_preferences(saved),
+            Ok(None) => {}
+            Err(err) => {
+                eprintln!("ef-mobile-desktop warning: ignoring unreadable preferences: {err}");
+            }
+        }
+    }
+
+    let (ui_state, transport_res) = MobileDesktopUiState::from_config(&effective_config);
 
     let mut app = App::new();
     app.add_plugins((
@@ -66,14 +84,15 @@ pub fn run_windowed_app(config: &MobileDesktopConfig, screenshot_path: Option<Pa
         CurieMobileClientPlugin,
         MobileDesktopUiPlugin,
     ))
+    .insert_resource(prefs_store)
     .insert_resource(transport_res)
     .insert_resource(ui_state)
     .add_systems(Startup, spawn_mobile_camera);
 
-    app.world_mut().resource_mut::<UiLocale>().current = config.locale;
+    app.world_mut().resource_mut::<UiLocale>().current = effective_config.locale;
     app.world_mut()
         .resource_mut::<UiTheme>()
-        .set_mode(config.theme);
+        .set_mode(effective_config.theme);
 
     if let Some(path) = screenshot_path {
         app.insert_resource(WinitSettings::game())

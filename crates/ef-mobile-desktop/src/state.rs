@@ -14,8 +14,9 @@ use ef_mobile_client::{
 };
 use ef_mobile_domain::ConnectivityState;
 use ef_ui_catalog::{
-    ChromeProduct, ComposerAction, ComposerOutcome, ComposerSurface, IdleRedrawGate, Locale,
-    RedrawReason, ThemeMode, UiLocale, UiTheme, localized_chrome,
+    ChromeProduct, ComposerAction, ComposerOutcome, ComposerSurface, DesktopPreferences,
+    DesktopPrefsStore, DesktopZoom, IdleRedrawGate, Locale, RedrawReason, ThemeMode, UiKey,
+    UiLocale, UiTheme, localized_chrome, translate,
 };
 
 use crate::config::{LaunchMode, MobileDesktopConfig};
@@ -62,9 +63,17 @@ impl DesktopActionQueue {
     }
 }
 
+/// Typed transport mode descriptor for reactive localized status rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MobileModeKind {
+    Demo,
+    LiveServer { raw_url: String },
+}
+
 /// Single authoritative Curie Mobile desktop presentation state.
 #[derive(Debug, Resource)]
 pub struct MobileDesktopUiState {
+    pub mode_kind: MobileModeKind,
     pub mode_label: String,
     pub patient_email: String,
     pub invite_code_display: String,
@@ -73,11 +82,40 @@ pub struct MobileDesktopUiState {
     pub invite_credential: Option<InviteCredential>,
     pub practice_preview_name: String,
     pub last_status: String,
+    pub status_override: Option<String>,
     pub next_transfer_seq: u64,
     pub composer_focused: bool,
 }
 
 impl MobileDesktopUiState {
+    /// Returns the localized mode badge string (`Demo (in-process)` or `Live server (<url>)`).
+    #[must_use]
+    pub fn localized_mode_label(&self, locale: Locale) -> String {
+        match &self.mode_kind {
+            MobileModeKind::Demo => translate(locale, UiKey::MobileModeDemo).to_owned(),
+            MobileModeKind::LiveServer { raw_url } => {
+                format!("{} ({raw_url})", translate(locale, UiKey::MobileModeLive))
+            }
+        }
+    }
+
+    /// Returns the localized status message, falling back to the localized ready banner when no
+    /// interactive action override is active.
+    #[must_use]
+    pub fn localized_status(&self, locale: Locale) -> String {
+        self.status_override
+            .clone()
+            .unwrap_or_else(|| match &self.mode_kind {
+                MobileModeKind::Demo => translate(locale, UiKey::MobileStatusReadyDemo).to_owned(),
+                MobileModeKind::LiveServer { raw_url } => {
+                    format!(
+                        "{} ({raw_url})",
+                        localized_chrome(locale, ChromeProduct::Mobile).status_ready
+                    )
+                }
+            })
+    }
+
     /// Builds the desktop presentation state and matching [`MobileTransportResource`].
     #[must_use]
     pub fn from_config(config: &MobileDesktopConfig) -> (Self, MobileTransportResource) {
@@ -106,7 +144,8 @@ impl MobileDesktopUiState {
 
                 let code_display = issued.short_code.as_str().to_owned();
                 let ui_state = Self {
-                    mode_label: "Demo (in-process)".to_owned(),
+                    mode_kind: MobileModeKind::Demo,
+                    mode_label: translate(config.locale, UiKey::MobileModeDemo).to_owned(),
                     patient_email: config.email.clone(),
                     invite_code_display: code_display,
                     dob_display,
@@ -114,7 +153,8 @@ impl MobileDesktopUiState {
                     invite_credential: Some(InviteCredential::ShortCode(issued.short_code)),
                     practice_preview_name: "Synthetic Valley Care Clinic - Dr. Elena Rivera"
                         .to_owned(),
-                    last_status: "Ready in standalone demo mode.".to_owned(),
+                    last_status: translate(config.locale, UiKey::MobileStatusReadyDemo).to_owned(),
+                    status_override: None,
                     next_transfer_seq: 1,
                     composer_focused: true,
                 };
@@ -127,14 +167,24 @@ impl MobileDesktopUiState {
             }
             LaunchMode::LiveServer { addr, raw_url } => {
                 let ui_state = Self {
-                    mode_label: format!("Live ({raw_url})"),
+                    mode_kind: MobileModeKind::LiveServer {
+                        raw_url: raw_url.clone(),
+                    },
+                    mode_label: format!(
+                        "{} ({raw_url})",
+                        translate(config.locale, UiKey::MobileModeLive)
+                    ),
                     patient_email: config.email.clone(),
-                    invite_code_display: "Awaiting practice invite".to_owned(),
+                    invite_code_display: "---".to_owned(),
                     dob_display,
                     expected_dob,
                     invite_credential: None,
-                    practice_preview_name: format!("Connected to {addr}"),
-                    last_status: format!("Live mobile server configured at {addr}."),
+                    practice_preview_name: format!("{addr}"),
+                    last_status: format!(
+                        "{} ({addr})",
+                        localized_chrome(config.locale, ChromeProduct::Mobile).status_ready
+                    ),
+                    status_override: None,
                     next_transfer_seq: 1,
                     composer_focused: true,
                 };
@@ -199,31 +249,38 @@ pub fn process_desktop_actions_system(
     mut ui_theme: ResMut<UiTheme>,
     mut composer: ResMut<ComposerSurface>,
     mut gate: ResMut<IdleRedrawGate>,
+    prefs_store: Option<Res<DesktopPrefsStore>>,
 ) {
+    let persist_prefs = |locale: Locale, theme: ThemeMode| {
+        if let Some(ref store) = prefs_store
+            && store.is_enabled()
+        {
+            let _ = store.save(&DesktopPreferences {
+                theme,
+                locale,
+                zoom: DesktopZoom::Pct100,
+            });
+        }
+    };
+
     while let Some(action) = actions.pop() {
         match action {
             DesktopAction::CycleLocale => {
                 let next = next_locale(ui_locale.current);
                 ui_locale.current = next;
                 mobile_queue.push(MobileClientCommand::SwitchLocale(next));
-                let chrome = localized_chrome(next, ChromeProduct::Mobile);
-                desktop.last_status = format!(
-                    "{} ({} | {})",
-                    chrome.status_ready,
-                    next.bcp47_tag(),
-                    if next.is_rtl() { "RTL" } else { "LTR" }
-                );
+                desktop.mode_label = desktop.localized_mode_label(next);
+                desktop.status_override = None;
+                desktop.last_status = desktop.localized_status(next);
+                persist_prefs(next, ui_theme.mode);
             }
             DesktopAction::SetLocale(locale) => {
                 ui_locale.current = locale;
                 mobile_queue.push(MobileClientCommand::SwitchLocale(locale));
-                let chrome = localized_chrome(locale, ChromeProduct::Mobile);
-                desktop.last_status = format!(
-                    "{} ({} | {})",
-                    chrome.status_ready,
-                    locale.bcp47_tag(),
-                    if locale.is_rtl() { "RTL" } else { "LTR" }
-                );
+                desktop.mode_label = desktop.localized_mode_label(locale);
+                desktop.status_override = None;
+                desktop.last_status = desktop.localized_status(locale);
+                persist_prefs(locale, ui_theme.mode);
             }
             DesktopAction::ToggleTheme => {
                 let next_mode = match ui_theme.mode {
@@ -232,12 +289,16 @@ pub fn process_desktop_actions_system(
                 };
                 ui_theme.set_mode(next_mode);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
-                desktop.last_status = format!("Theme switched to {next_mode:?} (WCAG 2.1 AA).");
+                desktop.status_override = None;
+                desktop.last_status = desktop.localized_status(ui_locale.current);
+                persist_prefs(ui_locale.current, next_mode);
             }
             DesktopAction::SetTheme(mode) => {
                 ui_theme.set_mode(mode);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
-                desktop.last_status = format!("Theme set to {mode:?} (WCAG 2.1 AA).");
+                desktop.status_override = None;
+                desktop.last_status = desktop.localized_status(ui_locale.current);
+                persist_prefs(ui_locale.current, mode);
             }
             DesktopAction::SignIn => {
                 mobile_queue.push(MobileClientCommand::SignIn {

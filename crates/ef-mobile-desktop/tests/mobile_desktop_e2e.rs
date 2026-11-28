@@ -13,11 +13,15 @@ use ef_core::{PatientId, PhysicianId, PracticeId};
 use ef_mobile_client::MobileClientState;
 use ef_mobile_desktop::{
     ConfigError, DesktopAction, DesktopActionQueue, LaunchMode, MobileDesktopConfig,
-    MobileDesktopUiState, RunTarget, build_headless_mobile_desktop_app, run_headless_smoke,
+    MobileDesktopUiState, PreferenceMode, RunTarget, TextSlot, build_headless_mobile_desktop_app,
+    run_headless_smoke,
 };
 use ef_mobile_domain::FileReceiptJournal;
 use ef_mobile_server::{MobileService, TcpMobileServer};
-use ef_ui_catalog::{ComposerAction, ComposerSurface, Locale, ThemeMode};
+use ef_ui_catalog::{
+    ComposerAction, ComposerSurface, DesktopPreferences, DesktopPrefsStore, DesktopZoom, Locale,
+    ThemeMode, UiKey, translate,
+};
 
 fn fresh_temp_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -211,4 +215,103 @@ fn live_tcp_mobile_server_integration_end_to_end() {
     server.shutdown();
     let _ = fs::remove_dir_all(&db_dir);
     let _ = fs::remove_dir_all(&journal_dir);
+}
+
+#[test]
+fn mobile_cli_prefs_bypass_and_12_locale_chrome_and_persistence() {
+    let default_cfg = MobileDesktopConfig::parse_args::<_, &str>([]).expect("default");
+    assert!(default_cfg.should_use_prefs());
+    assert_eq!(default_cfg.prefs_mode, PreferenceMode::PersistOsConfig);
+
+    let no_prefs = MobileDesktopConfig::parse_args(["--no-prefs"]).expect("no-prefs");
+    assert!(!no_prefs.should_use_prefs());
+
+    let smoke = MobileDesktopConfig::parse_args(["--headless-smoke"]).expect("smoke");
+    assert!(!smoke.should_use_prefs());
+
+    let shot = MobileDesktopConfig::parse_args(["--screenshot", "/tmp/m.png"]).expect("shot");
+    assert!(!shot.should_use_prefs());
+
+    // CLI override precedence over saved preferences.
+    let mut cfg = MobileDesktopConfig::parse_args(["--theme", "light"]).expect("theme override");
+    cfg.apply_saved_preferences(DesktopPreferences {
+        theme: ThemeMode::Dark,
+        locale: Locale::Vi,
+        zoom: DesktopZoom::Pct100,
+    });
+    assert_eq!(cfg.theme, ThemeMode::Light);
+    assert_eq!(cfg.locale, Locale::Vi);
+
+    // Temp-dir prefs persistence + 100% localized Hebrew & Hindi UI slots (zero English chrome).
+    let prefs_dir = fresh_temp_dir("prefs");
+    let store = DesktopPrefsStore::at_path(prefs_dir.join("curie-mobile-prefs.json"));
+    let app_cfg =
+        MobileDesktopConfig::parse_args(["--demo", "--locale", "he", "--no-prefs"]).expect("cfg");
+    let mut app = build_headless_mobile_desktop_app(&app_cfg);
+    app.insert_resource(store.clone());
+    app.update();
+
+    let mut q = app.world_mut().query::<(&TextSlot, &bevy::prelude::Text)>();
+    let mut crisis_body = String::new();
+    let mut conn_btn = String::new();
+    let mut composer_label = String::new();
+    let mut composer_placeholder = String::new();
+    let mut sent_summary = String::new();
+    let mut account_summary = String::new();
+    let mut cc_summary = String::new();
+    let mut status_banner = String::new();
+    for (slot, text) in q.iter(app.world()) {
+        match *slot {
+            TextSlot::CrisisBody => crisis_body = text.0.clone(),
+            TextSlot::ConnectivityBtnLabel => conn_btn = text.0.clone(),
+            TextSlot::ComposerLabel => composer_label = text.0.clone(),
+            TextSlot::ComposerContent => composer_placeholder = text.0.clone(),
+            TextSlot::SentSummary => sent_summary = text.0.clone(),
+            TextSlot::AccountSummary => account_summary = text.0.clone(),
+            TextSlot::ConnectedCareSummary => cc_summary = text.0.clone(),
+            TextSlot::StatusBanner => status_banner = text.0.clone(),
+            _ => {}
+        }
+    }
+    assert!(crisis_body.contains(translate(Locale::He, UiKey::MobileCrisisLine988)));
+    assert!(crisis_body.contains("988"));
+    assert!(crisis_body.contains("911"));
+    assert!(crisis_body.contains("1-800-662-4357"));
+    assert_eq!(
+        conn_btn,
+        translate(Locale::He, UiKey::MobileActionGoOffline)
+    );
+    assert_eq!(
+        composer_label,
+        translate(Locale::He, UiKey::MobileCuratedNoteLabel)
+    );
+    assert_eq!(
+        composer_placeholder,
+        translate(Locale::He, UiKey::MobileCuratedNotePlaceholder)
+    );
+    assert!(sent_summary.contains(translate(Locale::He, UiKey::MobileLabelSentUpdates)));
+    assert!(account_summary.contains(translate(Locale::He, UiKey::MobileLabelOwedSignOuts)));
+    assert!(cc_summary.contains(translate(Locale::He, UiKey::MobileDobNotVerified)));
+    assert!(cc_summary.contains(translate(Locale::He, UiKey::MobileSharingNotShared)));
+    assert!(status_banner.contains(translate(Locale::He, UiKey::MobileModeDemo)));
+    assert!(status_banner.contains(translate(Locale::He, UiKey::MobileStatusReadyDemo)));
+
+    // Switch to Hindi + Light and verify temp-dir DesktopPrefsStore saves both.
+    app.world_mut()
+        .resource_mut::<DesktopActionQueue>()
+        .push(DesktopAction::SetLocale(Locale::Hi));
+    app.world_mut()
+        .resource_mut::<DesktopActionQueue>()
+        .push(DesktopAction::SetTheme(ThemeMode::Light));
+    app.update();
+    app.update();
+
+    let saved = store
+        .load()
+        .expect("load mobile prefs")
+        .expect("saved mobile prefs");
+    assert_eq!(saved.locale, Locale::Hi);
+    assert_eq!(saved.theme, ThemeMode::Light);
+
+    let _ = fs::remove_dir_all(&prefs_dir);
 }

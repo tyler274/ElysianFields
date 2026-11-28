@@ -3,7 +3,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 
-use ef_ui_catalog::{Locale, ThemeMode};
+use ef_ui_catalog::{DesktopPreferences, Locale, ThemeMode};
 use thiserror::Error;
 
 /// Canonical mobile-proportioned desktop window dimensions.
@@ -32,6 +32,21 @@ pub enum RunTarget {
     Help,
 }
 
+/// Whether OS-native persisted preferences (`theme`, `locale`) are loaded and saved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreferenceMode {
+    #[default]
+    PersistOsConfig,
+    Disabled,
+}
+
+/// Explicit CLI overrides that take precedence over saved OS-native preferences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MobilePrefOverrides {
+    pub locale: Option<Locale>,
+    pub theme: Option<ThemeMode>,
+}
+
 /// Complete validated launch configuration for `ef-mobile-desktop`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MobileDesktopConfig {
@@ -40,6 +55,8 @@ pub struct MobileDesktopConfig {
     pub locale: Locale,
     pub theme: ThemeMode,
     pub email: String,
+    pub prefs_mode: PreferenceMode,
+    pub cli_overrides: MobilePrefOverrides,
 }
 
 impl Default for MobileDesktopConfig {
@@ -52,6 +69,8 @@ impl Default for MobileDesktopConfig {
             locale: Locale::En,
             theme: ThemeMode::Dark,
             email: DEFAULT_DEMO_EMAIL.to_owned(),
+            prefs_mode: PreferenceMode::PersistOsConfig,
+            cli_overrides: MobilePrefOverrides::default(),
         }
     }
 }
@@ -78,6 +97,28 @@ pub enum ConfigError {
 }
 
 impl MobileDesktopConfig {
+    /// Returns true only for interactive windowed launches when `--no-prefs` was not specified.
+    #[must_use]
+    pub const fn should_use_prefs(&self) -> bool {
+        matches!(self.prefs_mode, PreferenceMode::PersistOsConfig)
+            && matches!(
+                self.target,
+                RunTarget::Windowed {
+                    screenshot_path: None
+                }
+            )
+    }
+
+    /// Applies saved OS-native preferences for any field not explicitly overridden on the CLI.
+    pub fn apply_saved_preferences(&mut self, saved: DesktopPreferences) {
+        if self.cli_overrides.locale.is_none() {
+            self.locale = saved.locale;
+        }
+        if self.cli_overrides.theme.is_none() {
+            self.theme = saved.theme;
+        }
+    }
+
     /// Parses typed CLI arguments (excluding argv[0]).
     pub fn parse_args<I, S>(args: I) -> Result<Self, ConfigError>
     where
@@ -95,6 +136,7 @@ impl MobileDesktopConfig {
             match arg.as_str() {
                 "-h" | "--help" => {
                     config.target = RunTarget::Help;
+                    config.prefs_mode = PreferenceMode::Disabled;
                     return Ok(config);
                 }
                 "--demo" => {
@@ -103,6 +145,9 @@ impl MobileDesktopConfig {
                 }
                 "--headless-smoke" => {
                     headless_smoke = true;
+                }
+                "--no-prefs" => {
+                    config.prefs_mode = PreferenceMode::Disabled;
                 }
                 "--server" => {
                     let raw = next_value(&mut iter, "--server")?;
@@ -122,6 +167,7 @@ impl MobileDesktopConfig {
                     let locale = Locale::parse_bcp47(&raw)
                         .ok_or(ConfigError::InvalidLocale { value: raw })?;
                     config.locale = locale;
+                    config.cli_overrides.locale = Some(locale);
                 }
                 "--theme" => {
                     let raw = next_value(&mut iter, "--theme")?;
@@ -130,6 +176,7 @@ impl MobileDesktopConfig {
                         "light" => ThemeMode::Light,
                         _ => return Err(ConfigError::InvalidTheme { value: raw }),
                     };
+                    config.cli_overrides.theme = Some(config.theme);
                 }
                 "--screenshot" => {
                     let raw = next_value(&mut iter, "--screenshot")?;
@@ -156,6 +203,7 @@ impl MobileDesktopConfig {
                                 value: val.to_owned(),
                             })?;
                         config.locale = locale;
+                        config.cli_overrides.locale = Some(locale);
                     } else if let Some(val) = arg.strip_prefix("--theme=") {
                         config.theme = match val.trim().to_ascii_lowercase().as_str() {
                             "dark" => ThemeMode::Dark,
@@ -166,6 +214,7 @@ impl MobileDesktopConfig {
                                 });
                             }
                         };
+                        config.cli_overrides.theme = Some(config.theme);
                     } else if let Some(val) = arg.strip_prefix("--screenshot=") {
                         screenshot_path = Some(PathBuf::from(val));
                     } else {
@@ -185,6 +234,15 @@ impl MobileDesktopConfig {
             RunTarget::Windowed { screenshot_path }
         };
 
+        if !matches!(
+            config.target,
+            RunTarget::Windowed {
+                screenshot_path: None
+            }
+        ) {
+            config.prefs_mode = PreferenceMode::Disabled;
+        }
+
         Ok(config)
     }
 
@@ -203,6 +261,7 @@ impl MobileDesktopConfig {
            --theme <dark|light>        Initial WCAG 2.1 AA theme (default: dark)\n\
            --headless-smoke            Execute headless Bevy verification suite and emit JSON\n\
            --screenshot <PATH.PNG>     Capture primary window PNG after initial render and exit\n\
+           --no-prefs                  Bypass reading and writing OS-native saved preferences\n\
            -h, --help                  Print this help message"
     }
 }
