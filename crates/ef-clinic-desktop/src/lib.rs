@@ -9,8 +9,8 @@ pub mod smoke;
 pub mod ui;
 
 pub use config::{
-    DesktopConfigError, DesktopLaunchConfig, ExecutionMode, LaunchBackend, ZoomLevel,
-    parse_server_socket_addr,
+    DesktopConfigError, DesktopLaunchConfig, DesktopPrefOverrides, ExecutionMode, LaunchBackend,
+    PreferenceMode, ZoomLevel, parse_server_socket_addr,
 };
 pub use demo::{
     ConnectionMode, DemoSeedBundle, DesktopCitationCard, DesktopCitationCatalog,
@@ -72,15 +72,35 @@ fn run_windowed_gpu_app(
         ClientBootConfig, CurieClinicClientPlugin, SharedBrowserSessionHub, SharedLocaleStorage,
     };
     use ef_core::TabId;
+    use ef_ui_catalog::{ChromeProduct, DesktopPrefsStore};
+
+    let mut effective_config = config.clone();
+    let prefs_store = if effective_config.should_use_prefs() {
+        DesktopPrefsStore::for_product(ChromeProduct::Clinic)
+    } else {
+        DesktopPrefsStore::disabled()
+    };
+    if prefs_store.is_enabled() {
+        match prefs_store.load() {
+            Ok(Some(saved)) => effective_config.apply_saved_preferences(saved),
+            Ok(None) => {}
+            Err(err) => {
+                eprintln!("ef-clinic-desktop warning: ignoring unreadable preferences: {err}");
+            }
+        }
+    }
 
     let (transport, conn_mode, email, token, patients, citation_catalog) =
-        create_transport_for_backend(&config.backend);
+        create_transport_for_backend(&effective_config.backend);
     let initial_citations = patients
         .first()
         .map(|p| citation_catalog.cards_for(&p.workspace_id))
         .unwrap_or_default();
 
-    let boot_path = format!("/elysianfields/?lang={}", config.locale.bcp47_tag());
+    let boot_path = format!(
+        "/elysianfields/?lang={}",
+        effective_config.locale.bcp47_tag()
+    );
     let boot_config = ClientBootConfig::from_location(&boot_path).map_err(|err| {
         DesktopLaunchError::Smoke(HeadlessSmokeError::InvariantFailed(format!(
             "boot path error: {err}"
@@ -118,6 +138,7 @@ fn run_windowed_gpu_app(
         ..default()
     }))
     .insert_resource(winit_settings)
+    .insert_resource(prefs_store)
     .insert_resource(transport)
     .insert_resource(citation_catalog)
     .insert_resource(DesktopWorkspaceState {
@@ -127,14 +148,10 @@ fn run_windowed_gpu_app(
         citations: initial_citations,
         selected_citation_index: 0,
         transcript: initial_transcript,
-        status_message: format!(
-            "Curie Clinic Desktop ready ({} | {:?} | {})",
-            config.locale.native_autonym(),
-            config.theme,
-            config.zoom.label()
-        ),
+        status_message: String::new(),
+        status_override: None,
         shortcuts_modal_open: false,
-        zoom_percent: config.zoom.percent(),
+        zoom_percent: effective_config.zoom.percent(),
         frames_rendered_ui: 0,
         prompts_submitted: 0,
     })
@@ -145,8 +162,8 @@ fn run_windowed_gpu_app(
         SharedLocaleStorage::default(),
     ))
     .add_plugins(ClinicDesktopUiPlugin::new(
-        config.theme,
-        config.zoom,
+        effective_config.theme,
+        effective_config.zoom,
         screenshot_path,
     ))
     .add_systems(Startup, spawn_desktop_camera);

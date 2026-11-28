@@ -3,7 +3,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 
-use ef_ui_catalog::{Locale, TextScale, ThemeMode};
+use ef_ui_catalog::{DesktopPreferences, DesktopZoom, Locale, TextScale, ThemeMode};
 use thiserror::Error;
 
 /// Validated UI zoom factor (`100%`, `150%`, `200%`) mapped directly onto [`TextScale`].
@@ -64,6 +64,40 @@ impl ZoomLevel {
             Self::Pct200 => TextScale::DOUBLE,
         }
     }
+
+    #[must_use]
+    pub const fn to_desktop_zoom(self) -> DesktopZoom {
+        match self {
+            Self::Pct100 => DesktopZoom::Pct100,
+            Self::Pct150 => DesktopZoom::Pct150,
+            Self::Pct200 => DesktopZoom::Pct200,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_desktop_zoom(zoom: DesktopZoom) -> Self {
+        match zoom {
+            DesktopZoom::Pct100 => Self::Pct100,
+            DesktopZoom::Pct150 => Self::Pct150,
+            DesktopZoom::Pct200 => Self::Pct200,
+        }
+    }
+}
+
+/// Whether OS-native persisted preferences (`theme`, `locale`, `zoom`) are read and written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreferenceMode {
+    #[default]
+    PersistOsConfig,
+    Disabled,
+}
+
+/// Explicit CLI overrides that take precedence over saved OS-native preferences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DesktopPrefOverrides {
+    pub locale: Option<Locale>,
+    pub theme: Option<ThemeMode>,
+    pub zoom: Option<ZoomLevel>,
 }
 
 /// Authoritative backend transport selected at desktop startup.
@@ -106,6 +140,8 @@ pub struct DesktopLaunchConfig {
     pub locale: Locale,
     pub theme: ThemeMode,
     pub zoom: ZoomLevel,
+    pub prefs_mode: PreferenceMode,
+    pub cli_overrides: DesktopPrefOverrides,
 }
 
 impl Default for DesktopLaunchConfig {
@@ -116,6 +152,8 @@ impl Default for DesktopLaunchConfig {
             locale: Locale::En,
             theme: ThemeMode::Dark,
             zoom: ZoomLevel::Pct100,
+            prefs_mode: PreferenceMode::PersistOsConfig,
+            cli_overrides: DesktopPrefOverrides::default(),
         }
     }
 }
@@ -160,7 +198,33 @@ impl DesktopLaunchConfig {
            --zoom <100|150|200>        Initial UI text zoom percent (default: 100)\n\
            --headless-smoke            Run deterministic headless UI smoke suite and print JSON\n\
            --screenshot <PATH.PNG>     Capture rendered GPU window PNG after layout settles and exit\n\
+           --no-prefs                  Bypass reading and writing OS-native saved preferences\n\
            -h, --help                  Print this help message"
+    }
+
+    /// Returns true only for interactive windowed runs when `--no-prefs` was not passed.
+    #[must_use]
+    pub const fn should_use_prefs(&self) -> bool {
+        matches!(self.prefs_mode, PreferenceMode::PersistOsConfig)
+            && matches!(
+                self.mode,
+                ExecutionMode::Windowed {
+                    screenshot_path: None
+                }
+            )
+    }
+
+    /// Applies saved OS-native preferences for any field not explicitly overridden on the CLI.
+    pub fn apply_saved_preferences(&mut self, saved: DesktopPreferences) {
+        if self.cli_overrides.locale.is_none() {
+            self.locale = saved.locale;
+        }
+        if self.cli_overrides.theme.is_none() {
+            self.theme = saved.theme;
+        }
+        if self.cli_overrides.zoom.is_none() {
+            self.zoom = ZoomLevel::from_desktop_zoom(saved.zoom);
+        }
     }
 
     /// Parses CLI arguments (excluding argv[0]) into a validated [`DesktopLaunchConfig`].
@@ -179,6 +243,8 @@ impl DesktopLaunchConfig {
         let mut zoom = ZoomLevel::Pct100;
         let mut headless_smoke = false;
         let mut screenshot_path: Option<PathBuf> = None;
+        let mut prefs_mode = PreferenceMode::PersistOsConfig;
+        let mut cli_overrides = DesktopPrefOverrides::default();
 
         while let Some(arg) = iter.next() {
             match arg.as_str() {
@@ -192,6 +258,9 @@ impl DesktopLaunchConfig {
                 }
                 "--headless-smoke" => {
                     headless_smoke = true;
+                }
+                "--no-prefs" => {
+                    prefs_mode = PreferenceMode::Disabled;
                 }
                 "--server" => {
                     let val = iter
@@ -225,6 +294,7 @@ impl DesktopLaunchConfig {
                         })?;
                     locale = Locale::parse_bcp47(&val)
                         .ok_or(DesktopConfigError::InvalidLocale { value: val })?;
+                    cli_overrides.locale = Some(locale);
                 }
                 "--theme" => {
                     let val = iter
@@ -237,6 +307,7 @@ impl DesktopLaunchConfig {
                         "light" => ThemeMode::Light,
                         _ => return Err(DesktopConfigError::InvalidTheme { value: val }),
                     };
+                    cli_overrides.theme = Some(theme);
                 }
                 "--zoom" => {
                     let val = iter
@@ -245,6 +316,7 @@ impl DesktopLaunchConfig {
                             flag: "--zoom".to_owned(),
                         })?;
                     zoom = ZoomLevel::parse(&val)?;
+                    cli_overrides.zoom = Some(zoom);
                 }
                 "--screenshot" => {
                     let val = iter
@@ -285,12 +357,23 @@ impl DesktopLaunchConfig {
             ExecutionMode::Windowed { screenshot_path }
         };
 
+        if !matches!(
+            mode,
+            ExecutionMode::Windowed {
+                screenshot_path: None
+            }
+        ) {
+            prefs_mode = PreferenceMode::Disabled;
+        }
+
         Ok(Self {
             backend,
             mode,
             locale,
             theme,
             zoom,
+            prefs_mode,
+            cli_overrides,
         })
     }
 }

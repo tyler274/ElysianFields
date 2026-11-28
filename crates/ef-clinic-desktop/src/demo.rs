@@ -61,6 +61,20 @@ impl ConnectionMode {
             Self::LiveServer { base_url } => format!("SERVER: {base_url}"),
         }
     }
+
+    #[must_use]
+    pub fn localized_badge(&self, locale: ef_ui_catalog::Locale) -> String {
+        match self {
+            Self::DemoLocal => {
+                ef_ui_catalog::translate(locale, ef_ui_catalog::UiKey::BadgeModeDemoLocal)
+                    .to_owned()
+            }
+            Self::LiveServer { base_url } => format!(
+                "{}: {base_url}",
+                ef_ui_catalog::translate(locale, ef_ui_catalog::UiKey::BadgeModeLiveServer)
+            ),
+        }
+    }
 }
 
 /// Presentation-layer state owned by the native Bevy desktop shell alongside `CurieClinicClientPlugin`.
@@ -73,6 +87,7 @@ pub struct DesktopWorkspaceState {
     pub selected_citation_index: usize,
     pub transcript: Vec<DesktopTranscriptEntry>,
     pub status_message: String,
+    pub status_override: Option<String>,
     pub shortcuts_modal_open: bool,
     pub zoom_percent: u16,
     pub frames_rendered_ui: u64,

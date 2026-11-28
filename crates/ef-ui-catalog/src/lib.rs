@@ -11,6 +11,7 @@ pub mod composer;
 pub mod i18n;
 pub mod motion;
 pub mod plugin;
+pub mod prefs;
 pub mod shortcuts;
 pub mod theme;
 pub mod virtualized;
@@ -35,6 +36,10 @@ pub use motion::{
     AnimationMode, FrameDecision, IdleRedrawGate, MotionPolicy, RedrawReason, ReducedMotion,
 };
 pub use plugin::{CatalogA11ySyncStatus, EfUiCatalogPlugin};
+pub use prefs::{
+    DesktopOsFamily, DesktopPreferences, DesktopPrefsError, DesktopPrefsStore, DesktopZoom,
+    product_prefs_filename, resolve_desktop_prefs_path, resolve_prefs_dir_for_env,
+};
 pub use shortcuts::{
     ActiveOverlay, EditingContext, FocusId, ModifierChord, OverlayKind, OverlayModality,
     PrivacyCoverState, SearchQueryState, ShortcutAction, ShortcutContext, ShortcutInput,
@@ -160,9 +165,9 @@ mod tests {
             assert_eq!(ltr_locale.citation_panel_edge(), HorizontalEdge::Right);
         }
 
-        // Compile-time exhaustive check: all 12 locales x 56 keys (672 entries) are non-empty.
+        // Compile-time exhaustive check: all 12 locales x 96 keys (1,152 entries) are non-empty.
         assert_eq!(Locale::ALL.len(), 12);
-        assert_eq!(UiKey::ALL.len(), 56);
+        assert_eq!(UiKey::ALL.len(), 96);
         for locale in Locale::ALL {
             for key in UiKey::ALL {
                 let text = translate(locale, key);
@@ -171,6 +176,9 @@ mod tests {
                     "empty translation for {locale:?} / {key:?}"
                 );
             }
+            assert!(translate(locale, UiKey::MobileCrisisLine988).contains("988"));
+            assert!(translate(locale, UiKey::MobileCrisisLine911).contains("911"));
+            assert!(translate(locale, UiKey::MobileCrisisLineSamhsa).contains("1-800-662-4357"));
             let clinic_chrome = localized_chrome(locale, ChromeProduct::Clinic);
             let mobile_chrome = localized_chrome(locale, ChromeProduct::Mobile);
             assert!(!clinic_chrome.app_brand.is_empty());

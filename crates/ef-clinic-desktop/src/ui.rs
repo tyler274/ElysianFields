@@ -16,15 +16,16 @@ use std::path::PathBuf;
 use bevy::a11y::AccessibilityNode;
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyCode, KeyboardInput};
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use ef_clinic_client::{
     ActiveWorkspaceView, ClinicAction, ClinicActionMessage, ClinicSessionShell,
 };
 use ef_core::IdempotencyKey;
 use ef_ui_catalog::{
-    ChromeProduct, ComposerAction, ComposerSurface, IdleRedrawGate, Locale, ModifierChord,
-    RedrawReason, ShortcutInput, ShortcutKey, ShortcutRouter, ThemeMode, ThemeTokens, UiKey,
-    UiLocale, UiTheme, localized_chrome, translate,
+    ChromeProduct, ComposerAction, ComposerSurface, DesktopPreferences, DesktopPrefsStore,
+    IdleRedrawGate, Locale, ModifierChord, RedrawReason, ShortcutInput, ShortcutKey,
+    ShortcutRouter, ThemeMode, ThemeTokens, UiKey, UiLocale, UiTheme, localized_chrome, translate,
 };
 
 use crate::config::ZoomLevel;
@@ -69,6 +70,7 @@ pub enum DesktopUiSlot {
     PatientButtonLabel(usize),
     TranscriptPanel,
     TranscriptHeading,
+    TranscriptScrollArea,
     TranscriptBody,
     ComposerLabel,
     ComposerBox,
@@ -77,6 +79,7 @@ pub enum DesktopUiSlot {
     SendButtonLabel,
     EvidencePanel,
     EvidenceHeading,
+    EvidenceScrollArea,
     CitationButton(usize),
     CitationButtonLabel(usize),
     CitationDetailBody,
@@ -112,6 +115,8 @@ pub enum DesktopUiEvent {
     TogglePrivacyCover,
     ToggleShortcuts,
     DismissOverlays,
+    ScrollTranscript(i32),
+    ScrollEvidence(i32),
 }
 
 /// Optional screenshot capture configuration for live GPU window runs.
@@ -155,12 +160,14 @@ impl Plugin for ClinicDesktopUiPlugin {
             })
             .add_message::<DesktopUiEvent>()
             .add_message::<KeyboardInput>()
+            .add_message::<MouseWheel>()
             .add_systems(Startup, spawn_clinic_desktop_ui_system)
             .add_systems(
                 Update,
                 (
                     handle_desktop_button_presses_system,
                     handle_desktop_keyboard_input_system,
+                    handle_desktop_scroll_wheel_system,
                     process_desktop_events_system,
                     sync_desktop_ui_visuals_system,
                 )
@@ -260,7 +267,11 @@ fn spawn_clinic_desktop_ui_system(
                         DesktopActionButton::CycleZoom,
                         DesktopUiSlot::ZoomButton,
                         DesktopUiSlot::ZoomButtonLabel,
-                        format!("Zoom: {}%", ws_state.zoom_percent),
+                        format!(
+                            "{}: {}%",
+                            translate(locale, UiKey::LabelZoom),
+                            ws_state.zoom_percent
+                        ),
                         tokens,
                         scale,
                     );
@@ -269,7 +280,7 @@ fn spawn_clinic_desktop_ui_system(
                         DesktopActionButton::TogglePrivacyCover,
                         DesktopUiSlot::PrivacyButton,
                         DesktopUiSlot::PrivacyButtonLabel,
-                        privacy_button_label(locale, false).to_owned(),
+                        translate(locale, UiKey::PrivacyCoverButton).to_owned(),
                         tokens,
                         scale,
                     );
@@ -325,7 +336,7 @@ fn spawn_clinic_desktop_ui_system(
                     ));
                     rail.spawn((
                         DesktopUiSlot::ConnectionBadge,
-                        Text::new(ws_state.connection_mode.badge_text()),
+                        Text::new(ws_state.connection_mode.localized_badge(locale)),
                         TextFont {
                             font_size: FontSize::Px(12.0 * scale),
                             ..default()
@@ -411,11 +422,16 @@ fn spawn_clinic_desktop_ui_system(
 
                     center
                         .spawn((
+                            DesktopUiSlot::TranscriptScrollArea,
+                            ScrollPosition::default(),
                             Node {
                                 width: Val::Percent(100.0),
                                 flex_grow: 1.0,
+                                min_height: Val::Px(0.0),
+                                flex_direction: FlexDirection::Column,
                                 padding: UiRect::all(Val::Px(10.0)),
                                 border: UiRect::all(Val::Px(1.0)),
+                                overflow: Overflow::scroll_y(),
                                 ..default()
                             },
                             BackgroundColor(tokens.canvas_bg.to_bevy_color()),
@@ -424,7 +440,7 @@ fn spawn_clinic_desktop_ui_system(
                         .with_children(|box_node| {
                             box_node.spawn((
                                 DesktopUiSlot::TranscriptBody,
-                                Text::new(format_transcript(&ws_state.transcript)),
+                                Text::new(format_transcript(&ws_state.transcript, locale)),
                                 TextFont {
                                     font_size: FontSize::Px(14.0 * scale),
                                     ..default()
@@ -569,16 +585,32 @@ fn spawn_clinic_desktop_ui_system(
                     let detail_text = ws_state
                         .selected_citation()
                         .map(|c| format!("{}\n\n{}\n({})", c.title, c.excerpt, c.provenance))
-                        .unwrap_or_else(|| "Select a cited clinical record to inspect.".to_owned());
+                        .unwrap_or_else(|| {
+                            translate(locale, UiKey::ClinicCitationSelectPrompt).to_owned()
+                        });
                     rail.spawn((
-                        DesktopUiSlot::CitationDetailBody,
-                        Text::new(detail_text),
-                        TextFont {
-                            font_size: FontSize::Px(13.0 * scale),
+                        DesktopUiSlot::EvidenceScrollArea,
+                        ScrollPosition::default(),
+                        Node {
+                            width: Val::Percent(100.0),
+                            flex_grow: 1.0,
+                            min_height: Val::Px(0.0),
+                            flex_direction: FlexDirection::Column,
+                            overflow: Overflow::scroll_y(),
                             ..default()
                         },
-                        TextColor(tokens.text_secondary.to_bevy_color()),
-                    ));
+                    ))
+                    .with_children(|scroll_box| {
+                        scroll_box.spawn((
+                            DesktopUiSlot::CitationDetailBody,
+                            Text::new(detail_text),
+                            TextFont {
+                                font_size: FontSize::Px(13.0 * scale),
+                                ..default()
+                            },
+                            TextColor(tokens.text_secondary.to_bevy_color()),
+                        ));
+                    });
                 });
             });
 
@@ -736,13 +768,7 @@ fn spawn_clinic_desktop_ui_system(
                         ));
                         card.spawn((
                             DesktopUiSlot::ShortcutsModalBody,
-                            Text::new(
-                                "Ctrl/Cmd+Shift+L - Toggle Privacy Cover\n\
-                                 Enter / Shift+Enter - Submit prompt / New line\n\
-                                 Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z - Undo / Redo\n\
-                                 ArrowLeft / ArrowRight - Grapheme cluster step\n\
-                                 ? / Escape - Open / Close Shortcuts",
-                            ),
+                            Text::new(translate(locale, UiKey::ClinicShortcutsBody)),
                             TextFont {
                                 font_size: FontSize::Px(14.0 * scale),
                                 ..default()
@@ -920,6 +946,20 @@ fn handle_desktop_keyboard_input_system(
                     },
                 )));
             }
+            KeyCode::PageUp => {
+                if shift_down {
+                    desktop_events.write(DesktopUiEvent::ScrollEvidence(-120));
+                } else {
+                    desktop_events.write(DesktopUiEvent::ScrollTranscript(-120));
+                }
+            }
+            KeyCode::PageDown => {
+                if shift_down {
+                    desktop_events.write(DesktopUiEvent::ScrollEvidence(120));
+                } else {
+                    desktop_events.write(DesktopUiEvent::ScrollTranscript(120));
+                }
+            }
             _ => {
                 if !primary_down {
                     if let Key::Character(ref ch) = event.logical_key
@@ -941,20 +981,65 @@ fn handle_desktop_keyboard_input_system(
     }
 }
 
+fn handle_desktop_scroll_wheel_system(
+    mut wheel_events: MessageReader<MouseWheel>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    router: Res<ShortcutRouter>,
+    mut desktop_events: MessageWriter<DesktopUiEvent>,
+) {
+    if router.is_privacy_cover_active() {
+        return;
+    }
+    let shift_down = keys
+        .as_ref()
+        .is_some_and(|input| input.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]));
+    for wheel in wheel_events.read() {
+        let delta_px = match wheel.unit {
+            MouseScrollUnit::Line => (-wheel.y * 32.0).round() as i32,
+            MouseScrollUnit::Pixel => (-wheel.y).round() as i32,
+        };
+        if delta_px == 0 {
+            continue;
+        }
+        if shift_down {
+            desktop_events.write(DesktopUiEvent::ScrollEvidence(delta_px));
+        } else {
+            desktop_events.write(DesktopUiEvent::ScrollTranscript(delta_px));
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn process_desktop_events_system(
     mut events: MessageReader<DesktopUiEvent>,
     mut clinic_actions: MessageWriter<ClinicActionMessage>,
     mut ws_state: ResMut<DesktopWorkspaceState>,
     citation_catalog: Res<DesktopCitationCatalog>,
-    ui_locale: Res<UiLocale>,
+    mut ui_locale: ResMut<UiLocale>,
     mut ui_theme: ResMut<UiTheme>,
     mut composer: ResMut<ComposerSurface>,
     router: Res<ShortcutRouter>,
     session: Res<ClinicSessionShell>,
     active_workspace: Res<ActiveWorkspaceView>,
     mut gate: ResMut<IdleRedrawGate>,
+    prefs_store: Option<Res<DesktopPrefsStore>>,
+    mut scroll_areas: Query<(&DesktopUiSlot, &mut ScrollPosition)>,
 ) {
+    let persist_prefs = |locale: Locale, theme: ThemeMode, zoom_percent: u16| {
+        if let Some(ref store) = prefs_store
+            && store.is_enabled()
+        {
+            let zoom = ZoomLevel::parse(&zoom_percent.to_string())
+                .unwrap_or(ZoomLevel::Pct100)
+                .to_desktop_zoom();
+            let _ = store.save(&DesktopPreferences {
+                theme,
+                locale,
+                zoom,
+            });
+        }
+    };
+
     for evt in events.read() {
         match evt.clone() {
             DesktopUiEvent::CycleLocale => {
@@ -963,23 +1048,17 @@ fn process_desktop_events_system(
                     .position(|&loc| loc == ui_locale.current)
                     .unwrap_or(0);
                 let next = Locale::ALL[(idx + 1) % Locale::ALL.len()];
+                ui_locale.current = next;
                 clinic_actions.write(ClinicActionMessage(ClinicAction::SwitchLocale(next)));
-                ws_state.status_message = format!(
-                    "Locale switched to {} ({}) - {:?}",
-                    next.native_autonym(),
-                    next.bcp47_tag(),
-                    next.direction()
-                );
+                ws_state.status_override = None;
+                persist_prefs(next, ui_theme.mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::SetLocale(next) => {
+                ui_locale.current = next;
                 clinic_actions.write(ClinicActionMessage(ClinicAction::SwitchLocale(next)));
-                ws_state.status_message = format!(
-                    "Locale set to {} ({}) - {:?}",
-                    next.native_autonym(),
-                    next.bcp47_tag(),
-                    next.direction()
-                );
+                ws_state.status_override = None;
+                persist_prefs(next, ui_theme.mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::ToggleTheme => {
@@ -988,12 +1067,14 @@ fn process_desktop_events_system(
                     ThemeMode::Light => ThemeMode::Dark,
                 };
                 ui_theme.set_mode(next_mode);
-                ws_state.status_message = format!("Theme switched to {next_mode:?} (WCAG 2.1 AA)");
+                ws_state.status_override = None;
+                persist_prefs(ui_locale.current, next_mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::SetTheme(mode) => {
                 ui_theme.set_mode(mode);
-                ws_state.status_message = format!("Theme set to {mode:?} (WCAG 2.1 AA)");
+                ws_state.status_override = None;
+                persist_prefs(ui_locale.current, mode, ws_state.zoom_percent);
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::CycleZoom => {
@@ -1002,13 +1083,15 @@ fn process_desktop_events_system(
                 let next = current.cycle_next();
                 ws_state.zoom_percent = next.percent();
                 ui_theme.text_scale = next.text_scale();
-                ws_state.status_message = format!("Zoom set to {}", next.label());
+                ws_state.status_override = None;
+                persist_prefs(ui_locale.current, ui_theme.mode, next.percent());
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::SetZoom(next) => {
                 ws_state.zoom_percent = next.percent();
                 ui_theme.text_scale = next.text_scale();
-                ws_state.status_message = format!("Zoom set to {}", next.label());
+                ws_state.status_override = None;
+                persist_prefs(ui_locale.current, ui_theme.mode, next.percent());
                 gate.request_redraw(RedrawReason::LocaleOrThemeChange);
             }
             DesktopUiEvent::SelectPatient(idx) => {
@@ -1112,12 +1195,28 @@ fn process_desktop_events_system(
                     clinic_actions.write(ClinicActionMessage(ClinicAction::DispatchShortcut(
                         ShortcutInput::new(ShortcutKey::Char('l'), ModifierChord::PrimaryShift),
                     )));
-                    ws_state.status_message = "Privacy cover dismissed.".to_owned();
+                    ws_state.status_override = None;
                 } else if ws_state.shortcuts_modal_open {
                     ws_state.shortcuts_modal_open = false;
-                    ws_state.status_message = "Shortcuts dialog closed.".to_owned();
+                    ws_state.status_override = None;
                 }
                 gate.request_redraw(RedrawReason::OverlayTransition);
+            }
+            DesktopUiEvent::ScrollTranscript(delta_px) => {
+                for (slot, mut pos) in &mut scroll_areas {
+                    if *slot == DesktopUiSlot::TranscriptScrollArea {
+                        pos.y = (pos.y + delta_px as f32).max(0.0);
+                    }
+                }
+                gate.request_redraw(RedrawReason::UserInput);
+            }
+            DesktopUiEvent::ScrollEvidence(delta_px) => {
+                for (slot, mut pos) in &mut scroll_areas {
+                    if *slot == DesktopUiSlot::EvidenceScrollArea {
+                        pos.y = (pos.y + delta_px as f32).max(0.0);
+                    }
+                }
+                gate.request_redraw(RedrawReason::UserInput);
             }
         }
     }
@@ -1159,7 +1258,31 @@ fn sync_desktop_ui_visuals_system(
     let citation_detail = ws_state
         .selected_citation()
         .map(|c| format!("{}\n\n{}\n({})", c.title, c.excerpt, c.provenance))
-        .unwrap_or_else(|| "Select a cited clinical record to inspect.".to_owned());
+        .unwrap_or_else(|| translate(locale, UiKey::ClinicCitationSelectPrompt).to_owned());
+
+    let zoom_label = format!(
+        "{}: {}%",
+        translate(locale, UiKey::LabelZoom),
+        ws_state.zoom_percent
+    );
+    let privacy_label = translate(
+        locale,
+        if privacy_active {
+            UiKey::PrivacyCoverTitle
+        } else {
+            UiKey::PrivacyCoverButton
+        },
+    );
+    let status_text = ws_state.status_override.clone().unwrap_or_else(|| {
+        format!(
+            "{} ({} | {} | {})",
+            translate(locale, UiKey::ClinicStatusReady),
+            locale.native_autonym(),
+            theme_button_label(locale, ui_theme.mode),
+            zoom_label
+        )
+    });
+    ws_state.status_message = status_text.clone();
 
     for (slot, mut node, bg, border, text, font, text_color, a11y) in &mut nodes {
         match *slot {
@@ -1202,24 +1325,22 @@ fn sync_desktop_ui_visuals_system(
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::ZoomButton => {
-                let label = format!("Zoom: {}%", ws_state.zoom_percent);
                 set_bg(bg, tokens.input_bg.to_bevy_color());
                 set_border(border, tokens.focus_ring.to_bevy_color());
-                set_a11y_label(a11y, &label);
+                set_a11y_label(a11y, &zoom_label);
             }
             DesktopUiSlot::ZoomButtonLabel => {
-                set_text(text, &format!("Zoom: {}%", ws_state.zoom_percent));
+                set_text(text, &zoom_label);
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::PrivacyButton => {
-                let label = privacy_button_label(locale, privacy_active);
                 set_bg(bg, tokens.input_bg.to_bevy_color());
                 set_border(border, tokens.focus_ring.to_bevy_color());
-                set_a11y_label(a11y, label);
+                set_a11y_label(a11y, privacy_label);
             }
             DesktopUiSlot::PrivacyButtonLabel => {
-                set_text(text, privacy_button_label(locale, privacy_active));
+                set_text(text, privacy_label);
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
@@ -1252,7 +1373,7 @@ fn sync_desktop_ui_visuals_system(
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::ConnectionBadge => {
-                set_text(text, &ws_state.connection_mode.badge_text());
+                set_text(text, &ws_state.connection_mode.localized_badge(locale));
                 set_font(font, 12.0 * scale);
                 set_color(text_color, tokens.alert_info_fg.to_bevy_color());
             }
@@ -1297,8 +1418,12 @@ fn sync_desktop_ui_visuals_system(
                 set_font(font, 16.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
+            DesktopUiSlot::TranscriptScrollArea => {
+                set_bg(bg, tokens.canvas_bg.to_bevy_color());
+                set_border(border, tokens.text_secondary.to_bevy_color());
+            }
             DesktopUiSlot::TranscriptBody => {
-                set_text(text, &format_transcript(&ws_state.transcript));
+                set_text(text, &format_transcript(&ws_state.transcript, locale));
                 set_font(font, 14.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
@@ -1332,6 +1457,7 @@ fn sync_desktop_ui_visuals_system(
                 set_font(font, 16.0 * scale);
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
+            DesktopUiSlot::EvidenceScrollArea => {}
             DesktopUiSlot::CitationButton(idx) => {
                 let visible = idx < ws_state.citations.len();
                 node.display = if visible {
@@ -1370,7 +1496,7 @@ fn sync_desktop_ui_visuals_system(
                 set_border(border, tokens.focus_ring.to_bevy_color());
             }
             DesktopUiSlot::StatusText => {
-                set_text(text, &ws_state.status_message);
+                set_text(text, &status_text);
                 set_font(font, 13.0 * scale);
                 set_color(text_color, tokens.alert_info_fg.to_bevy_color());
             }
@@ -1425,6 +1551,7 @@ fn sync_desktop_ui_visuals_system(
                 set_color(text_color, tokens.text_primary.to_bevy_color());
             }
             DesktopUiSlot::ShortcutsModalBody => {
+                set_text(text, translate(locale, UiKey::ClinicShortcutsBody));
                 set_font(font, 14.0 * scale);
                 set_color(text_color, tokens.text_secondary.to_bevy_color());
             }
@@ -1476,27 +1603,6 @@ fn capture_screenshot_and_exit_system(
     }
 }
 
-fn privacy_button_label(locale: Locale, privacy_active: bool) -> &'static str {
-    if privacy_active {
-        translate(locale, UiKey::PrivacyCoverTitle)
-    } else {
-        match locale {
-            Locale::He => "כיסוי פרטיות",
-            Locale::Ar => "غطاء الخصوصية",
-            Locale::Es => "Cubierta de privacidad",
-            Locale::Fr => "Voile de confidentialité",
-            Locale::Pt => "Cobertura de privacidade",
-            Locale::De => "Sichtschutz",
-            Locale::ZhHans => "隐私遮罩",
-            Locale::Ja => "プライバシーカバー",
-            Locale::Ko => "개인정보 가림막",
-            Locale::Vi => "Che màn hình riêng tư",
-            Locale::Hi => "गोपनीयता आवरण",
-            Locale::En => "Privacy cover",
-        }
-    }
-}
-
 fn theme_button_label(locale: Locale, mode: ThemeMode) -> String {
     match mode {
         ThemeMode::Dark => translate(locale, UiKey::LabelThemeDark).to_owned(),
@@ -1504,9 +1610,9 @@ fn theme_button_label(locale: Locale, mode: ThemeMode) -> String {
     }
 }
 
-fn format_transcript(entries: &[DesktopTranscriptEntry]) -> String {
+fn format_transcript(entries: &[DesktopTranscriptEntry], locale: Locale) -> String {
     if entries.is_empty() {
-        return "No clinical messages yet.".to_owned();
+        return translate(locale, UiKey::ClinicTranscriptEmpty).to_owned();
     }
     entries
         .iter()

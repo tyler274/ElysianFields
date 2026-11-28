@@ -1,10 +1,14 @@
 //! Unit and live TCP server integration tests for `ef-clinic-desktop`.
 
 use ef_clinic_desktop::{
-    DesktopConfigError, DesktopLaunchConfig, ExecutionMode, LaunchBackend, SmokeCheckOutcome,
-    ZoomLevel, parse_server_socket_addr, run_headless_smoke,
+    ClinicDesktopUiPlugin, DesktopConfigError, DesktopLaunchConfig, DesktopUiEvent, DesktopUiSlot,
+    DesktopWorkspaceState, ExecutionMode, LaunchBackend, PreferenceMode, SmokeCheckOutcome,
+    ZoomLevel, bootstrap_clinic_session, create_transport_for_backend, parse_server_socket_addr,
+    run_headless_smoke,
 };
-use ef_ui_catalog::{Locale, ThemeMode};
+use ef_ui_catalog::{
+    DesktopPreferences, DesktopPrefsStore, DesktopZoom, Locale, ThemeMode, UiKey, translate,
+};
 
 #[test]
 fn cli_defaults_to_demo_dark_en_100() {
@@ -128,6 +132,7 @@ fn headless_smoke_demo_verifies_all_wcag_rtl_privacy_a11y_invariants() {
         locale: Locale::En,
         theme: ThemeMode::Dark,
         zoom: ZoomLevel::Pct100,
+        ..DesktopLaunchConfig::default()
     };
 
     let report = run_headless_smoke(&cfg).expect("headless smoke must pass");
@@ -272,4 +277,186 @@ fn headless_smoke_connects_to_live_tcp_clinic_server() {
 
     drop(server);
     let _ = fs::remove_dir_all(&wal_dir);
+}
+
+#[test]
+fn cli_prefs_auto_bypass_and_override_precedence() {
+    let interactive = DesktopLaunchConfig::parse_args(Vec::<String>::new()).expect("default");
+    assert!(interactive.should_use_prefs());
+    assert_eq!(interactive.prefs_mode, PreferenceMode::PersistOsConfig);
+
+    let no_prefs = DesktopLaunchConfig::parse_args(["--no-prefs"]).expect("no-prefs");
+    assert!(!no_prefs.should_use_prefs());
+    assert_eq!(no_prefs.prefs_mode, PreferenceMode::Disabled);
+
+    let smoke = DesktopLaunchConfig::parse_args(["--headless-smoke"]).expect("smoke");
+    assert!(!smoke.should_use_prefs());
+
+    let shot = DesktopLaunchConfig::parse_args(["--screenshot", "/tmp/shot.png"]).expect("shot");
+    assert!(!shot.should_use_prefs());
+
+    // Saved prefs apply to non-overridden flags while explicit CLI flags win.
+    let mut cfg = DesktopLaunchConfig::parse_args(["--locale", "ja"]).expect("locale override");
+    cfg.apply_saved_preferences(DesktopPreferences {
+        theme: ThemeMode::Light,
+        locale: Locale::He,
+        zoom: DesktopZoom::Pct200,
+    });
+    assert_eq!(cfg.locale, Locale::Ja);
+    assert_eq!(cfg.theme, ThemeMode::Light);
+    assert_eq!(cfg.zoom, ZoomLevel::Pct200);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn clinic_desktop_scrolling_localized_chrome_and_temp_dir_prefs_persistence() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use bevy::asset::AssetPlugin;
+    use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+    use bevy::prelude::*;
+    use ef_clinic_client::{
+        ClientBootConfig, CurieClinicClientPlugin, SharedBrowserSessionHub, SharedLocaleStorage,
+    };
+    use ef_core::TabId;
+
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let temp_dir = std::env::temp_dir().join(format!(
+        "ef-clinic-desktop-prefs-{}-{nanos}",
+        std::process::id()
+    ));
+    let prefs_path = temp_dir.join("curie-clinic-prefs.json");
+    let store = DesktopPrefsStore::at_path(prefs_path.clone());
+
+    let (transport, conn_mode, email, token, patients, citation_catalog) =
+        create_transport_for_backend(&LaunchBackend::Demo);
+    let initial_citations = patients
+        .first()
+        .map(|p| citation_catalog.cards_for(&p.workspace_id))
+        .unwrap_or_default();
+
+    let mut app = App::new();
+    app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+        .insert_resource(store.clone())
+        .insert_resource(transport)
+        .insert_resource(citation_catalog)
+        .insert_resource(DesktopWorkspaceState {
+            connection_mode: conn_mode,
+            patients,
+            active_patient_index: 0,
+            citations: initial_citations,
+            selected_citation_index: 0,
+            transcript: Vec::new(),
+            status_message: String::new(),
+            status_override: None,
+            shortcuts_modal_open: false,
+            zoom_percent: 100,
+            frames_rendered_ui: 0,
+            prompts_submitted: 0,
+        })
+        .add_plugins(CurieClinicClientPlugin::new(
+            TabId::new("desktop-scroll-test").expect("tab id"),
+            ClientBootConfig::from_location("/elysianfields/?lang=he").expect("boot"),
+            SharedBrowserSessionHub::new(None),
+            SharedLocaleStorage::default(),
+        ))
+        .add_plugins(ClinicDesktopUiPlugin::new(
+            ThemeMode::Dark,
+            ZoomLevel::Pct100,
+            None,
+        ));
+
+    bootstrap_clinic_session(&mut app, email, token);
+
+    // 1. Verify Hebrew chrome has zero hardcoded English chrome in zoom, badge, shortcuts, and status bar.
+    let mut slot_texts = app.world_mut().query::<(&DesktopUiSlot, &Text)>();
+    let mut zoom_text = String::new();
+    let mut badge_text = String::new();
+    let mut shortcuts_body = String::new();
+    let mut status_text = String::new();
+    for (slot, text) in slot_texts.iter(app.world()) {
+        match *slot {
+            DesktopUiSlot::ZoomButtonLabel => zoom_text = text.0.clone(),
+            DesktopUiSlot::ConnectionBadge => badge_text = text.0.clone(),
+            DesktopUiSlot::ShortcutsModalBody => shortcuts_body = text.0.clone(),
+            DesktopUiSlot::StatusText => status_text = text.0.clone(),
+            _ => {}
+        }
+    }
+    assert!(zoom_text.contains(translate(Locale::He, UiKey::LabelZoom)));
+    assert!(!zoom_text.contains("Zoom"));
+    assert_eq!(badge_text, translate(Locale::He, UiKey::BadgeModeDemoLocal));
+    assert_eq!(
+        shortcuts_body,
+        translate(Locale::He, UiKey::ClinicShortcutsBody)
+    );
+    assert!(status_text.contains(translate(Locale::He, UiKey::ClinicStatusReady)));
+
+    // 2. Verify interactive mouse-wheel and event scrolling on Transcript and Evidence scroll areas.
+    app.world_mut().write_message(MouseWheel {
+        unit: MouseScrollUnit::Line,
+        x: 0.0,
+        y: -3.0,
+        window: Entity::PLACEHOLDER,
+        phase: bevy::input::touch::TouchPhase::Moved,
+    });
+    app.update();
+    app.update();
+
+    app.world_mut()
+        .write_message(DesktopUiEvent::ScrollEvidence(120));
+    app.update();
+    app.update();
+
+    let mut scroll_q = app.world_mut().query::<(&DesktopUiSlot, &ScrollPosition)>();
+    let mut transcript_y = 0.0_f32;
+    let mut evidence_y = 0.0_f32;
+    for (slot, pos) in scroll_q.iter(app.world()) {
+        match *slot {
+            DesktopUiSlot::TranscriptScrollArea => transcript_y = pos.y,
+            DesktopUiSlot::EvidenceScrollArea => evidence_y = pos.y,
+            _ => {}
+        }
+    }
+    assert!(
+        transcript_y > 90.0,
+        "expected mouse wheel scroll to advance transcript ScrollPosition.y, got {transcript_y}"
+    );
+    assert!(
+        (evidence_y - 120.0).abs() < 0.01,
+        "expected ScrollEvidence(120) to set evidence ScrollPosition.y to 120.0, got {evidence_y}"
+    );
+
+    // Clamping at 0.0 when scrolling upward past top.
+    app.world_mut()
+        .write_message(DesktopUiEvent::ScrollTranscript(-500));
+    app.update();
+    app.update();
+    let mut scroll_q2 = app.world_mut().query::<(&DesktopUiSlot, &ScrollPosition)>();
+    let clamped_y = scroll_q2
+        .iter(app.world())
+        .find(|(slot, _)| **slot == DesktopUiSlot::TranscriptScrollArea)
+        .map_or(-1.0, |(_, pos)| pos.y);
+    assert!(clamped_y.abs() < 0.01);
+
+    // 3. Verify theme/locale/zoom changes persist to temp-dir DesktopPrefsStore.
+    app.world_mut().write_message(DesktopUiEvent::ToggleTheme);
+    app.world_mut()
+        .write_message(DesktopUiEvent::SetLocale(Locale::Hi));
+    app.world_mut()
+        .write_message(DesktopUiEvent::SetZoom(ZoomLevel::Pct150));
+    app.update();
+    app.update();
+
+    let saved = store
+        .load()
+        .expect("load persisted prefs")
+        .expect("prefs written on interactive changes");
+    assert_eq!(saved.theme, ThemeMode::Light);
+    assert_eq!(saved.locale, Locale::Hi);
+    assert_eq!(saved.zoom, DesktopZoom::Pct150);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
 }
