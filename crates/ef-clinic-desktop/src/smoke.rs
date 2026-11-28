@@ -21,6 +21,7 @@ use crate::demo::{
 };
 use crate::ui::{ClinicDesktopUiPlugin, DesktopUiEvent, DesktopUiSlot};
 use crate::worker::{LivePromptWorker, LiveSubmissionState};
+use crate::workflows::{ClinicWorkflowState, ClinicWorkspaceTab};
 
 /// Explicit typed outcome for each individual headless smoke check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +131,7 @@ pub fn run_headless_smoke(
         .insert_resource(transport)
         .insert_resource(citation_catalog)
         .insert_resource(ws_state)
+        .insert_resource(ClinicWorkflowState::seeded_demo(config.initial_view))
         .add_plugins(CurieClinicClientPlugin::new(
             tab_id,
             boot_config,
@@ -140,7 +142,34 @@ pub fn run_headless_smoke(
 
     bootstrap_clinic_session(&mut app, email, token);
 
-    // 0. Verify deterministic preview flags (`--search`, `--streaming-demo`) when provided.
+    // 0. Verify deterministic preview flags (`--view`, `--search`, `--streaming-demo`) when provided.
+    {
+        let active_tab = app.world().resource::<ClinicWorkflowState>().active_tab;
+        if active_tab != config.initial_view {
+            return Err(HeadlessSmokeError::InvariantFailed(format!(
+                "--view {:?} did not initialize active_tab (got {active_tab:?})",
+                config.initial_view
+            )));
+        }
+        let expected_slot = match config.initial_view {
+            ClinicWorkspaceTab::Chat => DesktopUiSlot::WorkspaceColumns,
+            ClinicWorkspaceTab::Today => DesktopUiSlot::TodayPanel,
+            ClinicWorkspaceTab::Messages => DesktopUiSlot::MessagesPanel,
+            ClinicWorkspaceTab::MemoryCare => DesktopUiSlot::MemoryCarePanel,
+        };
+        if query_slot_display(&mut app, expected_slot)? != Display::Flex {
+            return Err(HeadlessSmokeError::InvariantFailed(format!(
+                "--view {:?} panel {expected_slot:?} is not Display::Flex",
+                config.initial_view
+            )));
+        }
+        if config.initial_view != ClinicWorkspaceTab::Chat {
+            dispatch_ui(
+                &mut app,
+                DesktopUiEvent::SelectTab(ClinicWorkspaceTab::Chat),
+            );
+        }
+    }
     if let Some(ref query) = config.search_query {
         let ws = app.world().resource::<DesktopWorkspaceState>();
         if ws.input_focus != DesktopInputFocus::PatientSearch || ws.patient_search_query != *query {
@@ -273,6 +302,25 @@ pub fn run_headless_smoke(
         return Err(HeadlessSmokeError::InvariantFailed(format!(
             "shortcuts overlay cycle failed (open={shortcuts_open}, closed={shortcuts_closed})"
         )));
+    }
+
+    // 6b. Cycle all 4 workstation tabs (`Today`, `Messages`, `MemoryCare`, `Chat`) to verify
+    // panel visibility and zero duplicate AccessKit nodes across every view.
+    for (tab, panel_slot) in [
+        (ClinicWorkspaceTab::Today, DesktopUiSlot::TodayPanel),
+        (ClinicWorkspaceTab::Messages, DesktopUiSlot::MessagesPanel),
+        (
+            ClinicWorkspaceTab::MemoryCare,
+            DesktopUiSlot::MemoryCarePanel,
+        ),
+        (ClinicWorkspaceTab::Chat, DesktopUiSlot::WorkspaceColumns),
+    ] {
+        dispatch_ui(&mut app, DesktopUiEvent::SelectTab(tab));
+        if query_slot_display(&mut app, panel_slot)? != Display::Flex {
+            return Err(HeadlessSmokeError::InvariantFailed(format!(
+                "selecting tab {tab:?} did not show {panel_slot:?}"
+            )));
+        }
     }
 
     // 7. Verify single-owner AccessKit projection has 0 duplicate node IDs.

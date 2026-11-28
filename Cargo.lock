@@ -2016,6 +2016,8 @@ dependencies = [
  "ef-clinic-client",
  "ef-clinic-domain",
  "ef-clinic-server",
+ "ef-clinic-workflows",
+ "ef-connected-care",
  "ef-core",
  "ef-harness",
  "ef-ui-catalog",
